@@ -1,0 +1,114 @@
+"""
+Static job catalog for Gold Penny.
+
+Jobs are not stored in the database — they are plain Python data used by
+the work engine and surfaced through the /jobs/list endpoint.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Literal
+
+JobCategory = Literal["main", "side"]
+
+
+@dataclass(frozen=True)
+class JobDefinition:
+    name: str
+    category: JobCategory
+    monthly_salary: float   # in game-dollars
+    base_stress: int        # flat stress added per shift
+    stability: float        # 0-1: how stable the income is
+    growth: float           # 0-1: long-term career growth potential
+    layoff_risk: float      # 0-1: chance of losing the job
+    physical_load: float    # 0-1: physical toll per shift
+    mental_load: float      # 0-1: cognitive/emotional toll per shift
+
+
+# ── Main jobs ────────────────────────────────────────────────────────────────
+# hourly = monthly_salary / 30 / 8
+
+JOB_CATALOG: dict[str, JobDefinition] = {
+    "auto_mechanic": JobDefinition(
+        name="auto_mechanic",
+        category="main",
+        monthly_salary=4_000.0,
+        base_stress=4,
+        stability=0.80,
+        growth=0.55,
+        layoff_risk=0.08,
+        physical_load=0.75,
+        mental_load=0.30,
+    ),
+    "aircraft_mechanic": JobDefinition(
+        name="aircraft_mechanic",
+        category="main",
+        monthly_salary=6_200.0,
+        base_stress=6,
+        stability=0.88,
+        growth=0.70,
+        layoff_risk=0.05,
+        physical_load=0.70,
+        mental_load=0.65,
+    ),
+    "banker": JobDefinition(
+        name="banker",
+        category="main",
+        monthly_salary=5_100.0,
+        base_stress=7,
+        stability=0.82,
+        growth=0.75,
+        layoff_risk=0.10,
+        physical_load=0.15,
+        mental_load=0.80,
+    ),
+    "chef": JobDefinition(
+        name="chef",
+        category="main",
+        monthly_salary=3_500.0,
+        base_stress=8,
+        stability=0.72,
+        growth=0.60,
+        layoff_risk=0.12,
+        physical_load=0.65,
+        mental_load=0.55,
+    ),
+    "retail_worker": JobDefinition(
+        name="retail_worker",
+        category="main",
+        monthly_salary=2_600.0,
+        base_stress=5,
+        stability=0.65,
+        growth=0.35,
+        layoff_risk=0.18,
+        physical_load=0.50,
+        mental_load=0.35,
+    ),
+    # ── Side jobs ─────────────────────────────────────────────────────────────
+    "delivery_driver": JobDefinition(
+        name="delivery_driver",
+        category="side",
+        monthly_salary=3_000.0,
+        base_stress=3,
+        stability=0.60,
+        growth=0.20,
+        layoff_risk=0.15,
+        physical_load=0.55,
+        mental_load=0.25,
+    ),
+    "rideshare": JobDefinition(
+        name="rideshare",
+        category="side",
+        monthly_salary=2_400.0,
+        base_stress=2,
+        stability=0.50,
+        growth=0.10,
+        layoff_risk=0.05,
+        physical_load=0.25,
+        mental_load=0.35,
+    ),
+}
+
+MAIN_JOBS: set[str] = {name for name, j in JOB_CATALOG.items() if j.category == "main"}
+SIDE_JOBS: set[str] = {name for name, j in JOB_CATALOG.items() if j.category == "side"}

@@ -1,0 +1,335 @@
+import os
+import unittest
+import uuid
+from decimal import Decimal
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+os.environ.setdefault("DATABASE_URL", "sqlite:///./test_day_progression_services.db")
+
+from app.db.database import Base
+from app.models.basket_daily_price import BasketDailyPrice
+from app.models.basket_consumption_log import BasketConsumptionLog
+from app.models.business_daily_log import BusinessDailyLog
+from app.models.business_ledger_entry import BusinessLedgerEntry
+from app.models.daily_brief_log import DailyBriefLog
+from app.models.debt_credit_log import DebtCreditLog
+from app.models.daily_settlement_log import DailySettlementLog
+from app.models.enums import BasketType
+from app.models.housing_daily_log import HousingDailyLog
+from app.models.job_definition_db import JobDefinition as JobDefinitionDB
+from app.models.macro_daily_state import MacroDailyState
+from app.models.player import Player
+from app.models.player_business import PlayerBusiness
+from app.models.player_daily_state import PlayerDailyState
+from app.models.player_employment_state import PlayerEmploymentState
+from app.models.player_housing_state import PlayerHousingState
+from app.models.player_net_worth_snapshot import PlayerNetWorthSnapshot
+from app.models.player_stock_holding import PlayerStockHolding
+from app.models.stock_daily_price import StockDailyPrice
+from app.models.user import User
+from app.services.daily_settlement_service import settle_player_day
+from app.services.day_progression_service import run_player_next_day
+from app.services.market_daily_update_service import generate_next_stock_day
+
+
+TICKER_SECTOR = {
+    "GPEN": "energy",
+    "GPTECH": "technology",
+    "GPRETAIL": "retail",
+    "GPHEALTH": "healthcare",
+    "GPBANK": "finance",
+    "GPAUTO": "automotive",
+    "GPTRANS": "transport",
+    "GPREAL": "real_estate",
+    "GPDEF": "defense",
+    "GPCONS": "consumer",
+}
+
+
+class DayProgressionServiceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.engine = create_engine("sqlite:///:memory:", future=True)
+        self.SessionLocal = sessionmaker(
+            autocommit=False,
+            autoflush=False,
+            bind=self.engine,
+            future=True,
+        )
+
+        Base.metadata.create_all(
+            bind=self.engine,
+            tables=[
+                User.__table__,
+                Player.__table__,
+                PlayerDailyState.__table__,
+                DailySettlementLog.__table__,
+                DailyBriefLog.__table__,
+                DebtCreditLog.__table__,
+                PlayerEmploymentState.__table__,
+                JobDefinitionDB.__table__,
+                MacroDailyState.__table__,
+                BasketDailyPrice.__table__,
+                BasketConsumptionLog.__table__,
+                StockDailyPrice.__table__,
+                PlayerBusiness.__table__,
+                BusinessDailyLog.__table__,
+                BusinessLedgerEntry.__table__,
+                PlayerHousingState.__table__,
+                PlayerNetWorthSnapshot.__table__,
+                PlayerStockHolding.__table__,
+                HousingDailyLog.__table__,
+            ],
+        )
+
+        self.db = self.SessionLocal()
+
+        user = User(
+            email=f"day-test-{uuid.uuid4()}@example.com",
+            hashed_password="hashed-password",
+        )
+        self.db.add(user)
+        self.db.flush()
+
+        player = Player(
+            user_id=user.id,
+            display_name="Day Test Player",
+            cash=Decimal("1000.00"),
+            debt_xgp=Decimal("100.00"),
+            stress=20,
+            health=95,
+            hours_available=16,
+            region="suburban",
+        )
+        self.db.add(player)
+        self.db.flush()
+        self.player = player
+
+        self.db.add(
+            MacroDailyState(
+                day=1,
+                inflation_rate=Decimal("2.2"),
+                interest_rate=Decimal("4.1"),
+                unemployment_rate=Decimal("5.2"),
+                oil_index=Decimal("101.0"),
+                consumer_confidence=Decimal("52.0"),
+                supply_chain_stress=Decimal("0.5"),
+                event_headline="Baseline",
+                event_summary="Baseline macro row for tests.",
+            )
+        )
+
+        for ticker, sector in TICKER_SECTOR.items():
+            self.db.add(
+                StockDailyPrice(
+                    day=1,
+                    ticker=ticker,
+                    sector=sector,
+                    open_price=Decimal("50.0000"),
+                    close_price=Decimal("50.0000"),
+                    daily_change_pct=Decimal("0.0000"),
+                    macro_impact=Decimal("0.0000"),
+                    noise_component=Decimal("0.0000"),
+                )
+            )
+
+        self.db.add_all(
+            [
+                BasketDailyPrice(
+                    day=1,
+                    basket_type=BasketType.essentials,
+                    price_index=Decimal("10.0000"),
+                    daily_change_pct=Decimal("0.0000"),
+                    supply_pressure=Decimal("1.0000"),
+                    demand_pressure=Decimal("1.0000"),
+                ),
+                BasketDailyPrice(
+                    day=1,
+                    basket_type=BasketType.protein,
+                    price_index=Decimal("12.0000"),
+                    daily_change_pct=Decimal("0.0000"),
+                    supply_pressure=Decimal("1.0000"),
+                    demand_pressure=Decimal("1.0000"),
+                ),
+                BasketDailyPrice(
+                    day=1,
+                    basket_type=BasketType.produce,
+                    price_index=Decimal("9.0000"),
+                    daily_change_pct=Decimal("0.0000"),
+                    supply_pressure=Decimal("1.0000"),
+                    demand_pressure=Decimal("1.0000"),
+                ),
+                BasketDailyPrice(
+                    day=1,
+                    basket_type=BasketType.convenience,
+                    price_index=Decimal("8.0000"),
+                    daily_change_pct=Decimal("0.0000"),
+                    supply_pressure=Decimal("1.0000"),
+                    demand_pressure=Decimal("1.0000"),
+                ),
+            ]
+        )
+
+        self.db.add(
+            JobDefinitionDB(
+                job_code="banker",
+                title="Banker",
+                base_monthly_pay_xgp=Decimal("5100.00"),
+                stability_pct=Decimal("0.82"),
+                growth_pct=Decimal("0.75"),
+                stress_pct=Decimal("0.65"),
+                promotion_threshold=100,
+            )
+        )
+
+        self.db.add(
+            PlayerEmploymentState(
+                player_id=self.player.id,
+                day=1,
+                current_job_code="banker",
+                skill_level=1,
+                monthly_pay_xgp=Decimal("3000.00"),
+                employed_flag=True,
+                layoff_risk_pct=Decimal("0.00"),
+                productivity_modifier=Decimal("1.0000"),
+            )
+        )
+
+        self.db.commit()
+
+    def tearDown(self) -> None:
+        self.db.close()
+        self.engine.dispose()
+
+    def test_stock_next_day_generation_creates_10_rows(self) -> None:
+        result = generate_next_stock_day(self.db)
+        self.assertEqual(result["previous_market_day"], 1)
+        self.assertEqual(result["new_market_day"], 2)
+        self.assertEqual(result["number_of_stock_rows_created"], 10)
+
+        day_two_count = (
+            self.db.query(StockDailyPrice)
+            .filter(StockDailyPrice.day == 2)
+            .count()
+        )
+        self.assertEqual(day_two_count, 10)
+
+    def test_stock_price_daily_move_cap_respected(self) -> None:
+        generate_next_stock_day(self.db)
+        rows = self.db.query(StockDailyPrice).filter(StockDailyPrice.day == 2).all()
+        self.assertEqual(len(rows), 10)
+        for row in rows:
+            self.assertLessEqual(abs(float(row.daily_change_pct)), 6.0)
+
+    def test_settle_player_day_creates_state_and_log(self) -> None:
+        result = settle_player_day(self.db, str(self.player.id))
+        self.assertEqual(result["settled_day"], 1)
+        self.assertIn("housing_cost_xgp", result)
+        self.assertIn("housing_stress_delta", result)
+        self.assertIn("employment_status", result)
+        self.assertIn("employment_event", result)
+        self.assertIn("layoff_risk_pct", result)
+        self.assertIn("opening_debt_xgp", result)
+        self.assertIn("payment_due_xgp", result)
+        self.assertIn("payment_made_xgp", result)
+        self.assertIn("interest_added_xgp", result)
+        self.assertIn("ending_debt_xgp", result)
+        self.assertIn("payment_status", result)
+        self.assertIn("credit_score_change", result)
+        self.assertIn("ending_credit_score", result)
+        self.assertIn("delinquency_flag", result)
+        summary = result.get("summary_json", {})
+        self.assertIn("opening_debt_xgp", summary)
+        self.assertIn("payment_due_xgp", summary)
+        self.assertIn("payment_made_xgp", summary)
+        self.assertIn("interest_added_xgp", summary)
+        self.assertIn("ending_debt_xgp", summary)
+        self.assertIn("payment_status", summary)
+        self.assertIn("credit_score_change", summary)
+        self.assertIn("ending_credit_score", summary)
+        self.assertIn("delinquency_flag", summary)
+
+        pds = (
+            self.db.query(PlayerDailyState)
+            .filter(
+                PlayerDailyState.player_id == self.player.id,
+                PlayerDailyState.day_number == 1,
+            )
+            .first()
+        )
+        log = (
+            self.db.query(DailySettlementLog)
+            .filter(
+                DailySettlementLog.player_id == self.player.id,
+                DailySettlementLog.day_number == 1,
+            )
+            .first()
+        )
+        self.assertIsNotNone(pds)
+        self.assertTrue(bool(pds.did_settlement))
+        self.assertIsNotNone(log)
+
+    def test_player_cash_changes_after_settlement(self) -> None:
+        cash_before = float(self.player.cash_xgp)
+        settle_player_day(self.db, str(self.player.id))
+        self.db.refresh(self.player)
+        cash_after = float(self.player.cash_xgp)
+        self.assertNotEqual(cash_before, cash_after)
+
+    def test_run_player_next_day_returns_coherent_summary(self) -> None:
+        first = settle_player_day(self.db, str(self.player.id))
+        self.assertEqual(first["settled_day"], 1)
+
+        result = run_player_next_day(self.db, str(self.player.id))
+        self.assertEqual(result["settled_day"], 2)
+        self.assertGreaterEqual(result["market_day"], 2)
+        self.assertIn("Day 2 settled", result["summary_headline"])
+        self.assertIn("housing_cost_xgp", result)
+        self.assertIn("housing_cost_daily_xgp", result)
+        self.assertIn("utilities_cost_daily_xgp", result)
+        self.assertIn("commute_hours", result)
+        self.assertIn("commute_fuel_cost_xgp", result)
+        self.assertIn("region_key", result)
+        self.assertIn("region_stress_delta", result)
+        self.assertIn("region_business_demand_modifier", result)
+        self.assertIn("region_side_income_modifier", result)
+        self.assertIn("networking_modifier", result)
+        self.assertIn("housing_region_summary", result)
+        self.assertIn("housing_region", result)
+        self.assertIn("headline", result)
+        self.assertIn("summary", result)
+        self.assertIn("macro_tags_json", result)
+        self.assertIn("player_impact_json", result)
+        self.assertIn("action_hints_json", result)
+        self.assertIn("economy_headline", result)
+        self.assertIn("economy_summary_lines", result)
+        self.assertIn("top_bottlenecks", result)
+        self.assertIn("top_basket_movers", result)
+        self.assertIn("top_job_changes", result)
+        self.assertIn("basket_pricing_summary", result)
+        self.assertIn("job_market_summary", result)
+        self.assertIn("daily_economy_brief", result)
+        self.assertIn("net_worth_xgp", result)
+        self.assertIn("total_assets_xgp", result)
+        self.assertIn("stock_market_value_xgp", result)
+        self.assertIn("business_value_xgp", result)
+        self.assertIn("debt_xgp", result)
+        self.assertIn("allocation_json", result)
+
+        logs = (
+            self.db.query(DailySettlementLog)
+            .filter(DailySettlementLog.player_id == self.player.id)
+            .all()
+        )
+        self.assertEqual(len(logs), 2)
+        snapshot_count = (
+            self.db.query(PlayerNetWorthSnapshot)
+            .filter(PlayerNetWorthSnapshot.player_id == self.player.id)
+            .count()
+        )
+        self.assertEqual(snapshot_count, 2)
+
+
+if __name__ == "__main__":
+    unittest.main()
