@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import uuid
 from datetime import date
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
@@ -195,9 +196,11 @@ def create_new_player_onboarding(
     db: Session = Depends(get_db),
 ) -> PlayablePlayerSummaryResponse:
     created_player_id: str | None = None
+    request_trace_id = uuid.uuid4().hex[:12]
     logger.info(
         "onboarding.new_player request received.",
         extra={
+            "trace_id": request_trace_id,
             "display_name": body.display_name,
             "gender": body.gender,
             "region": body.region,
@@ -218,6 +221,7 @@ def create_new_player_onboarding(
         logger.info(
             "onboarding.new_player profile validation + insert succeeded.",
             extra={
+                "trace_id": request_trace_id,
                 "player_id": created_player_id,
             },
         )
@@ -232,6 +236,7 @@ def create_new_player_onboarding(
             logger.info(
                 "onboarding.new_player starter state initialization succeeded.",
                 extra={
+                    "trace_id": request_trace_id,
                     "player_id": str(player.id),
                 },
             )
@@ -239,6 +244,7 @@ def create_new_player_onboarding(
             logger.exception(
                 "onboarding.new_player starter initialization failed; returning minimal profile fallback.",
                 extra={
+                    "trace_id": request_trace_id,
                     "player_id": str(player.id),
                     "display_name": body.display_name,
                     "region": body.region,
@@ -260,6 +266,7 @@ def create_new_player_onboarding(
             logger.warning(
                 "onboarding.new_player created minimal player profile fallback after starter init failure.",
                 extra={
+                    "trace_id": request_trace_id,
                     "player_id": created_player_id,
                     "display_name": body.display_name,
                     "region": body.region,
@@ -278,6 +285,7 @@ def create_new_player_onboarding(
             logger.exception(
                 "onboarding.new_player could not initialize onboarding state; continuing with fallback-safe response.",
                 extra={
+                    "trace_id": request_trace_id,
                     "player_id": str(player.id),
                 },
             )
@@ -289,6 +297,7 @@ def create_new_player_onboarding(
             logger.info(
                 "onboarding.new_player summary hydration succeeded.",
                 extra={
+                    "trace_id": request_trace_id,
                     "player_id": str(player.id),
                     "load_ready": True,
                 },
@@ -298,6 +307,7 @@ def create_new_player_onboarding(
             logger.exception(
                 "onboarding.new_player summary hydration failed; returning minimal playable summary.",
                 extra={
+                    "trace_id": request_trace_id,
                     "player_id": str(player.id),
                 },
             )
@@ -305,6 +315,7 @@ def create_new_player_onboarding(
             logger.warning(
                 "onboarding.new_player returned minimal summary fallback.",
                 extra={
+                    "trace_id": request_trace_id,
                     "player_id": str(player.id),
                     "load_ready": False,
                 },
@@ -315,6 +326,7 @@ def create_new_player_onboarding(
         logger.exception(
             "onboarding.new_player failed.",
             extra={
+                "trace_id": request_trace_id,
                 "display_name": body.display_name,
                 "gender": body.gender,
                 "region": body.region,
