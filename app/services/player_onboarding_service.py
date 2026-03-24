@@ -278,6 +278,35 @@ def _placeholder_portfolio_summary(player: Player) -> dict:
     }
 
 
+def build_minimal_playable_player_summary(player: Player, *, load_ready: bool = False) -> dict[str, Any]:
+    """Build a minimal load payload when optional onboarding state fetch fails.
+
+    This avoids hard failures in environments where optional onboarding tables
+    or seed data are missing, while still returning a valid player id and
+    baseline gameplay fields.
+    """
+    return {
+        "player_id": str(player.id),
+        "display_name": player.display_name,
+        "gender": player.gender,
+        "region": str(player.region or "suburban"),
+        "cash_xgp": float(_money(_d(player.cash_xgp))),
+        "bank_savings_xgp": float(_money(_d(player.bank_savings_xgp))),
+        "debt_xgp": float(_money(_d(player.debt_xgp))),
+        "credit_score": int(player.credit_score or 650),
+        "net_worth_xgp": float(_money(_d(player.net_worth_xgp))),
+        "health": int(player.health or 100),
+        "stress": int(player.stress or 0),
+        "available_hours": int(player.available_hours or 0),
+        "active_housing_summary": None,
+        "active_employment_summary": None,
+        "latest_settlement_summary": None,
+        "latest_daily_brief": None,
+        "latest_portfolio_summary": _placeholder_portfolio_summary(player),
+        "load_ready": bool(load_ready),
+    }
+
+
 def create_new_player_profile(
     db: Session,
     *,

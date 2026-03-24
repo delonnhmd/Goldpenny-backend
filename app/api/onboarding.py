@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
@@ -31,6 +32,7 @@ from app.services.player_onboarding_service import (
     OnboardingError as PlayerOnboardingError,
     OnboardingNotFoundError as PlayerOnboardingNotFoundError,
     OnboardingValidationError as PlayerOnboardingValidationError,
+    build_minimal_playable_player_summary,
     create_new_player_profile,
     get_playable_player_summary,
     initialize_starter_player_state,
@@ -38,6 +40,7 @@ from app.services.player_onboarding_service import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class NewPlayerOnboardingRequest(BaseModel):
@@ -75,7 +78,16 @@ def _raise_onboarding_http_error(exc: Exception) -> None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     if isinstance(exc, (PlayerOnboardingError, OnboardingFlowError)):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
-    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unexpected onboarding service error.")
+    detail = str(exc).strip()
+    if detail:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Onboarding setup failed: {detail}",
+        )
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Onboarding setup failed due to a server error. Please retry.",
+    )
 
 
 def _compose_action_result(
@@ -108,6 +120,7 @@ def create_new_player_onboarding(
     body: NewPlayerOnboardingRequest,
     db: Session = Depends(get_db),
 ) -> PlayablePlayerSummaryResponse:
+    created_player_id: str | None = None
     try:
         created = create_new_player_profile(
             db=db,
@@ -117,13 +130,47 @@ def create_new_player_onboarding(
             starter_job_code=body.starter_job_code,
         )
         player = created["player"]
+        created_player_id = str(player.id)
 
-        initialize_starter_player_state(
-            db=db,
-            player_id=player.id,
-            region=body.region,
-            starter_job_code=body.starter_job_code,
-        )
+        try:
+            initialize_starter_player_state(
+                db=db,
+                player_id=player.id,
+                region=body.region,
+                starter_job_code=body.starter_job_code,
+            )
+        except Exception as init_exc:
+            logger.exception(
+                "onboarding.new_player starter initialization failed; returning minimal profile fallback.",
+                extra={
+                    "player_id": str(player.id),
+                    "display_name": body.display_name,
+                    "region": body.region,
+                    "starter_job_code": body.starter_job_code,
+                },
+            )
+            db.rollback()
+
+            # Fallback path: create a minimal profile without starter state wiring.
+            created = create_new_player_profile(
+                db=db,
+                display_name=body.display_name,
+                gender=body.gender,
+                region=body.region,
+                starter_job_code=body.starter_job_code,
+            )
+            player = created["player"]
+            created_player_id = str(player.id)
+            logger.warning(
+                "onboarding.new_player created minimal player profile fallback after starter init failure.",
+                extra={
+                    "player_id": created_player_id,
+                    "display_name": body.display_name,
+                    "region": body.region,
+                    "starter_job_code": body.starter_job_code,
+                    "starter_init_error": str(init_exc),
+                },
+            )
 
         # Initialize Step 31 onboarding state immediately so first dashboard load
         # can apply progressive reveal logic without an extra bootstrap call.
@@ -132,13 +179,40 @@ def create_new_player_onboarding(
         except Exception:
             # Backward-compatible fallback for test harnesses/schemas that may
             # not include onboarding persistence tables yet.
-            pass
+            logger.exception(
+                "onboarding.new_player could not initialize onboarding state; continuing with fallback-safe response.",
+                extra={
+                    "player_id": str(player.id),
+                },
+            )
 
         db.commit()
-        summary = get_playable_player_summary(db, player.id)
-        return PlayablePlayerSummaryResponse(**summary)
+        try:
+            summary = get_playable_player_summary(db, player.id)
+            summary["load_ready"] = True
+            return PlayablePlayerSummaryResponse(**summary)
+        except Exception:
+            logger.exception(
+                "onboarding.new_player summary hydration failed; returning minimal playable summary.",
+                extra={
+                    "player_id": str(player.id),
+                },
+            )
+            fallback = build_minimal_playable_player_summary(player, load_ready=False)
+            return PlayablePlayerSummaryResponse(**fallback)
     except Exception as exc:
         db.rollback()
+        logger.exception(
+            "onboarding.new_player failed.",
+            extra={
+                "display_name": body.display_name,
+                "gender": body.gender,
+                "region": body.region,
+                "starter_job_code": body.starter_job_code,
+                "created_player_id": created_player_id,
+                "error_type": type(exc).__name__,
+            },
+        )
         _raise_onboarding_http_error(exc)
 
 
