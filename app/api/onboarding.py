@@ -5,6 +5,7 @@ from datetime import date
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
@@ -115,6 +116,54 @@ def _compose_action_result(
     )
 
 
+def _is_missing_players_gender_column_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+        "undefinedcolumn" in message
+        and 'column "gender"' in message
+        and 'relation "players"' in message
+    )
+
+
+def _create_profile_with_gender_schema_guard(
+    db: Session,
+    *,
+    display_name: str,
+    gender: str,
+    region: str,
+    starter_job_code: str,
+) -> dict:
+    try:
+        return create_new_player_profile(
+            db=db,
+            display_name=display_name,
+            gender=gender,
+            region=region,
+            starter_job_code=starter_job_code,
+        )
+    except Exception as exc:
+        if not _is_missing_players_gender_column_error(exc):
+            raise
+
+        logger.exception(
+            "onboarding.new_player detected missing players.gender column; "
+            "applying emergency schema guard and retrying once."
+        )
+        db.rollback()
+        db.execute(text("ALTER TABLE players ADD COLUMN IF NOT EXISTS gender VARCHAR(20)"))
+        db.commit()
+        logger.warning(
+            "onboarding.new_player applied players.gender schema guard in-request; retrying profile creation."
+        )
+        return create_new_player_profile(
+            db=db,
+            display_name=display_name,
+            gender=gender,
+            region=region,
+            starter_job_code=starter_job_code,
+        )
+
+
 @router.post("/new-player", response_model=PlayablePlayerSummaryResponse, summary="Create a new playable player")
 def create_new_player_onboarding(
     body: NewPlayerOnboardingRequest,
@@ -131,7 +180,7 @@ def create_new_player_onboarding(
         },
     )
     try:
-        created = create_new_player_profile(
+        created = _create_profile_with_gender_schema_guard(
             db=db,
             display_name=body.display_name,
             gender=body.gender,
@@ -173,7 +222,7 @@ def create_new_player_onboarding(
             db.rollback()
 
             # Fallback path: create a minimal profile without starter state wiring.
-            created = create_new_player_profile(
+            created = _create_profile_with_gender_schema_guard(
                 db=db,
                 display_name=body.display_name,
                 gender=body.gender,

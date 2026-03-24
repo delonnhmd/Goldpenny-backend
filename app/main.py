@@ -1,5 +1,7 @@
 ﻿import os
 
+import logging
+
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from sqlalchemy import text
@@ -10,6 +12,8 @@ load_dotenv()
 from app.api import auth, baskets, briefs, business, career, commitment, consumer_borrowing, contract_timing, day, daily, deals, debt, debt_behavior, economy, economy_presentation, events, finance, financial_survival, forecasting, health, housing, internal, jobs, macro, market, marketplace, onboarding, personal_shocks, player, population_pressure, portfolio, progression, reputation_trust, rewards, side_income, soft_launch, stocks, strategic_planning, strategy, supply_chain, wealth_progression, world_memory
 from app.db.database import Base, engine, SessionLocal
 from app import models  # noqa: F401
+
+logger = logging.getLogger(__name__)
 
 
 def load_app_config() -> dict[str, str | int]:
@@ -29,6 +33,8 @@ def _run_schema_migrations() -> None:
     own try/except so an already-existing column is silently ignored.
     """
     migrations = [
+        # Step 71I: ensure onboarding can persist gender on legacy prod schemas.
+        "ALTER TABLE players ADD COLUMN IF NOT EXISTS gender VARCHAR(20)",
         # Step 5: track which day the economy engine last processed.
         "ALTER TABLE game_states ADD COLUMN economy_processed_for_day INTEGER",
         # Step 5.5: off-chain reward accounting fields on players.
@@ -353,12 +359,17 @@ def _run_schema_migrations() -> None:
         "ALTER TABLE daily_settlement_logs ADD COLUMN recovery_actions_applied_json TEXT",
         "ALTER TABLE daily_settlement_logs ADD COLUMN distress_driver_json TEXT",
     ]
-    with engine.begin() as conn:
-        for stmt in migrations:
-            try:
+    for stmt in migrations:
+        try:
+            # Execute each statement in an isolated transaction so one failure
+            # does not abort the entire schema-guard sequence.
+            with engine.begin() as conn:
                 conn.execute(text(stmt))
-            except Exception:
-                pass  # Column already exists — harmless.
+        except Exception as exc:
+            logger.debug(
+                "startup schema guard skipped statement",
+                extra={"statement": stmt, "error": str(exc)},
+            )
 
 
 def create_app() -> FastAPI:
