@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import uuid
 from decimal import Decimal, ROUND_HALF_UP
@@ -63,6 +64,7 @@ STARTER_BASELINES: dict[str, dict[str, Decimal | int]] = {
 }
 
 _stock_service = StockTradingService()
+logger = logging.getLogger(__name__)
 
 
 class OnboardingError(Exception):
@@ -321,10 +323,30 @@ def create_new_player_profile(
 
     This function does not commit. Caller owns transaction boundaries.
     """
+    logger.info(
+        "player_onboarding.create_new_player_profile validating payload.",
+        extra={
+            "display_name": display_name,
+            "gender": gender,
+            "region": region,
+            "starter_job_code": starter_job_code,
+            "has_user_id": user_id is not None,
+            "has_email": bool(email),
+        },
+    )
     clean_name = _normalize_display_name(display_name)
     clean_gender = _normalize_gender(gender)
     clean_region = _normalize_region(region)
     clean_job = _normalize_starter_job(starter_job_code)
+    logger.info(
+        "player_onboarding.create_new_player_profile payload validation succeeded.",
+        extra={
+            "display_name": clean_name,
+            "gender": clean_gender,
+            "region": clean_region,
+            "starter_job_code": clean_job,
+        },
+    )
 
     if user_id is not None:
         user = _resolve_user(db, user_id)
@@ -344,7 +366,19 @@ def create_new_player_profile(
             hashed_password=_generate_placeholder_hash(),
         )
         db.add(user)
+        logger.info(
+            "player_onboarding.create_new_player_profile inserting user row.",
+            extra={
+                "email": normalized_email,
+            },
+        )
         db.flush()
+        logger.info(
+            "player_onboarding.create_new_player_profile user insert succeeded.",
+            extra={
+                "user_id": str(user.id),
+            },
+        )
 
     starter = STARTER_BASELINES[clean_region]
     cash_xgp = _money(_d(starter["cash_xgp"]))
@@ -372,7 +406,22 @@ def create_new_player_profile(
         housing_region_id=None,
     )
     db.add(player)
+    logger.info(
+        "player_onboarding.create_new_player_profile inserting player row.",
+        extra={
+            "user_id": str(user.id),
+            "display_name": clean_name,
+            "region": clean_region,
+            "starter_job_code": clean_job,
+        },
+    )
     db.flush()
+    logger.info(
+        "player_onboarding.create_new_player_profile player insert succeeded.",
+        extra={
+            "player_id": str(player.id),
+        },
+    )
 
     return {
         "user": user,
@@ -394,6 +443,14 @@ def initialize_starter_player_state(
     player = _resolve_player(db, player_id)
     clean_region = _normalize_region(region)
     clean_job = _normalize_starter_job(starter_job_code)
+    logger.info(
+        "player_onboarding.initialize_starter_player_state start.",
+        extra={
+            "player_id": str(player.id),
+            "region": clean_region,
+            "starter_job_code": clean_job,
+        },
+    )
 
     housing_payload = assign_player_housing(
         db=db,
@@ -401,6 +458,13 @@ def initialize_starter_player_state(
         region=clean_region,
         housing_type="starter_rent",
         commit=False,
+    )
+    logger.info(
+        "player_onboarding.initialize_starter_player_state housing assignment succeeded.",
+        extra={
+            "player_id": str(player.id),
+            "region": clean_region,
+        },
     )
 
     existing_employment_count = (
@@ -475,6 +539,12 @@ def initialize_starter_player_state(
 
     db.flush()
     db.refresh(employment_state)
+    logger.info(
+        "player_onboarding.initialize_starter_player_state completed.",
+        extra={
+            "player_id": str(player.id),
+        },
+    )
 
     return {
         "player_id": str(player.id),

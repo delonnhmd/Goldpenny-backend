@@ -121,6 +121,15 @@ def create_new_player_onboarding(
     db: Session = Depends(get_db),
 ) -> PlayablePlayerSummaryResponse:
     created_player_id: str | None = None
+    logger.info(
+        "onboarding.new_player request received.",
+        extra={
+            "display_name": body.display_name,
+            "gender": body.gender,
+            "region": body.region,
+            "starter_job_code": body.starter_job_code,
+        },
+    )
     try:
         created = create_new_player_profile(
             db=db,
@@ -131,6 +140,12 @@ def create_new_player_onboarding(
         )
         player = created["player"]
         created_player_id = str(player.id)
+        logger.info(
+            "onboarding.new_player profile validation + insert succeeded.",
+            extra={
+                "player_id": created_player_id,
+            },
+        )
 
         try:
             initialize_starter_player_state(
@@ -138,6 +153,12 @@ def create_new_player_onboarding(
                 player_id=player.id,
                 region=body.region,
                 starter_job_code=body.starter_job_code,
+            )
+            logger.info(
+                "onboarding.new_player starter state initialization succeeded.",
+                extra={
+                    "player_id": str(player.id),
+                },
             )
         except Exception as init_exc:
             logger.exception(
@@ -190,6 +211,13 @@ def create_new_player_onboarding(
         try:
             summary = get_playable_player_summary(db, player.id)
             summary["load_ready"] = True
+            logger.info(
+                "onboarding.new_player summary hydration succeeded.",
+                extra={
+                    "player_id": str(player.id),
+                    "load_ready": True,
+                },
+            )
             return PlayablePlayerSummaryResponse(**summary)
         except Exception:
             logger.exception(
@@ -199,6 +227,13 @@ def create_new_player_onboarding(
                 },
             )
             fallback = build_minimal_playable_player_summary(player, load_ready=False)
+            logger.warning(
+                "onboarding.new_player returned minimal summary fallback.",
+                extra={
+                    "player_id": str(player.id),
+                    "load_ready": False,
+                },
+            )
             return PlayablePlayerSummaryResponse(**fallback)
     except Exception as exc:
         db.rollback()

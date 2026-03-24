@@ -48,6 +48,10 @@ def _run_schema_migrations() -> None:
         # Step 7: player region for business demand modifiers.
         "ALTER TABLE players ADD COLUMN region VARCHAR(40) NOT NULL DEFAULT 'suburban'",
         # Onboarding MVP: basic player profile field.
+        "ALTER TABLE players ADD COLUMN bank_savings_xgp NUMERIC(14,4) NOT NULL DEFAULT 0",
+        "ALTER TABLE players ADD COLUMN debt_xgp NUMERIC(14,4) NOT NULL DEFAULT 0",
+        "ALTER TABLE players ADD COLUMN credit_score INTEGER NOT NULL DEFAULT 650",
+        "ALTER TABLE players ADD COLUMN display_name VARCHAR(80)",
         "ALTER TABLE players ADD COLUMN gender VARCHAR(20)",
         # Step 7b: business balancing fields.
         "ALTER TABLE businesses ADD COLUMN consecutive_profitable_days INTEGER NOT NULL DEFAULT 0",
