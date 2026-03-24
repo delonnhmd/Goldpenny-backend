@@ -10,7 +10,7 @@ from sqlalchemy import text
 load_dotenv()
 
 from app.api import auth, baskets, briefs, business, career, commitment, consumer_borrowing, contract_timing, day, daily, deals, debt, debt_behavior, economy, economy_presentation, events, finance, financial_survival, forecasting, health, housing, internal, jobs, macro, market, marketplace, onboarding, personal_shocks, player, population_pressure, portfolio, progression, reputation_trust, rewards, side_income, soft_launch, stocks, strategic_planning, strategy, supply_chain, wealth_progression, world_memory
-from app.db.database import Base, engine, SessionLocal
+from app.db.database import Base, engine, SessionLocal, log_database_schema_diagnostics
 from app import models  # noqa: F401
 
 logger = logging.getLogger(__name__)
@@ -435,6 +435,8 @@ def on_startup() -> None:
     Base.metadata.create_all(bind=engine)
     # Additive column migrations for tables that already exist.
     _run_schema_migrations()
+    # Step 71K: emit DB target/schema diagnostics to reconcile Render vs Supabase.
+    log_database_schema_diagnostics()
     # Seed the 4 default goods baskets if they do not yet exist.
     _seed_default_baskets()
     # Backfill basket sensitivity values for any existing rows that predate Step 5.

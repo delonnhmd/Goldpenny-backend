@@ -39,6 +39,7 @@ from app.services.player_onboarding_service import (
     initialize_starter_player_state,
     load_existing_player_state,
 )
+from app.models.player import Player
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -164,6 +165,30 @@ def _create_profile_with_gender_schema_guard(
         )
 
 
+def _log_player_table_resolution(db: Session) -> None:
+    model_schema = Player.__table__.schema or "(default search_path)"
+    model_fullname = Player.__table__.fullname
+    try:
+        current_schema = db.execute(text("SELECT current_schema()")).scalar()
+        current_database = db.execute(text("SELECT current_database()")).scalar()
+        search_path = db.execute(text("SHOW search_path")).scalar()
+        logger.info(
+            "onboarding.new_player table resolution diagnostics.",
+            extra={
+                "player_model_table": model_fullname,
+                "player_model_schema": model_schema,
+                "current_schema": current_schema,
+                "current_database": current_database,
+                "search_path": search_path,
+            },
+        )
+    except Exception as exc:
+        logger.warning(
+            "onboarding.new_player could not fetch table resolution diagnostics: %s",
+            str(exc),
+        )
+
+
 @router.post("/new-player", response_model=PlayablePlayerSummaryResponse, summary="Create a new playable player")
 def create_new_player_onboarding(
     body: NewPlayerOnboardingRequest,
@@ -179,6 +204,7 @@ def create_new_player_onboarding(
             "starter_job_code": body.starter_job_code,
         },
     )
+    _log_player_table_resolution(db)
     try:
         created = _create_profile_with_gender_schema_guard(
             db=db,

@@ -3,7 +3,7 @@ import logging
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from dotenv import load_dotenv
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 # Load environment variables from the project root `.env` file.
@@ -82,6 +82,81 @@ def _validate_and_enrich_database_url(database_url: str) -> str:
         logger.info("Database URL diagnostics: appended sslmode=require for Supabase host=%s", host)
 
     return database_url
+
+
+def _infer_supabase_project_ref() -> str | None:
+    parsed = urlparse(DATABASE_URL)
+    host = parsed.hostname or ""
+    username = parsed.username or ""
+
+    # direct db host: db.<project-ref>.supabase.co
+    if host.startswith("db.") and ".supabase.co" in host:
+        parts = host.split(".")
+        if len(parts) >= 3:
+            return parts[1]
+
+    # pooler username pattern: postgres.<project-ref>
+    if username.startswith("postgres.") and len(username.split(".", 1)) == 2:
+        return username.split(".", 1)[1]
+
+    return None
+
+
+def log_database_schema_diagnostics() -> None:
+    """Emit one-time safe DB target + schema diagnostics for production triage."""
+    parsed = urlparse(DATABASE_URL)
+    db_host = parsed.hostname or "(missing)"
+    db_name = parsed.path.lstrip("/") or "(missing)"
+    project_ref = _infer_supabase_project_ref() or "(unknown)"
+
+    logger.info(
+        "DB target diagnostics: host=%s db=%s project_ref=%s",
+        db_host,
+        db_name,
+        project_ref,
+    )
+
+    try:
+        with engine.connect() as conn:
+            current_database = conn.execute(text("SELECT current_database()")).scalar()
+            current_schema = conn.execute(text("SELECT current_schema()")).scalar()
+            search_path = conn.execute(text("SHOW search_path")).scalar()
+
+            player_tables_rows = conn.execute(
+                text(
+                    """
+                    SELECT table_schema
+                    FROM information_schema.tables
+                    WHERE table_name = 'players'
+                    ORDER BY table_schema
+                    """
+                )
+            ).fetchall()
+            player_table_schemas = [str(row[0]) for row in player_tables_rows]
+
+            gender_column_rows = conn.execute(
+                text(
+                    """
+                    SELECT table_schema
+                    FROM information_schema.columns
+                    WHERE table_name = 'players' AND column_name = 'gender'
+                    ORDER BY table_schema
+                    """
+                )
+            ).fetchall()
+            gender_column_schemas = [str(row[0]) for row in gender_column_rows]
+
+            logger.info(
+                "DB schema diagnostics: current_database=%s current_schema=%s search_path=%s "
+                "players_table_schemas=%s players_gender_column_schemas=%s",
+                current_database or "(unknown)",
+                current_schema or "(unknown)",
+                search_path or "(unknown)",
+                player_table_schemas or [],
+                gender_column_schemas or [],
+            )
+    except Exception as exc:
+        logger.warning("DB schema diagnostics query failed: %s", str(exc))
 
 
 DATABASE_URL = _validate_and_enrich_database_url(
