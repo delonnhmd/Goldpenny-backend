@@ -268,6 +268,7 @@ def create_new_player_onboarding(
             "onboarding.new_player profile validation + insert succeeded.",
             extra={
                 "trace_id": request_trace_id,
+                "display_name_external_id": body.display_name,
                 "player_id": created_player_id,
             },
         )
@@ -341,7 +342,18 @@ def create_new_player_onboarding(
             "onboarding.new_player transaction committed.",
             extra={
                 "trace_id": request_trace_id,
+                "display_name_external_id": body.display_name,
                 "player_id": created_player_id,
+            },
+        )
+        player_exists_pre_summary = _load_player_row(db, created_player_id) is not None
+        logger.info(
+            "onboarding.new_player pre-summary player existence check.",
+            extra={
+                "trace_id": request_trace_id,
+                "display_name_external_id": body.display_name,
+                "player_id": created_player_id,
+                "player_exists": player_exists_pre_summary,
             },
         )
         try:
@@ -351,6 +363,7 @@ def create_new_player_onboarding(
                 "onboarding.new_player summary hydration succeeded.",
                 extra={
                     "trace_id": request_trace_id,
+                    "display_name_external_id": body.display_name,
                     "player_id": created_player_id,
                     "load_ready": True,
                 },
@@ -361,9 +374,13 @@ def create_new_player_onboarding(
                 "onboarding.new_player summary hydration failed; returning minimal playable summary.",
                 extra={
                     "trace_id": request_trace_id,
+                    "display_name_external_id": body.display_name,
                     "player_id": created_player_id,
                 },
             )
+            # Clear failed transaction state (e.g. UndefinedColumn in deep hydration
+            # queries) before attempting a fallback re-query.
+            db.rollback()
             fallback_player = _load_player_row(db, created_player_id)
             if fallback_player is None:
                 raise summary_exc
@@ -372,6 +389,7 @@ def create_new_player_onboarding(
                 "onboarding.new_player returned minimal summary fallback.",
                 extra={
                     "trace_id": request_trace_id,
+                    "display_name_external_id": body.display_name,
                     "player_id": created_player_id,
                     "load_ready": False,
                 },

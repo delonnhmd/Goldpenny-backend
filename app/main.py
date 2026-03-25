@@ -340,6 +340,9 @@ def _run_schema_migrations() -> None:
         "ALTER TABLE player_daily_states ADD COLUMN career_progress_penalty NUMERIC(8,4) NOT NULL DEFAULT 0",
         "ALTER TABLE player_daily_states ADD COLUMN distress_driver_json TEXT",
         "ALTER TABLE player_daily_states ADD COLUMN recovery_actions_json TEXT",
+        # Step 69: retention engine carryover fields.
+        "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS retention_flags_json TEXT",
+        "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS carryover_opportunities_json TEXT",
         "ALTER TABLE daily_settlement_logs ADD COLUMN debt_payment_due_xgp NUMERIC(14,4) NOT NULL DEFAULT 0",
         "ALTER TABLE daily_settlement_logs ADD COLUMN debt_payment_paid_xgp NUMERIC(14,4) NOT NULL DEFAULT 0",
         "ALTER TABLE daily_settlement_logs ADD COLUMN debt_payment_missed BOOLEAN NOT NULL DEFAULT FALSE",

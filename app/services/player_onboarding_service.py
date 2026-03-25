@@ -124,14 +124,45 @@ def _normalize_starter_job(starter_job_code: str) -> str:
 
 
 def _resolve_player(db: Session, player_id: str | UUID) -> Player:
+    raw_player_id = str(player_id)
+    logger.info(
+        "player_onboarding._resolve_player attempting lookup.",
+        extra={
+            "query_field": "players.id",
+            "input_player_id": raw_player_id,
+        },
+    )
     try:
         pid = player_id if isinstance(player_id, UUID) else UUID(str(player_id))
     except ValueError as exc:
+        logger.warning(
+            "player_onboarding._resolve_player invalid UUID input.",
+            extra={
+                "query_field": "players.id",
+                "input_player_id": raw_player_id,
+            },
+        )
         raise OnboardingNotFoundError("Player not found.") from exc
 
     player = db.query(Player).filter(Player.id == pid).first()
     if player is None:
+        logger.warning(
+            "player_onboarding._resolve_player no row found.",
+            extra={
+                "query_field": "players.id",
+                "input_player_id": raw_player_id,
+                "parsed_player_uuid": str(pid),
+            },
+        )
         raise OnboardingNotFoundError("Player not found.")
+    logger.info(
+        "player_onboarding._resolve_player lookup succeeded.",
+        extra={
+            "query_field": "players.id",
+            "input_player_id": raw_player_id,
+            "parsed_player_uuid": str(pid),
+        },
+    )
     return player
 
 
