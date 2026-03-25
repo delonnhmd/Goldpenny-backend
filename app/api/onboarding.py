@@ -3,10 +3,11 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import date
+from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import text
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
@@ -190,6 +191,28 @@ def _log_player_table_resolution(db: Session) -> None:
         )
 
 
+def _load_player_row(db: Session, player_id: str | None) -> Player | None:
+    if not player_id:
+        return None
+    try:
+        parsed_id = UUID(str(player_id))
+    except Exception:
+        return None
+    return db.query(Player).filter(Player.id == parsed_id).first()
+
+
+def _find_existing_player_by_display_name(db: Session, display_name: str) -> Player | None:
+    normalized = (display_name or "").strip().lower()
+    if not normalized:
+        return None
+    return (
+        db.query(Player)
+        .filter(func.lower(Player.display_name) == normalized)
+        .order_by(Player.created_at.asc())
+        .first()
+    )
+
+
 @router.post("/new-player", response_model=PlayablePlayerSummaryResponse, summary="Create a new playable player")
 def create_new_player_onboarding(
     body: NewPlayerOnboardingRequest,
@@ -208,7 +231,30 @@ def create_new_player_onboarding(
         },
     )
     _log_player_table_resolution(db)
+
     try:
+        existing_player = _find_existing_player_by_display_name(db, body.display_name)
+        if existing_player is not None:
+            existing_player_id = str(existing_player.id)
+            logger.info(
+                "onboarding.new_player idempotent hit: returning existing player profile for display_name.",
+                extra={
+                    "trace_id": request_trace_id,
+                    "display_name": body.display_name,
+                    "player_id": existing_player_id,
+                },
+            )
+            summary = get_playable_player_summary(db, existing_player_id)
+            summary["load_ready"] = True
+            return PlayablePlayerSummaryResponse(**summary)
+
+        logger.info(
+            "onboarding.new_player creating profile.",
+            extra={
+                "trace_id": request_trace_id,
+                "display_name": body.display_name,
+            },
+        )
         created = _create_profile_with_gender_schema_guard(
             db=db,
             display_name=body.display_name,
@@ -229,7 +275,7 @@ def create_new_player_onboarding(
         try:
             initialize_starter_player_state(
                 db=db,
-                player_id=player.id,
+                player_id=created_player_id,
                 region=body.region,
                 starter_job_code=body.starter_job_code,
             )
@@ -237,7 +283,7 @@ def create_new_player_onboarding(
                 "onboarding.new_player starter state initialization succeeded.",
                 extra={
                     "trace_id": request_trace_id,
-                    "player_id": str(player.id),
+                    "player_id": created_player_id,
                 },
             )
         except Exception as init_exc:
@@ -245,7 +291,7 @@ def create_new_player_onboarding(
                 "onboarding.new_player starter initialization failed; returning minimal profile fallback.",
                 extra={
                     "trace_id": request_trace_id,
-                    "player_id": str(player.id),
+                    "player_id": created_player_id,
                     "display_name": body.display_name,
                     "region": body.region,
                     "starter_job_code": body.starter_job_code,
@@ -278,7 +324,7 @@ def create_new_player_onboarding(
         # Initialize Step 31 onboarding state immediately so first dashboard load
         # can apply progressive reveal logic without an extra bootstrap call.
         try:
-            build_onboarding_state(db=db, player_id=player.id)
+            build_onboarding_state(db=db, player_id=created_player_id)
         except Exception:
             # Backward-compatible fallback for test harnesses/schemas that may
             # not include onboarding persistence tables yet.
@@ -286,37 +332,47 @@ def create_new_player_onboarding(
                 "onboarding.new_player could not initialize onboarding state; continuing with fallback-safe response.",
                 extra={
                     "trace_id": request_trace_id,
-                    "player_id": str(player.id),
+                    "player_id": created_player_id,
                 },
             )
 
         db.commit()
+        logger.info(
+            "onboarding.new_player transaction committed.",
+            extra={
+                "trace_id": request_trace_id,
+                "player_id": created_player_id,
+            },
+        )
         try:
-            summary = get_playable_player_summary(db, player.id)
+            summary = get_playable_player_summary(db, created_player_id)
             summary["load_ready"] = True
             logger.info(
                 "onboarding.new_player summary hydration succeeded.",
                 extra={
                     "trace_id": request_trace_id,
-                    "player_id": str(player.id),
+                    "player_id": created_player_id,
                     "load_ready": True,
                 },
             )
             return PlayablePlayerSummaryResponse(**summary)
-        except Exception:
+        except Exception as summary_exc:
             logger.exception(
                 "onboarding.new_player summary hydration failed; returning minimal playable summary.",
                 extra={
                     "trace_id": request_trace_id,
-                    "player_id": str(player.id),
+                    "player_id": created_player_id,
                 },
             )
-            fallback = build_minimal_playable_player_summary(player, load_ready=False)
+            fallback_player = _load_player_row(db, created_player_id)
+            if fallback_player is None:
+                raise summary_exc
+            fallback = build_minimal_playable_player_summary(fallback_player, load_ready=False)
             logger.warning(
                 "onboarding.new_player returned minimal summary fallback.",
                 extra={
                     "trace_id": request_trace_id,
-                    "player_id": str(player.id),
+                    "player_id": created_player_id,
                     "load_ready": False,
                 },
             )
