@@ -106,6 +106,8 @@ def _run_schema_migrations() -> None:
         # Step 3 (daily lifecycle): new player field and GameState columns.
         # last_settled_day enforces the one-settlement-per-day idempotency rule.
         "ALTER TABLE players ADD COLUMN last_settled_day INTEGER",
+        # Step 73: one-time end-of-day summary acknowledgment checkpoint.
+        "ALTER TABLE players ADD COLUMN IF NOT EXISTS last_seen_settlement_day INTEGER",
         # day_status and day_started_at extend the existing game_states table.
         "ALTER TABLE game_states ADD COLUMN day_status VARCHAR(20) NOT NULL DEFAULT 'open'",
         "ALTER TABLE game_states ADD COLUMN day_started_at TIMESTAMPTZ",
@@ -163,6 +165,11 @@ def _run_schema_migrations() -> None:
         "ALTER TABLE player_employment_states ADD COLUMN promotion_chance_pct NUMERIC(6,2) NOT NULL DEFAULT 0",
         "ALTER TABLE player_employment_states ADD COLUMN wage_adjustment_pct NUMERIC(6,2) NOT NULL DEFAULT 0",
         "ALTER TABLE player_employment_states ADD COLUMN employment_evaluated_flag BOOLEAN NOT NULL DEFAULT FALSE",
+        # Step 73: company-linked and shift foundation metadata.
+        "ALTER TABLE player_employment_states ADD COLUMN IF NOT EXISTS employer_company_symbol VARCHAR(40)",
+        "ALTER TABLE player_employment_states ADD COLUMN IF NOT EXISTS employer_company_name VARCHAR(120)",
+        "ALTER TABLE player_employment_states ADD COLUMN IF NOT EXISTS position_title VARCHAR(120)",
+        "ALTER TABLE player_employment_states ADD COLUMN IF NOT EXISTS shift_type VARCHAR(40)",
         # Step 11: business balancing metadata on business_types.
         "ALTER TABLE business_types ADD COLUMN fixed_overhead_xgp NUMERIC(10,2) NOT NULL DEFAULT 0",
         "ALTER TABLE business_types ADD COLUMN base_demand_factor NUMERIC(8,4) NOT NULL DEFAULT 1.0",

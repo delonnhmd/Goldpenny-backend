@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
+import logging
 from typing import Iterable
 from uuid import UUID
 
@@ -19,10 +20,12 @@ from app.models.player import Player
 from app.models.player_stock_holding import PlayerStockHolding
 from app.models.stock_daily_price import StockDailyPrice
 from app.models.stock_trade_log import StockTradeLog
+from app.services.player_transaction_log_service import record_player_transaction
 
 FEE_RATE = Decimal("0.003")
 MONEY_Q = Decimal("0.01")
 PRICE_Q = Decimal("0.0001")
+logger = logging.getLogger(__name__)
 
 
 class StockTradingError(Exception):
@@ -76,6 +79,22 @@ class StockTradingService:
             raise ResourceNotFoundError("Player not found.") from exc
 
         player = db.query(Player).filter(Player.id == pid).first()
+        if player is None:
+            raise ResourceNotFoundError("Player not found.")
+        return player
+
+    def _get_player_for_update(self, db: Session, player_id: UUID | str) -> Player:
+        try:
+            pid = player_id if isinstance(player_id, UUID) else UUID(str(player_id))
+        except ValueError as exc:
+            raise ResourceNotFoundError("Player not found.") from exc
+
+        player = (
+            db.query(Player)
+            .filter(Player.id == pid)
+            .with_for_update()
+            .first()
+        )
         if player is None:
             raise ResourceNotFoundError("Player not found.")
         return player
@@ -155,7 +174,7 @@ class StockTradingService:
         normalized_ticker = _normalize_ticker(ticker)
 
         try:
-            player = self._get_player(db, player_id)
+            player = self._get_player_for_update(db, player_id)
             quote_row = self._get_latest_quote_row(db, normalized_ticker)
             quote = self._build_quote(quote_row)
 
@@ -176,6 +195,7 @@ class StockTradingService:
                     PlayerStockHolding.player_id == player.id,
                     PlayerStockHolding.stock_id == normalized_ticker,
                 )
+                .with_for_update()
                 .first()
             )
             if holding is None:
@@ -216,6 +236,56 @@ class StockTradingService:
             )
             db.add(trade_log)
 
+            # Unified transaction history (Step 73): trade row + explicit fee row.
+            record_player_transaction(
+                db,
+                player=player,
+                day=quote.day,
+                transaction_type="stock_buy",
+                category="stock_market",
+                asset_symbol=normalized_ticker,
+                quantity=shares,
+                unit_price=execution_price,
+                gross_amount=gross_amount,
+                fee_amount=fee_amount,
+                net_cash_delta=-total_cost,
+                resulting_cash_balance=remaining_cash,
+                metadata={
+                    "trade_side": "buy",
+                    "fee_rate": str(FEE_RATE),
+                    "shares_after": new_shares,
+                },
+            )
+            if fee_amount > Decimal("0.00"):
+                record_player_transaction(
+                    db,
+                    player=player,
+                    day=quote.day,
+                    transaction_type="fee",
+                    category="stock_market",
+                    asset_symbol=normalized_ticker,
+                    quantity=shares,
+                    unit_price=execution_price,
+                    gross_amount=fee_amount,
+                    fee_amount=Decimal("0.00"),
+                    net_cash_delta=Decimal("0.00"),
+                    resulting_cash_balance=remaining_cash,
+                    metadata={"fee_source": "stock_buy", "fee_rate": str(FEE_RATE)},
+                )
+
+            logger.info(
+                "stocks.buy committed atomically.",
+                extra={
+                    "player_id": str(player.id),
+                    "ticker": normalized_ticker,
+                    "shares": shares,
+                    "cash_before": float(cash_before),
+                    "cash_after": float(remaining_cash),
+                    "gross_amount": float(gross_amount),
+                    "fee_amount": float(fee_amount),
+                },
+            )
+
             db.commit()
             db.refresh(player)
             db.refresh(holding)
@@ -244,7 +314,7 @@ class StockTradingService:
         normalized_ticker = _normalize_ticker(ticker)
 
         try:
-            player = self._get_player(db, player_id)
+            player = self._get_player_for_update(db, player_id)
             quote_row = self._get_latest_quote_row(db, normalized_ticker)
             quote = self._build_quote(quote_row)
 
@@ -254,6 +324,7 @@ class StockTradingService:
                     PlayerStockHolding.player_id == player.id,
                     PlayerStockHolding.stock_id == normalized_ticker,
                 )
+                .with_for_update()
                 .first()
             )
             if holding is None:
@@ -298,6 +369,57 @@ class StockTradingService:
                 realized_pnl_xgp=realized_pnl,
             )
             db.add(trade_log)
+
+            record_player_transaction(
+                db,
+                player=player,
+                day=quote.day,
+                transaction_type="stock_sell",
+                category="stock_market",
+                asset_symbol=normalized_ticker,
+                quantity=shares,
+                unit_price=execution_price,
+                gross_amount=gross_amount,
+                fee_amount=fee_amount,
+                net_cash_delta=net_amount,
+                resulting_cash_balance=remaining_cash,
+                metadata={
+                    "trade_side": "sell",
+                    "fee_rate": str(FEE_RATE),
+                    "shares_after": remaining_holding_shares,
+                    "realized_pnl_xgp": str(realized_pnl),
+                },
+            )
+            if fee_amount > Decimal("0.00"):
+                record_player_transaction(
+                    db,
+                    player=player,
+                    day=quote.day,
+                    transaction_type="fee",
+                    category="stock_market",
+                    asset_symbol=normalized_ticker,
+                    quantity=shares,
+                    unit_price=execution_price,
+                    gross_amount=fee_amount,
+                    fee_amount=Decimal("0.00"),
+                    net_cash_delta=Decimal("0.00"),
+                    resulting_cash_balance=remaining_cash,
+                    metadata={"fee_source": "stock_sell", "fee_rate": str(FEE_RATE)},
+                )
+
+            logger.info(
+                "stocks.sell committed atomically.",
+                extra={
+                    "player_id": str(player.id),
+                    "ticker": normalized_ticker,
+                    "shares": shares,
+                    "cash_before": float(cash_before),
+                    "cash_after": float(remaining_cash),
+                    "gross_amount": float(gross_amount),
+                    "fee_amount": float(fee_amount),
+                    "remaining_holding_shares": remaining_holding_shares,
+                },
+            )
 
             db.commit()
             db.refresh(player)

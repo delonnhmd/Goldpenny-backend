@@ -39,6 +39,7 @@ from app.services.job_market_service import apply_employment_progression
 from app.services.net_worth_service import compute_player_net_worth_snapshot
 from app.engine.retention_engine import build_retention_summary
 from app.models.player_progression_state import PlayerProgressionState
+from app.services.player_transaction_log_service import record_player_transaction
 
 MONEY_Q = Decimal("0.01")
 Q4 = Decimal("0.0001")
@@ -726,6 +727,13 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
             + financial_survival_additional_required_paid_xgp
         )
         ending_cash = _money(max(Decimal("0.00"), cash_before + shock_income_bonus - expenses))
+        net_cash_delta = _money(ending_cash - cash_before)
+        total_earned = _money(
+            job_income
+            + side_income_net
+            + business_net
+            + shock_income_bonus
+        )
 
         stress_before = int(getattr(pds, "stress_start", stress_before))
         _base_stress_after = int(getattr(pds, "stress_end", player.stress or stress_before))
@@ -754,6 +762,34 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
         player.total_hours_worked_today = 0
         player.work_actions_today = 0
         player.net_worth_xgp = _money(_d(player.cash_xgp) + _d(player.bank_savings_xgp) - _d(player.debt_xgp))
+
+        record_player_transaction(
+            db,
+            player=player,
+            day=settled_day,
+            transaction_type="settlement_adjustment",
+            category="settlement",
+            gross_amount=total_earned,
+            fee_amount=expenses,
+            net_cash_delta=net_cash_delta,
+            resulting_cash_balance=ending_cash,
+            metadata={
+                "job_income_xgp": float(job_income),
+                "side_income_net_xgp": float(side_income_net),
+                "business_net_xgp": float(business_net),
+                "shock_income_bonus_xgp": float(shock_income_bonus),
+                "basket_spend_xgp": float(basket_spend),
+                "debt_cash_deduction_xgp": float(debt_cash_deduction),
+                "housing_cost_xgp": float(housing_cost),
+                "utilities_cost_daily_xgp": float(utilities_cost_daily),
+                "commute_fuel_cost_xgp": float(commute_fuel_cost_xgp),
+                "medical_cost_xgp": float(medical_cost_xgp),
+                "missed_work_penalty_xgp": float(missed_work_penalty_xgp),
+                "late_fee_xgp": float(late_fee_xgp),
+                "accrued_interest_xgp": float(accrued_interest_xgp),
+                "shock_extra_expense_xgp": float(shock_extra_expense),
+            },
+        )
 
         pds.hours_available_end = HOURS_RESET
         pds.worked_hours = worked_hours

@@ -71,6 +71,8 @@ class Player(Base):
     # Null until the first successful settlement.  Set to current_day by the
     # run_player_end_of_day_settlement() function in daily_engine.py.
     last_settled_day = Column(Integer, nullable=True)
+    # Latest settled day for which the player acknowledged the auto summary.
+    last_seen_settlement_day = Column(Integer, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
@@ -181,4 +183,8 @@ class Player(Base):
         "DailySettlementLog",
         back_populates="player",
         order_by="DailySettlementLog.created_at.desc()",
+    )
+    transaction_logs = relationship(
+        "PlayerTransactionLog",
+        order_by="PlayerTransactionLog.created_at.desc()",
     )

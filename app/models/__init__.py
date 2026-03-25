@@ -74,6 +74,7 @@ from app.models.macro_daily_state import MacroDailyState
 from app.models.basket_daily_price import BasketDailyPrice
 from app.models.stock_daily_price import StockDailyPrice
 from app.models.stock_trade_log import StockTradeLog
+from app.models.player_transaction_log import PlayerTransactionLog
 from app.models.job_definition_db import JobDefinition as JobDefinitionDB
 from app.models.player_employment_state import PlayerEmploymentState
 # Step 4 � Goods baskets and basket purchase ledger
@@ -220,6 +221,7 @@ __all__ = [
     "BasketDailyPrice",
     "StockDailyPrice",
     "StockTradeLog",
+    "PlayerTransactionLog",
     "JobDefinitionDB",
     "PlayerEmploymentState",
     # Step 4 � Goods baskets and basket purchase ledger

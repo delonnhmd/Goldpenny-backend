@@ -45,6 +45,11 @@ class PlayerEmploymentState(Base):
     promotion_chance_pct = Column(Numeric(6, 2), nullable=False, default=0)
     wage_adjustment_pct = Column(Numeric(6, 2), nullable=False, default=0)
     employment_evaluated_flag = Column(Boolean, nullable=False, default=False)
+    # Step 73 foundation: optional employer-company and shift metadata.
+    employer_company_symbol = Column(String(40), nullable=True)
+    employer_company_name = Column(String(120), nullable=True)
+    position_title = Column(String(120), nullable=True)
+    shift_type = Column(String(40), nullable=True)
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 

@@ -24,6 +24,7 @@ from app.models.job_definition import JOB_CATALOG, MAIN_JOBS, SIDE_JOBS, JobDefi
 from app.models.player import Player
 from app.models.player_daily_state import PlayerDailyState
 from app.models.xgp_transaction import XGPTransaction
+from app.services.player_transaction_log_service import record_player_transaction
 
 # â”€â”€ Day limits â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 MAX_MAIN_HOURS_PER_DAY = 8
@@ -165,6 +166,26 @@ class WorkEngine:
             description=f"Main job income — {job_name} shift {shift_number}",
         )
         db.add(xgp_tx)
+        record_player_transaction(
+            db,
+            player=player,
+            day=current_day,
+            transaction_type="wage_income",
+            category="work",
+            asset_symbol=None,
+            quantity=hours_worked,
+            unit_price=round(base_hourly_pay, 4),
+            gross_amount=round(earned_cash, 4),
+            fee_amount=0,
+            net_cash_delta=round(earned_cash, 4),
+            resulting_cash_balance=balance_after,
+            metadata={
+                "job_name": job_name,
+                "job_type": job_def.category,
+                "shift_number": shift_number,
+                "productivity": round(productivity, 4),
+            },
+        )
 
         # ── Contribution event (raw input for monthly PFT scoring) ──────────
         # The reward engine reads these rows at epoch close time to build

@@ -23,6 +23,7 @@ from app.models.player import Player
 from app.models.player_daily_state import PlayerDailyState
 from app.models.side_income_action import SideIncomeAction
 from app.models.xgp_transaction import XGPTransaction
+from app.services.player_transaction_log_service import record_player_transaction
 
 RIDESHARE_TYPE = "ride_share"
 MAX_RIDESHARE_HOURS_PER_DAY = 6
@@ -305,6 +306,28 @@ def process_rideshare_action(db: Session, player: Player, hours_worked: float) -
                 description="Ride share maintenance event cost",
             )
             db.add(maint_txn)
+
+        record_player_transaction(
+            db,
+            player=player,
+            day=current_day,
+            transaction_type="side_income",
+            category="work",
+            quantity=hours_worked_int,
+            unit_price=round(float(shift["gross_per_hour_xgp"]), 4),
+            gross_amount=round(gross_income_xgp, 4),
+            fee_amount=round(fuel_cost_xgp + wear_cost_xgp + maintenance_cost_xgp, 4),
+            net_cash_delta=round(net_income_xgp, 4),
+            resulting_cash_balance=balance_after,
+            metadata={
+                "mode": RIDESHARE_TYPE,
+                "fuel_cost_xgp": round(fuel_cost_xgp, 4),
+                "wear_cost_xgp": round(wear_cost_xgp, 4),
+                "maintenance_cost_xgp": round(maintenance_cost_xgp, 4),
+                "demand_multiplier": float(shift["demand_multiplier"]),
+                "oil_index_used": oil_index,
+            },
+        )
 
         contribution = ContributionEvent(
             player_id=player.id,
