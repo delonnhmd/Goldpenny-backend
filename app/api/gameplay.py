@@ -811,6 +811,29 @@ def preview_gameplay_action(
         base["expected_stress_impact"] = {"label": "Stress", "direction": "down", "amount": -6, "text": "-6"}
         base["expected_health_impact"] = {"label": "Health", "direction": "up", "amount": 3, "text": "+3"}
         base["expected_time_impact"] = {"label": "Time", "direction": "down", "amount": -1, "text": "-1 units"}
+    elif key == "eat_meal":
+        meal_type = str(params.get("meal_type") or "meal").strip().lower()
+        base["summary"] = f"Eating {meal_type} costs 6 XGP and restores health and reduces stress."
+        base["expected_cash_impact"] = {"label": "Cash", "direction": "down", "amount": -6, "text": "-6 XGP"}
+        base["expected_health_impact"] = {"label": "Health", "direction": "up", "amount": 5, "text": "+5"}
+        base["expected_stress_impact"] = {"label": "Stress", "direction": "down", "amount": -3, "text": "-3"}
+        base["expected_time_impact"] = {"label": "Time", "direction": "flat", "amount": 0, "text": "No time cost"}
+    elif key == "quick_loan":
+        raw_amount = max(100, min(500, int(params.get("loan_amount") or 200)))
+        due = round(raw_amount * 1.15, 2)
+        base["summary"] = f"Borrow {raw_amount} XGP now and owe {due} XGP (15% interest)."
+        base["expected_cash_impact"] = {"label": "Cash", "direction": "up", "amount": raw_amount, "text": f"+{raw_amount} XGP"}
+        base["expected_stress_impact"] = {"label": "Stress", "direction": "up", "amount": 5, "text": "+5"}
+        base["expected_time_impact"] = {"label": "Time", "direction": "flat", "amount": 0, "text": "No time cost"}
+        base["warnings"] = [f"You will owe {due} XGP total. Pay before weekly settlement to avoid credit damage."]
+    elif key == "select_housing":
+        housing_type = str(params.get("housing_type") or "suburban").lower()
+        HOUSING_INFO = {
+            "suburban": "Weekly rent 80 XGP, gas 40 XGP, lower stress.",
+            "downtown": "Weekly rent 140 XGP, gas 20 XGP, higher stress.",
+        }
+        base["summary"] = f"{housing_type.capitalize()} housing: {HOUSING_INFO.get(housing_type, '')}"
+        base["expected_time_impact"] = {"label": "Time", "direction": "flat", "amount": 0, "text": "No time cost"}
 
     return base
 
@@ -975,6 +998,115 @@ def execute_gameplay_action(
                 "stress_after": _safe_int(player.stress, stress_before),
                 "health_before": health_before,
                 "health_after": _safe_int(player.health, health_before),
+            },
+        }
+
+    # ── Step 74: eat_meal ─────────────────────────────────────────────────────
+    if action_key == "eat_meal":
+        meal_type = str(params.get("meal_type") or "meal").strip().lower()
+        MEAL_COSTS: dict[str, int] = {"breakfast": 6, "lunch": 6, "dinner": 6}
+        meal_cost = Decimal(str(MEAL_COSTS.get(meal_type, 6)))
+        cash_before = Decimal(str(_safe_float(getattr(player, "cash", 0))))
+        if cash_before < meal_cost:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Not enough XGP for a {meal_type}. Need {meal_cost} XGP.",
+            )
+        stress_before = _safe_int(player.stress, 0)
+        health_before = _safe_int(player.health, 100)
+        player.cash = cash_before - meal_cost  # type: ignore[assignment]
+        player.health = min(100, health_before + 5)
+        player.stress = max(0, stress_before - 3)
+        db.commit()
+        return {
+            "player_id": str(player.id),
+            "action_key": action_key,
+            "success": True,
+            "message": f"{meal_type.capitalize()} eaten.",
+            "result_summary": f"You ate {meal_type} (-{meal_cost} XGP, +5 health, -3 stress).",
+            "time_cost_units": 0,
+            "cash_delta_xgp": -float(meal_cost),
+            "stress_delta": player.stress - stress_before,
+            "health_delta": player.health - health_before,
+            "raw_result": {
+                "meal_type": meal_type,
+                "meal_cost_xgp": float(meal_cost),
+                "cash_after": float(player.cash),  # type: ignore[arg-type]
+                "health_before": health_before,
+                "health_after": _safe_int(player.health, health_before),
+                "stress_before": stress_before,
+                "stress_after": _safe_int(player.stress, stress_before),
+            },
+        }
+
+    # ── Step 74: quick_loan ───────────────────────────────────────────────────
+    if action_key == "quick_loan":
+        raw_amount = _safe_int(params.get("loan_amount"), 200)
+        loan_amount = Decimal(str(max(100, min(500, raw_amount))))
+        interest_rate = Decimal("0.15")  # 15% flat
+        due_amount = (loan_amount * (1 + interest_rate)).quantize(Decimal("0.01"))
+        cash_before = Decimal(str(_safe_float(getattr(player, "cash", 0))))
+        debt_before = Decimal(str(_safe_float(getattr(player, "debt_xgp", 0))))
+        stress_before = _safe_int(player.stress, 0)
+        player.cash = cash_before + loan_amount  # type: ignore[assignment]
+        player.debt_xgp = debt_before + due_amount  # type: ignore[assignment]
+        player.stress = min(100, stress_before + 5)
+        db.commit()
+        return {
+            "player_id": str(player.id),
+            "action_key": action_key,
+            "success": True,
+            "message": f"Borrowed {loan_amount} XGP.",
+            "result_summary": f"Quick loan of {loan_amount} XGP received. You owe {due_amount} XGP (15% interest).",
+            "time_cost_units": 0,
+            "cash_delta_xgp": float(loan_amount),
+            "stress_delta": player.stress - stress_before,
+            "health_delta": 0,
+            "raw_result": {
+                "loan_amount_xgp": float(loan_amount),
+                "interest_rate": float(interest_rate),
+                "due_amount_xgp": float(due_amount),
+                "cash_after": float(player.cash),  # type: ignore[arg-type]
+                "debt_after": float(player.debt_xgp),  # type: ignore[arg-type]
+                "stress_after": _safe_int(player.stress, stress_before),
+            },
+        }
+
+    # ── Step 74: select_housing ───────────────────────────────────────────────
+    if action_key == "select_housing":
+        housing_type = str(params.get("housing_type") or "suburban").strip().lower()
+        if housing_type not in ("suburban", "downtown"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="housing_type must be 'suburban' or 'downtown'.",
+            )
+        player.region = housing_type  # type: ignore[assignment]
+        player.housing_region_id = housing_type  # type: ignore[assignment]
+        db.commit()
+        HOUSING_INFO = {
+            "suburban": {"rent_xgp": 80, "stress_modifier": -2, "gas_xgp": 40},
+            "downtown": {"rent_xgp": 140, "stress_modifier": +5, "gas_xgp": 20},
+        }
+        info = HOUSING_INFO[housing_type]
+        return {
+            "player_id": str(player.id),
+            "action_key": action_key,
+            "success": True,
+            "message": f"Housing set to {housing_type}.",
+            "result_summary": (
+                f"You chose {housing_type.capitalize()} housing. "
+                f"Weekly rent: {info['rent_xgp']} XGP. "
+                f"Weekly gas: {info['gas_xgp']} XGP."
+            ),
+            "time_cost_units": 0,
+            "cash_delta_xgp": 0.0,
+            "stress_delta": info["stress_modifier"],
+            "health_delta": 0,
+            "raw_result": {
+                "housing_type": housing_type,
+                "weekly_rent_xgp": info["rent_xgp"],
+                "weekly_gas_xgp": info["gas_xgp"],
+                "stress_modifier": info["stress_modifier"],
             },
         }
 
