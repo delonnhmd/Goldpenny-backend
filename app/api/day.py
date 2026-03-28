@@ -82,7 +82,17 @@ class PlayerSettleResponse(BaseModel):
     settled_day: int
     income_xgp: float
     expenses_xgp: float
+    total_income: float = 0.0
+    total_expense: float = 0.0
+    net_change: float = 0.0
+    ending_cash: float = 0.0
+    income_breakdown: dict = Field(default_factory=dict)
+    expense_breakdown: dict = Field(default_factory=dict)
+    settlement_breakdown: dict = Field(default_factory=dict)
+    settlement_debug: dict = Field(default_factory=dict)
     side_income_net_xgp: float
+    stock_sale_income_xgp: float = 0.0
+    stock_fee_xgp: float = 0.0
     business_net_xgp: float = 0.0
     business_revenue_xgp: float = 0.0
     business_cogs_xgp: float = 0.0
@@ -99,6 +109,7 @@ class PlayerSettleResponse(BaseModel):
     debt_payment_missed: bool = False
     late_fee_xgp: float = 0.0
     accrued_interest_xgp: float = 0.0
+    weekly_gas_expense_xgp: float = 0.0
     opening_debt_xgp: float = 0.0
     payment_due_xgp: float = 0.0
     payment_made_xgp: float = 0.0
@@ -219,7 +230,17 @@ class RunNextDayResponse(BaseModel):
     settled_day: int
     income_xgp: float
     expenses_xgp: float
+    total_income: float = 0.0
+    total_expense: float = 0.0
+    net_change: float = 0.0
+    ending_cash: float = 0.0
+    income_breakdown: dict = Field(default_factory=dict)
+    expense_breakdown: dict = Field(default_factory=dict)
+    settlement_breakdown: dict = Field(default_factory=dict)
+    settlement_debug: dict = Field(default_factory=dict)
     business_net_xgp: float = 0.0
+    stock_sale_income_xgp: float = 0.0
+    stock_fee_xgp: float = 0.0
     business_revenue_xgp: float = 0.0
     business_cogs_xgp: float = 0.0
     business_overhead_xgp: float = 0.0
@@ -241,6 +262,7 @@ class RunNextDayResponse(BaseModel):
     debt_payment_missed: bool = False
     late_fee_xgp: float = 0.0
     accrued_interest_xgp: float = 0.0
+    weekly_gas_expense_xgp: float = 0.0
     payment_due_xgp: float = 0.0
     payment_made_xgp: float = 0.0
     interest_added_xgp: float = 0.0
@@ -384,6 +406,14 @@ class SettlementSummaryResponse(BaseModel):
     day_number: int
     income_xgp: float
     expenses_xgp: float
+    total_income: float = 0.0
+    total_expense: float = 0.0
+    net_change: float = 0.0
+    ending_cash: float = 0.0
+    income_breakdown: dict = Field(default_factory=dict)
+    expense_breakdown: dict = Field(default_factory=dict)
+    settlement_breakdown: dict = Field(default_factory=dict)
+    settlement_debug: dict = Field(default_factory=dict)
     guided_day_number: int = 0
     guided_learning_title: str | None = None
     guided_earned_summary: str | None = None
@@ -392,6 +422,8 @@ class SettlementSummaryResponse(BaseModel):
     guided_watch_tomorrow: str | None = None
     side_income_net_xgp: float
     business_net_xgp: float = 0.0
+    stock_sale_income_xgp: float = 0.0
+    stock_fee_xgp: float = 0.0
     business_revenue_xgp: float = 0.0
     business_cogs_xgp: float = 0.0
     business_overhead_xgp: float = 0.0
@@ -407,6 +439,7 @@ class SettlementSummaryResponse(BaseModel):
     debt_payment_missed: bool = False
     late_fee_xgp: float = 0.0
     accrued_interest_xgp: float = 0.0
+    weekly_gas_expense_xgp: float = 0.0
     opening_debt_xgp: float = 0.0
     payment_due_xgp: float = 0.0
     payment_made_xgp: float = 0.0

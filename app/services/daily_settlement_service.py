@@ -6,6 +6,8 @@ This module settles one player's day into persistent state and immutable logs.
 from __future__ import annotations
 
 import json
+import logging
+import os
 from decimal import Decimal, ROUND_HALF_UP
 from uuid import UUID
 
@@ -18,6 +20,7 @@ from app.models.enums import BasketType
 from app.models.player import Player
 from app.models.player_daily_state import PlayerDailyState
 from app.models.player_employment_state import PlayerEmploymentState
+from app.models.player_transaction_log import PlayerTransactionLog
 from app.models.stock_daily_price import StockDailyPrice
 from app.engine.financial_distress_service import apply_daily_financial_distress
 from app.engine.financial_survival_service import apply_daily_financial_survival
@@ -44,6 +47,10 @@ from app.services.player_transaction_log_service import record_player_transactio
 MONEY_Q = Decimal("0.01")
 Q4 = Decimal("0.0001")
 HOURS_RESET = 24
+WEEKLY_GAS_EXPENSE_XGP = Decimal("30.00")
+
+
+logger = logging.getLogger("goldpenny.daily_settlement")
 
 
 class DailySettlementError(Exception):
@@ -231,6 +238,184 @@ def _calculate_health_change(
     return change
 
 
+def _safe_player_day_stock_totals(
+    db: Session,
+    player_id: UUID,
+    day_number: int,
+) -> tuple[Decimal, Decimal]:
+    """Return stock sale gross + explicit stock fee totals for one player/day.
+
+    Falls back to zeros when the transaction-log table is unavailable in older
+    or minimal schemas.
+    """
+    try:
+        rows = (
+            db.query(PlayerTransactionLog)
+            .filter(
+                PlayerTransactionLog.player_id == player_id,
+                PlayerTransactionLog.day == int(day_number),
+                PlayerTransactionLog.category == "stock_market",
+            )
+            .all()
+        )
+    except Exception:
+        return Decimal("0.00"), Decimal("0.00")
+
+    stock_sale_income = Decimal("0.00")
+    stock_fee = Decimal("0.00")
+    for row in rows:
+        txn_type = str(getattr(row, "transaction_type", "") or "").strip().lower()
+        gross_amount = _money(_d(getattr(row, "gross_amount", 0)))
+        if txn_type == "stock_sell":
+            stock_sale_income += gross_amount
+        elif txn_type == "fee":
+            stock_fee += gross_amount
+    return _money(stock_sale_income), _money(stock_fee)
+
+
+def _build_settlement_breakdown(
+    *,
+    settled_day: int,
+    day_start_cash: Decimal,
+    ending_cash: Decimal,
+    job_income: Decimal,
+    side_income_net: Decimal,
+    side_income_fuel_cost: Decimal,
+    side_income_wear_cost: Decimal,
+    side_income_maintenance_cost: Decimal,
+    business_revenue: Decimal,
+    business_cogs: Decimal,
+    business_overhead: Decimal,
+    business_spoilage_loss: Decimal,
+    business_fuel_cost: Decimal,
+    business_maintenance_cost: Decimal,
+    stock_sale_income: Decimal,
+    stock_fee: Decimal,
+    basket_spend: Decimal,
+    housing_cost_daily: Decimal,
+    utilities_cost_daily: Decimal,
+    debt_cash_deduction: Decimal,
+    accrued_interest_xgp: Decimal,
+    late_fee_xgp: Decimal,
+    financial_survival_late_fee_non_debt_xgp: Decimal,
+    medical_cost_xgp: Decimal,
+    missed_work_penalty_xgp: Decimal,
+    financial_survival_additional_required_paid_xgp: Decimal,
+    commute_fuel_cost_xgp: Decimal,
+    shock_income_bonus: Decimal,
+    shock_extra_expense: Decimal,
+) -> dict:
+    """Build reconciled day-level income/expense categories for settlement."""
+    weekly_gas_expense = _money(WEEKLY_GAS_EXPENSE_XGP if int(settled_day) % 7 == 0 else Decimal("0.00"))
+
+    rideshare_income = _money(
+        side_income_net
+        + side_income_fuel_cost
+        + side_income_wear_cost
+        + side_income_maintenance_cost
+    )
+
+    income_breakdown = {
+        "job_income": _money(job_income),
+        "rideshare_income": rideshare_income,
+        "business_income": _money(business_revenue),
+        "stock_sale_income": _money(stock_sale_income),
+        "other_income": _money(shock_income_bonus),
+    }
+
+    expense_breakdown = {
+        "food_expense": _money(basket_spend),
+        "gas_expense": _money(weekly_gas_expense),
+        "rent_expense": _money(housing_cost_daily + utilities_cost_daily),
+        "debt_payment": _money(debt_cash_deduction),
+        "interest_payment": _money(accrued_interest_xgp + late_fee_xgp + financial_survival_late_fee_non_debt_xgp),
+        "maintenance_cost": _money(side_income_maintenance_cost + business_maintenance_cost),
+        "medical_cost": _money(medical_cost_xgp),
+        "business_overhead": _money(business_overhead),
+        "inventory_purchase_cost": _money(business_cogs),
+        "spoilage_cost": _money(business_spoilage_loss),
+        "stock_fee": _money(stock_fee),
+        "other_expense": _money(
+            side_income_fuel_cost
+            + side_income_wear_cost
+            + business_fuel_cost
+            + commute_fuel_cost_xgp
+            + missed_work_penalty_xgp
+            + financial_survival_additional_required_paid_xgp
+            + shock_extra_expense
+        ),
+    }
+
+    total_income = _money(sum(income_breakdown.values(), Decimal("0.00")))
+    total_expense = _money(sum(expense_breakdown.values(), Decimal("0.00")))
+    net_change = _money(total_income - total_expense)
+    reconciled_net_change = _money(ending_cash - day_start_cash)
+    residual = _money(reconciled_net_change - net_change)
+
+    if residual > Decimal("0.00"):
+        income_breakdown["other_income"] = _money(income_breakdown["other_income"] + residual)
+    elif residual < Decimal("0.00"):
+        expense_breakdown["other_expense"] = _money(expense_breakdown["other_expense"] + abs(residual))
+
+    total_income = _money(sum(income_breakdown.values(), Decimal("0.00")))
+    total_expense = _money(sum(expense_breakdown.values(), Decimal("0.00")))
+    net_change = _money(total_income - total_expense)
+
+    biggest_expense_category = "none"
+    biggest_expense_value = Decimal("0.00")
+    for category, value in expense_breakdown.items():
+        if value > biggest_expense_value:
+            biggest_expense_value = value
+            biggest_expense_category = category
+
+    cadence_audit = {
+        "weekly_gas_charge_applied": bool(weekly_gas_expense > Decimal("0.00")),
+        "weekly_gas_amount_xgp": float(weekly_gas_expense),
+        "weekly_gas_cadence_days": 7,
+        "housing_charge_applied": bool(_money(housing_cost_daily + utilities_cost_daily) > Decimal("0.00")),
+        "housing_cadence": "daily_configured",
+        "debt_charge_applied": bool(debt_cash_deduction > Decimal("0.00")),
+        "debt_cadence": "daily_obligation_configured",
+        "business_costs_applied": bool(
+            _money(
+                business_cogs + business_overhead + business_spoilage_loss + business_fuel_cost + business_maintenance_cost
+            )
+            > Decimal("0.00")
+        ),
+        "medical_event_cost_applied": bool(_money(medical_cost_xgp + missed_work_penalty_xgp) > Decimal("0.00")),
+    }
+
+    return {
+        "starting_cash": _money(day_start_cash),
+        "total_income": total_income,
+        "total_expense": total_expense,
+        "net_change": net_change,
+        "ending_cash": _money(ending_cash),
+        "income_breakdown": income_breakdown,
+        "expense_breakdown": expense_breakdown,
+        "biggest_expense_category": biggest_expense_category,
+        "biggest_expense_value": _money(biggest_expense_value),
+        "cadence_audit": cadence_audit,
+    }
+
+
+def _should_emit_settlement_audit_debug(player_id: UUID, day_number: int) -> bool:
+    target_player = (os.getenv("SETTLEMENT_AUDIT_DEBUG_PLAYER_ID") or "").strip()
+    target_day = (os.getenv("SETTLEMENT_AUDIT_DEBUG_DAY") or "").strip()
+    if not target_player and not target_day:
+        return False
+
+    player_match = (not target_player) or target_player == "*" or target_player == str(player_id)
+    if not player_match:
+        return False
+    if not target_day or target_day == "*":
+        return True
+    try:
+        return int(target_day) == int(day_number)
+    except ValueError:
+        return False
+
+
 def settle_player_day(db: Session, player_id: str | UUID) -> dict:
     """Settle one player day and persist snapshots + immutable log."""
     # Core logic freeze: settlement is the canonical player-day close. Preserve idempotency,
@@ -238,6 +423,22 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
     try:
         player = _resolve_player(db, player_id)
         settled_day = get_next_player_day(db, player.id)
+        settlement_day_key = f"{player.id}:{settled_day}"
+
+        existing_log_count = int(
+            db.query(func.count(DailySettlementLog.id))
+            .filter(
+                DailySettlementLog.player_id == player.id,
+                DailySettlementLog.day_number == settled_day,
+            )
+            .scalar()
+            or 0
+        )
+        prior_last_settled_day = int(player.last_settled_day) if player.last_settled_day is not None else None
+        if prior_last_settled_day is not None and prior_last_settled_day >= int(settled_day):
+            raise SettlementValidationError(
+                f"Player day {settled_day} already settled (last_settled_day={prior_last_settled_day})."
+            )
 
         existing_log = (
             db.query(DailySettlementLog)
@@ -247,11 +448,13 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
             )
             .first()
         )
-        if existing_log is not None:
+        if existing_log is not None or existing_log_count > 0:
             raise SettlementValidationError(f"Player day {settled_day} already settled.")
 
         pds = _get_or_create_player_daily_state(db, player, settled_day)
-        if pds.did_settlement:
+        day_start_cash = _money(_d(getattr(pds, "cash_start", player.cash_xgp)))
+        pds_settled_before = bool(pds.did_settlement)
+        if pds_settled_before:
             raise SettlementValidationError(f"Player day {settled_day} already settled.")
 
         # Daily loop order:
@@ -347,8 +550,13 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
 
         side_income_net = _money(_d(getattr(pds, "side_income_net_xgp", 0)))
         side_income_hours = _q4(_d(getattr(pds, "side_income_hours", 0)))
+        side_income_fuel_cost = _money(_d(getattr(pds, "side_income_fuel_cost_xgp", 0)))
         side_income_wear_cost = _money(_d(getattr(pds, "side_income_wear_cost_xgp", 0)))
         side_income_maintenance_cost = _money(_d(getattr(pds, "side_income_maintenance_cost_xgp", 0)))
+        stock_realized_pnl = _money(_d(getattr(pds, "stock_realized_pnl_xgp", 0)))
+        stock_sale_income, stock_fee = _safe_player_day_stock_totals(db, player.id, settled_day)
+        if stock_sale_income <= Decimal("0.00") and stock_realized_pnl > Decimal("0.00"):
+            stock_sale_income = stock_realized_pnl
 
         cash_before = _money(_d(player.cash_xgp))
         stress_before = int(player.stress or 0)
@@ -369,6 +577,7 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
         budget_pressure_score = _q4(_d(consumption_result["budget_pressure_score"]))
         stress_spend_modifier = _q4(_d(consumption_result["stress_spend_modifier"]))
         nutrition_pressure_score = _q4(_d(consumption_result["nutrition_pressure_score"]))
+        weekly_gas_expense = _money(WEEKLY_GAS_EXPENSE_XGP if int(settled_day) % 7 == 0 else Decimal("0.00"))
 
         cash_after_non_debt_costs = _money(
             max(
@@ -377,7 +586,7 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
                 - basket_spend
                 - housing_cost
                 - utilities_cost_daily
-                - commute_fuel_cost_xgp,
+                - weekly_gas_expense,
             )
         )
         debt_result = apply_daily_debt_and_credit(
@@ -712,12 +921,12 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
         distress_credit_after = int(financial_survival_credit_after)
         distress_credit_delta = int(financial_survival_credit_delta)
 
-        expenses = _money(
+        settlement_expenses = _money(
             basket_spend
             + debt_cash_deduction
             + housing_cost
             + utilities_cost_daily
-            + commute_fuel_cost_xgp
+            + weekly_gas_expense
             + medical_cost_xgp
             + missed_work_penalty_xgp
             + late_fee_xgp
@@ -726,7 +935,7 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
             + financial_survival_late_fee_non_debt_xgp
             + financial_survival_additional_required_paid_xgp
         )
-        ending_cash = _money(max(Decimal("0.00"), cash_before + shock_income_bonus - expenses))
+        ending_cash = _money(max(Decimal("0.00"), cash_before + shock_income_bonus - settlement_expenses))
         net_cash_delta = _money(ending_cash - cash_before)
         total_earned = _money(
             job_income
@@ -734,6 +943,40 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
             + business_net
             + shock_income_bonus
         )
+        settlement_breakdown = _build_settlement_breakdown(
+            settled_day=settled_day,
+            day_start_cash=day_start_cash,
+            ending_cash=ending_cash,
+            job_income=job_income,
+            side_income_net=side_income_net,
+            side_income_fuel_cost=side_income_fuel_cost,
+            side_income_wear_cost=side_income_wear_cost,
+            side_income_maintenance_cost=side_income_maintenance_cost,
+            business_revenue=business_revenue,
+            business_cogs=business_cogs,
+            business_overhead=business_overhead,
+            business_spoilage_loss=business_spoilage_loss,
+            business_fuel_cost=business_fuel_cost,
+            business_maintenance_cost=business_maintenance_cost,
+            stock_sale_income=stock_sale_income,
+            stock_fee=stock_fee,
+            basket_spend=basket_spend,
+            housing_cost_daily=housing_cost_daily,
+            utilities_cost_daily=utilities_cost_daily,
+            debt_cash_deduction=debt_cash_deduction,
+            accrued_interest_xgp=accrued_interest_xgp,
+            late_fee_xgp=late_fee_xgp,
+            financial_survival_late_fee_non_debt_xgp=financial_survival_late_fee_non_debt_xgp,
+            medical_cost_xgp=medical_cost_xgp,
+            missed_work_penalty_xgp=missed_work_penalty_xgp,
+            financial_survival_additional_required_paid_xgp=financial_survival_additional_required_paid_xgp,
+            commute_fuel_cost_xgp=commute_fuel_cost_xgp,
+            shock_income_bonus=shock_income_bonus,
+            shock_extra_expense=shock_extra_expense,
+        )
+        total_income = _money(_d(settlement_breakdown["total_income"]))
+        total_expense = _money(_d(settlement_breakdown["total_expense"]))
+        net_change = _money(_d(settlement_breakdown["net_change"]))
 
         stress_before = int(getattr(pds, "stress_start", stress_before))
         _base_stress_after = int(getattr(pds, "stress_end", player.stress or stress_before))
@@ -763,14 +1006,14 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
         player.work_actions_today = 0
         player.net_worth_xgp = _money(_d(player.cash_xgp) + _d(player.bank_savings_xgp) - _d(player.debt_xgp))
 
-        record_player_transaction(
+        settlement_txn = record_player_transaction(
             db,
             player=player,
             day=settled_day,
             transaction_type="settlement_adjustment",
             category="settlement",
             gross_amount=total_earned,
-            fee_amount=expenses,
+            fee_amount=settlement_expenses,
             net_cash_delta=net_cash_delta,
             resulting_cash_balance=ending_cash,
             metadata={
@@ -783,6 +1026,7 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
                 "housing_cost_xgp": float(housing_cost),
                 "utilities_cost_daily_xgp": float(utilities_cost_daily),
                 "commute_fuel_cost_xgp": float(commute_fuel_cost_xgp),
+                "weekly_gas_expense_xgp": float(weekly_gas_expense),
                 "medical_cost_xgp": float(medical_cost_xgp),
                 "missed_work_penalty_xgp": float(missed_work_penalty_xgp),
                 "late_fee_xgp": float(late_fee_xgp),
@@ -802,7 +1046,7 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
         pds.health_start = health_before
         pds.health_end = health_after
         pds.health_delta = health_change
-        pds.cash_start = cash_before
+        pds.cash_start = day_start_cash
         pds.cash_end = ending_cash
         pds.did_settlement = True
         pds.housing_cost_paid = housing_cost
@@ -843,19 +1087,19 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
         if guided_day_number == 1:
             guided_learning_title = "Learn the daily loop"
             guided_earned_summary = f"Your work and side actions created {float(_money(job_income + side_income_net + shock_income_bonus)):.2f} xgp today."
-            guided_spent_summary = f"Daily costs used {float(expenses):.2f} xgp across essentials, housing, debt, and other pressure."
+            guided_spent_summary = f"Daily costs used {float(total_expense):.2f} xgp across essentials, housing, debt, and other pressure."
             guided_change_summary = f"Settlement locked in a {float(_money(ending_cash - cash_before)):+.2f} xgp net result for the day."
             guided_watch_tomorrow = "Tomorrow, read the brief first, then make one clear move before ending the day."
         elif guided_day_number == 2:
             guided_learning_title = "Pressure is real"
             guided_earned_summary = f"You brought in {float(_money(job_income + side_income_net + business_net + shock_income_bonus)):.2f} xgp. Income now needs to beat daily pressure."
-            guided_spent_summary = f"Required and pressure costs used {float(expenses):.2f} xgp, with {float(financial_survival_required_daily_burden_xgp):.2f} xgp of daily burden in view."
+            guided_spent_summary = f"Required and pressure costs used {float(total_expense):.2f} xgp, with {float(financial_survival_required_daily_burden_xgp):.2f} xgp of daily burden in view."
             guided_change_summary = f"Payment pressure is {financial_survival_payment_pressure_label}; stress moved {stress_change:+d} and health moved {health_change:+d}."
             guided_watch_tomorrow = "Warnings matter now. Recover if pressure rises, then compare whether the safer path improved tomorrow."
         elif guided_day_number == 3:
             guided_learning_title = "Adapt to opportunity"
             guided_earned_summary = f"Today produced {float(_money(job_income + side_income_net + business_net + shock_income_bonus)):.2f} xgp of income across the options you chose."
-            guided_spent_summary = f"You spent {float(expenses):.2f} xgp, so every opportunity still had to respect cash safety and obligations."
+            guided_spent_summary = f"You spent {float(total_expense):.2f} xgp, so every opportunity still had to respect cash safety and obligations."
             guided_change_summary = f"The loop is now about adapting: net cash changed {float(_money(ending_cash - cash_before)):+.2f} xgp while pressure stayed {financial_survival_payment_pressure_label}."
             guided_watch_tomorrow = "Protect essentials first, then explore one business or stock signal only when the brief supports it."
 
@@ -880,8 +1124,8 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
                 "day_number": int(settled_day),
             },
             settlement_result={
-                "income_xgp": float(job_income),
-                "expenses_xgp": float(expenses),
+                "income_xgp": float(total_income),
+                "expenses_xgp": float(total_expense),
                 "payment_pressure_label": financial_survival_payment_pressure_label,
                 "stress_change": int(stress_change),
                 "health_change": int(health_change),
@@ -905,6 +1149,25 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
             player.net_worth_xgp = _money(
                 _d(player.cash_xgp) + _d(player.bank_savings_xgp) - _d(player.debt_xgp)
             )
+            total_income = _money(total_income + _streak_income_boost)
+            total_earned = _money(total_earned + _streak_income_boost)
+            net_change = _money(total_income - total_expense)
+            net_cash_delta = _money(ending_cash - cash_before)
+            _income_breakdown = settlement_breakdown.get("income_breakdown") or {}
+            _income_breakdown["other_income"] = _money(_d(_income_breakdown.get("other_income", 0)) + _streak_income_boost)
+            settlement_breakdown["income_breakdown"] = _income_breakdown
+            settlement_breakdown["total_income"] = total_income
+            settlement_breakdown["net_change"] = net_change
+            settlement_breakdown["ending_cash"] = _money(ending_cash)
+            settlement_txn.gross_amount = total_earned
+            settlement_txn.net_cash_delta = net_cash_delta
+            settlement_txn.resulting_cash_balance = ending_cash
+            try:
+                _txn_meta = json.loads(settlement_txn.metadata_json or "{}")
+            except Exception:
+                _txn_meta = {}
+            _txn_meta["streak_income_boost_xgp"] = float(_money(_streak_income_boost))
+            settlement_txn.metadata_json = json.dumps(_txn_meta)
         if _streak_stress_relief > 0:
             stress_after = _clamp_int(stress_after - _streak_stress_relief, 0, 100)
             stress_change = int(stress_after - stress_before)
@@ -936,6 +1199,24 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
         except Exception:
             pass  # non-fatal: columns may not exist on un-migrated schemas
 
+        income_breakdown_payload = {
+            key: float(_money(_d(value)))
+            for key, value in (settlement_breakdown.get("income_breakdown") or {}).items()
+        }
+        expense_breakdown_payload = {
+            key: float(_money(_d(value)))
+            for key, value in (settlement_breakdown.get("expense_breakdown") or {}).items()
+        }
+        cadence_audit_payload = dict(settlement_breakdown.get("cadence_audit") or {})
+        settlement_debug = {
+            "settlement_day_key": settlement_day_key,
+            "settlement_already_exists_for_day": bool(existing_log is not None or existing_log_count > 0),
+            "existing_settlement_count_for_day": int(existing_log_count),
+            "pds_already_settled": bool(pds_settled_before),
+            "last_settled_day_before": prior_last_settled_day,
+            "weekly_or_monthly_charge_flags": cadence_audit_payload,
+        }
+
         summary_payload = {
             "headline": f"Day {settled_day} settled.",
             "guided_day_number": guided_day_number,
@@ -944,9 +1225,30 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
             "guided_spent_summary": guided_spent_summary,
             "guided_change_summary": guided_change_summary,
             "guided_watch_tomorrow": guided_watch_tomorrow,
+            "starting_cash_xgp": float(day_start_cash),
+            "total_income_xgp": float(total_income),
+            "total_expense_xgp": float(total_expense),
+            "net_change_xgp": float(net_change),
+            "settlement_breakdown": {
+                "starting_cash": float(_money(_d(settlement_breakdown.get("starting_cash", 0)))),
+                "total_income": float(total_income),
+                "total_expense": float(total_expense),
+                "net_change": float(net_change),
+                "ending_cash": float(_money(_d(settlement_breakdown.get("ending_cash", ending_cash)))),
+                "income_breakdown": income_breakdown_payload,
+                "expense_breakdown": expense_breakdown_payload,
+                "biggest_expense_category": settlement_breakdown.get("biggest_expense_category", "none"),
+                "biggest_expense_value": float(
+                    _money(_d(settlement_breakdown.get("biggest_expense_value", 0)))
+                ),
+                "cadence_audit": cadence_audit_payload,
+            },
+            "settlement_debug": settlement_debug,
             "job_income_xgp": float(job_income),
             "side_income_net_xgp": float(side_income_net),
             "business_net_xgp": float(business_net),
+            "stock_sale_income_xgp": float(stock_sale_income),
+            "stock_fee_xgp": float(stock_fee),
             "business_revenue_xgp": float(business_revenue),
             "business_cogs_xgp": float(business_cogs),
             "business_overhead_xgp": float(business_overhead),
@@ -984,6 +1286,7 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
             "delinquency_flag": bool(delinquency_flag),
             "debt_cash_deduction_xgp": float(_money(debt_cash_deduction)),
             "debt_log_idempotent": debt_log_idempotent,
+            "weekly_gas_expense_xgp": float(weekly_gas_expense),
             "distress_state_before": distress_state_before,
             "distress_state_after": distress_state_after,
             "distress_score_before": float(distress_score_before),
@@ -1116,8 +1419,8 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
             health_after=health_after,
             cash_before=cash_before,
             cash_after=ending_cash,
-            income_xgp=job_income,
-            expenses_xgp=expenses,
+            income_xgp=total_income,
+            expenses_xgp=total_expense,
             side_income_net_xgp=side_income_net,
             business_revenue_xgp=business_revenue,
             business_cogs_xgp=business_cogs,
@@ -1175,16 +1478,51 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
             summary_json=json.dumps(summary_payload),
         )
         db.add(log)
+        db.flush()
+        summary_payload["settlement_debug"] = {
+            **(summary_payload.get("settlement_debug") or {}),
+            "settlement_log_id": str(log.id),
+            "settlement_day_number": int(settled_day),
+        }
+        log.summary_json = json.dumps(summary_payload)
+
+        if _should_emit_settlement_audit_debug(player.id, settled_day):
+            audit_payload = {
+                "player_id": str(player.id),
+                "settled_day": int(settled_day),
+                "settlement_day_key": settlement_day_key,
+                "settlement_already_existed_for_day": bool(existing_log is not None or existing_log_count > 0),
+                "starting_cash": float(day_start_cash),
+                "ending_cash": float(ending_cash),
+                "total_income": float(total_income),
+                "total_expense": float(total_expense),
+                "net_change": float(net_change),
+                "income_breakdown": income_breakdown_payload,
+                "expense_breakdown": expense_breakdown_payload,
+                "weekly_or_monthly_charge_flags": cadence_audit_payload,
+                "settlement_log_id": str(log.id),
+            }
+            logger.warning("Settlement audit debug: %s", json.dumps(audit_payload, sort_keys=True))
 
         db.commit()
 
         return {
             "player_id": str(player.id),
             "settled_day": int(settled_day),
-            "income_xgp": float(job_income),
-            "expenses_xgp": float(expenses),
+            "income_xgp": float(total_income),
+            "expenses_xgp": float(total_expense),
+            "total_income": float(total_income),
+            "total_expense": float(total_expense),
+            "net_change": float(net_change),
+            "ending_cash": float(ending_cash),
+            "income_breakdown": income_breakdown_payload,
+            "expense_breakdown": expense_breakdown_payload,
+            "settlement_breakdown": summary_payload.get("settlement_breakdown", {}),
+            "settlement_debug": summary_payload.get("settlement_debug", {}),
             "side_income_net_xgp": float(side_income_net),
             "business_net_xgp": float(business_net),
+            "stock_sale_income_xgp": float(stock_sale_income),
+            "stock_fee_xgp": float(stock_fee),
             "business_revenue_xgp": float(business_revenue),
             "business_cogs_xgp": float(business_cogs),
             "business_overhead_xgp": float(business_overhead),
@@ -1200,6 +1538,7 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
             "debt_payment_missed": bool(debt_payment_missed),
             "late_fee_xgp": float(late_fee_xgp),
             "accrued_interest_xgp": float(accrued_interest_xgp),
+            "weekly_gas_expense_xgp": float(weekly_gas_expense),
             "opening_debt_xgp": float(debt_before),
             "payment_due_xgp": float(payment_due),
             "payment_made_xgp": float(debt_paid),
@@ -1352,6 +1691,23 @@ def get_latest_settlement_summary(db: Session, player_id: str | UUID) -> dict:
         "day_number": int(log.day_number),
         "income_xgp": float(log.income_xgp),
         "expenses_xgp": float(log.expenses_xgp),
+        "total_income": float(summary_payload.get("total_income_xgp", _money(_d(log.income_xgp)))),
+        "total_expense": float(summary_payload.get("total_expense_xgp", _money(_d(log.expenses_xgp)))),
+        "net_change": float(
+            summary_payload.get(
+                "net_change_xgp",
+                _money(_d(getattr(log, "cash_after", 0)) - _d(summary_payload.get("starting_cash_xgp", getattr(log, "cash_before", 0)))),
+            )
+        ),
+        "ending_cash": float(_money(_d(getattr(log, "ending_cash_xgp", getattr(log, "cash_after", 0))))),
+        "income_breakdown": (
+            ((summary_payload.get("settlement_breakdown") or {}).get("income_breakdown") or {})
+        ),
+        "expense_breakdown": (
+            ((summary_payload.get("settlement_breakdown") or {}).get("expense_breakdown") or {})
+        ),
+        "settlement_breakdown": summary_payload.get("settlement_breakdown", {}),
+        "settlement_debug": summary_payload.get("settlement_debug", {}),
         "guided_day_number": int(summary_payload.get("guided_day_number", 0) or 0),
         "guided_learning_title": summary_payload.get("guided_learning_title"),
         "guided_earned_summary": summary_payload.get("guided_earned_summary"),
@@ -1360,6 +1716,8 @@ def get_latest_settlement_summary(db: Session, player_id: str | UUID) -> dict:
         "guided_watch_tomorrow": summary_payload.get("guided_watch_tomorrow"),
         "side_income_net_xgp": float(log.side_income_net_xgp),
         "business_net_xgp": float(summary_payload.get("business_net_xgp", 0.0)),
+        "stock_sale_income_xgp": float(summary_payload.get("stock_sale_income_xgp", 0.0)),
+        "stock_fee_xgp": float(summary_payload.get("stock_fee_xgp", 0.0)),
         "business_revenue_xgp": float(summary_payload.get("business_revenue_xgp", 0.0)),
         "business_cogs_xgp": float(summary_payload.get("business_cogs_xgp", 0.0)),
         "business_overhead_xgp": float(summary_payload.get("business_overhead_xgp", 0.0)),
@@ -1385,6 +1743,7 @@ def get_latest_settlement_summary(db: Session, player_id: str | UUID) -> dict:
         "accrued_interest_xgp": float(
             summary_payload.get("accrued_interest_xgp", _money(_d(getattr(log, "accrued_interest_xgp", 0))))
         ),
+        "weekly_gas_expense_xgp": float(summary_payload.get("weekly_gas_expense_xgp", 0.0)),
         "opening_debt_xgp": float(summary_payload.get("opening_debt_xgp", 0.0)),
         "payment_due_xgp": float(summary_payload.get("payment_due_xgp", 0.0)),
         "payment_made_xgp": float(summary_payload.get("payment_made_xgp", summary_payload.get("debt_paid_xgp", 0.0))),

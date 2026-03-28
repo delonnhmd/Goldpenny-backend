@@ -28,6 +28,7 @@ from app.services.basket_pricing_service import compute_daily_basket_price_updat
 from app.services.job_market_service import compute_daily_job_market_updates
 
 Q4 = Decimal("0.0001")
+MONEY_Q = Decimal("0.01")
 
 
 class DailyBriefError(Exception):
@@ -48,6 +49,10 @@ def _d(value: object) -> Decimal:
 
 def _q4(value: Decimal) -> Decimal:
     return value.quantize(Q4, rounding=ROUND_HALF_UP)
+
+
+def _money(value: Decimal) -> Decimal:
+    return value.quantize(MONEY_Q, rounding=ROUND_HALF_UP)
 
 
 def _resolve_player(db: Session, player_id: str | UUID) -> Player:
@@ -405,6 +410,39 @@ def generate_player_daily_brief(
             .first()
         )
         settlement_summary = _parse_json(settlement.summary_json if settlement else None, default={})
+        settlement_breakdown = settlement_summary.get("settlement_breakdown", {})
+        if not isinstance(settlement_breakdown, dict):
+            settlement_breakdown = {}
+        yesterday_income_total_xgp = _money(
+            _d(
+                settlement_breakdown.get(
+                    "total_income",
+                    settlement_summary.get("total_income_xgp", getattr(settlement, "income_xgp", 0) if settlement else 0),
+                )
+            )
+        )
+        yesterday_expense_total_xgp = _money(
+            _d(
+                settlement_breakdown.get(
+                    "total_expense",
+                    settlement_summary.get(
+                        "total_expense_xgp",
+                        getattr(settlement, "expenses_xgp", 0) if settlement else 0,
+                    ),
+                )
+            )
+        )
+        yesterday_net_change_xgp = _money(
+            _d(
+                settlement_breakdown.get(
+                    "net_change",
+                    settlement_summary.get("net_change_xgp", yesterday_income_total_xgp - yesterday_expense_total_xgp),
+                )
+            )
+        )
+        yesterday_biggest_expense_category = str(
+            settlement_breakdown.get("biggest_expense_category", "none") or "none"
+        )
 
         employment = (
             db.query(PlayerEmploymentState)
@@ -637,6 +675,10 @@ def generate_player_daily_brief(
             "biggest_pressure": biggest_pressure,
             "biggest_opportunity": biggest_opportunity,
             "system_changed_most": system_changed_most,
+            "yesterday_income_total_xgp": float(yesterday_income_total_xgp),
+            "yesterday_expense_total_xgp": float(yesterday_expense_total_xgp),
+            "yesterday_biggest_expense_category": yesterday_biggest_expense_category,
+            "yesterday_net_change_xgp": float(yesterday_net_change_xgp),
             "notable_signals": [
                 entry[1] for entry in sorted(pressures + opportunities, key=lambda x: x[0], reverse=True)[:4]
             ],
