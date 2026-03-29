@@ -170,6 +170,8 @@ def _run_schema_migrations() -> None:
         "ALTER TABLE player_employment_states ADD COLUMN IF NOT EXISTS employer_company_name VARCHAR(120)",
         "ALTER TABLE player_employment_states ADD COLUMN IF NOT EXISTS position_title VARCHAR(120)",
         "ALTER TABLE player_employment_states ADD COLUMN IF NOT EXISTS shift_type VARCHAR(40)",
+        "ALTER TABLE player_employment_states ADD COLUMN IF NOT EXISTS job_level_xp INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE player_employment_states ADD COLUMN IF NOT EXISTS job_level_xp_to_next INTEGER NOT NULL DEFAULT 100",
         # Step 11: business balancing metadata on business_types.
         "ALTER TABLE business_types ADD COLUMN fixed_overhead_xgp NUMERIC(10,2) NOT NULL DEFAULT 0",
         "ALTER TABLE business_types ADD COLUMN base_demand_factor NUMERIC(8,4) NOT NULL DEFAULT 1.0",

@@ -32,6 +32,7 @@ from app.engine.career_service import (
 from app.engine.economy_presentation_service import build_economy_presentation_summary
 from app.engine.rideshare_engine import process_rideshare_action
 from app.engine.work_engine import WorkEngine
+from app.models.game_state import GameState
 from app.models.player import Player
 from app.models.player_employment_state import PlayerEmploymentState
 from app.services.daily_brief_service import (
@@ -112,6 +113,84 @@ JOB_COMPANY_MAP: dict[str, dict[str, str]] = {
     "rideshare": {"symbol": "GP_TRANSPORT", "name": "GP Transport", "position": "Ride Share Driver"},
 }
 
+JOB_LEVEL_MAX = 40
+JOB_LEVEL_XP_BASE = 100
+JOB_LEVEL_XP_STEP = 20
+JOB_XP_PER_WORK_HOUR = 25
+JOB_SALARY_GROWTH_PER_LEVEL = Decimal("0.025")
+
+
+def _money_decimal(value: Any) -> Decimal:
+    return Decimal(str(value or 0)).quantize(Decimal("0.01"))
+
+
+def _xp_required_for_next_level(level: int) -> int:
+    safe_level = max(1, min(level, JOB_LEVEL_MAX))
+    return int(JOB_LEVEL_XP_BASE + ((safe_level - 1) * JOB_LEVEL_XP_STEP))
+
+
+def _latest_employment_state(db: Session, player_id: UUID) -> PlayerEmploymentState | None:
+    return (
+        db.query(PlayerEmploymentState)
+        .filter(PlayerEmploymentState.player_id == player_id)
+        .order_by(PlayerEmploymentState.day.desc(), PlayerEmploymentState.created_at.desc())
+        .first()
+    )
+
+
+def _latest_employment_state_for_job(
+    db: Session,
+    *,
+    player_id: UUID,
+    job_key: str,
+) -> PlayerEmploymentState | None:
+    return (
+        db.query(PlayerEmploymentState)
+        .filter(
+            PlayerEmploymentState.player_id == player_id,
+            func.lower(PlayerEmploymentState.current_job_code) == job_key.lower(),
+        )
+        .order_by(PlayerEmploymentState.day.desc(), PlayerEmploymentState.created_at.desc())
+        .first()
+    )
+
+
+def _base_monthly_pay_for_job(job_key: str) -> Decimal:
+    cfg = CAREER_CONFIG.get(job_key)
+    if cfg is not None:
+        return _money_decimal(cfg.base_pay_reference)
+    return _money_decimal(3200)
+
+
+def _build_job_progress_payload(
+    row: PlayerEmploymentState | None,
+    *,
+    fallback_job_key: str | None = None,
+    fallback_shift_type: str | None = None,
+) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    level = max(1, min(_safe_int(getattr(row, "skill_level", 1), 1), JOB_LEVEL_MAX))
+    xp = max(0, _safe_int(getattr(row, "job_level_xp", 0), 0))
+    xp_to_next = max(0, _safe_int(getattr(row, "job_level_xp_to_next", _xp_required_for_next_level(level)), 0))
+    if level >= JOB_LEVEL_MAX:
+        xp = 0
+        xp_to_next = 0
+
+    return {
+        "job_key": str(getattr(row, "current_job_code", None) or fallback_job_key or ""),
+        "job_level": level,
+        "skill_level": level,
+        "job_xp": xp,
+        "job_xp_to_next_level": xp_to_next,
+        "max_job_level": JOB_LEVEL_MAX,
+        "monthly_pay_xgp": _safe_float(getattr(row, "monthly_pay_xgp", 0), 0.0),
+        "employer_company_symbol": getattr(row, "employer_company_symbol", None),
+        "employer_company_name": getattr(row, "employer_company_name", None),
+        "position_title": getattr(row, "position_title", None),
+        "shift_type": str(getattr(row, "shift_type", None) or fallback_shift_type or "standard_shift"),
+    }
+
 
 def _normalize_shift_type(raw_shift: Any) -> str:
     key = str(raw_shift or "").strip().lower()
@@ -127,16 +206,18 @@ def _upsert_employment_foundation(
     settled_day: int,
     job_key: str | None,
     shift_type: str | None,
-) -> None:
+    grant_work_xp: int = 0,
+) -> dict[str, Any] | None:
     key = (job_key or "").strip().lower()
     if not key:
-        return
+        return None
 
     company = JOB_COMPANY_MAP.get(
         key,
         {"symbol": "GP_CONSUMER", "name": "Gold Penny Group", "position": key.replace("_", " ").title()},
     )
     normalized_shift = _normalize_shift_type(shift_type)
+    previous_for_job = _latest_employment_state_for_job(db, player_id=player.id, job_key=key)
 
     row = (
         db.query(PlayerEmploymentState)
@@ -151,18 +232,78 @@ def _upsert_employment_foundation(
             player_id=player.id,
             day=int(settled_day),
             current_job_code=key,
-            monthly_pay_xgp=Decimal("0.00"),
+            monthly_pay_xgp=_base_monthly_pay_for_job(key),
             employed_flag=True,
             job_status="employed",
         )
         db.add(row)
         db.flush()
 
+    base_level = max(
+        1,
+        min(
+            _safe_int(
+                getattr(previous_for_job, "skill_level", None),
+                _safe_int(getattr(player, "skill_level", None), 1),
+            ),
+            JOB_LEVEL_MAX,
+        ),
+    )
+    row.skill_level = base_level
+    row.job_level_xp = max(0, _safe_int(getattr(previous_for_job, "job_level_xp", None), 0))
+    row.job_level_xp_to_next = max(
+        0,
+        _safe_int(
+            getattr(previous_for_job, "job_level_xp_to_next", None),
+            _xp_required_for_next_level(base_level),
+        ),
+    )
+
     row.current_job_code = key
     row.position_title = company["position"]
     row.employer_company_symbol = company["symbol"]
     row.employer_company_name = company["name"]
     row.shift_type = normalized_shift
+    row.employed_flag = True
+    row.job_status = "employed"
+
+    earned_xp = max(0, int(grant_work_xp))
+    level = max(1, min(_safe_int(getattr(row, "skill_level", 1), 1), JOB_LEVEL_MAX))
+    xp = max(0, _safe_int(getattr(row, "job_level_xp", 0), 0))
+    xp_to_next = max(1, _safe_int(getattr(row, "job_level_xp_to_next", _xp_required_for_next_level(level)), 1))
+    leveled_up = False
+
+    while earned_xp > 0 and level < JOB_LEVEL_MAX:
+        needed = max(1, xp_to_next - xp)
+        if earned_xp >= needed:
+            earned_xp -= needed
+            level += 1
+            xp = 0
+            xp_to_next = _xp_required_for_next_level(level) if level < JOB_LEVEL_MAX else 0
+            leveled_up = True
+        else:
+            xp += earned_xp
+            earned_xp = 0
+
+    if level >= JOB_LEVEL_MAX:
+        level = JOB_LEVEL_MAX
+        xp = 0
+        xp_to_next = 0
+
+    row.skill_level = level
+    row.job_level_xp = xp
+    row.job_level_xp_to_next = xp_to_next
+    player.skill_level = max(_safe_int(getattr(player, "skill_level", 1), 1), level)
+
+    base_monthly_pay = _base_monthly_pay_for_job(key)
+    salary_multiplier = Decimal("1.00") + (Decimal(level - 1) * JOB_SALARY_GROWTH_PER_LEVEL)
+    row.monthly_pay_xgp = _money_decimal(base_monthly_pay * salary_multiplier)
+    if leveled_up:
+        row.last_employment_event = "level_up"
+    elif getattr(row, "last_employment_event", None) in (None, "", "none"):
+        row.last_employment_event = "work_progress"
+
+    return _build_job_progress_payload(row)
 
 def _resolve_player(db: Session, player_id: str) -> Player:
     raw_player_id = str(player_id or "").strip()
@@ -201,13 +342,18 @@ def _resolve_player(db: Session, player_id: str) -> Player:
 
 
 def _raise_gameplay_http_error(exc: Exception) -> None:
+    if isinstance(exc, HTTPException):
+        raise exc
+    if isinstance(exc, ValueError):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
     if isinstance(exc, (OnboardingNotFoundError, SettlementNotFoundError, DailyBriefNotFoundError, JobMarketNotFoundError)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     if isinstance(exc, (SettlementValidationError, CareerValidationError, JobMarketValidationError)):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
     if isinstance(exc, (DailySettlementError, OnboardingError, DailyBriefError, CareerError, JobMarketError)):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
-    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unexpected gameplay service error.")
+    detail = str(exc).strip() or "Unexpected gameplay service error."
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail)
 
 
 def _safe_float(value: Any, fallback: float = 0.0) -> float:
@@ -222,6 +368,33 @@ def _safe_int(value: Any, fallback: int = 0) -> int:
         return int(value)
     except Exception:
         return fallback
+
+
+def _current_game_day(db: Session) -> int:
+    state = db.query(GameState).order_by(GameState.id.asc()).first()
+    if state is None:
+        return 1
+    return max(1, _safe_int(getattr(state, "current_day", 1), 1))
+
+
+def _execution_state_snapshot(db: Session, player: Player) -> dict[str, Any]:
+    return {
+        "current_day": _current_game_day(db),
+        "last_settled_day": _safe_int(getattr(player, "last_settled_day", 0), 0),
+        "hours_available": _safe_int(getattr(player, "hours_available", getattr(player, "available_hours", 0)), 0),
+        "main_job_hours_today": _safe_int(getattr(player, "main_job_hours_today", 0), 0),
+        "side_job_hours_today": _safe_int(getattr(player, "side_job_hours_today", 0), 0),
+        "total_hours_worked_today": _safe_int(getattr(player, "total_hours_worked_today", 0), 0),
+        "work_actions_today": _safe_int(getattr(player, "work_actions_today", 0), 0),
+        "cash_xgp": _safe_float(getattr(player, "cash_xgp", getattr(player, "cash", 0)), 0),
+        "stress": _safe_int(getattr(player, "stress", 0), 0),
+        "health": _safe_int(getattr(player, "health", 100), 100),
+        "main_job": str(getattr(player, "main_job", None) or ""),
+    }
+
+
+def _work_xp_for_hours(hours_worked: int) -> int:
+    return max(5, int(max(1, hours_worked) * JOB_XP_PER_WORK_HOUR))
 
 
 def _is_new_player_first_session(player: Player) -> bool:
@@ -480,6 +653,12 @@ def get_gameplay_dashboard(player_id: str, db: Session = Depends(get_db)) -> dic
         or player.main_job
     )
     current_job = str(current_job).strip() if current_job else ""
+    employment_state = _latest_employment_state(db, player.id)
+    job_progress = _build_job_progress_payload(
+        employment_state,
+        fallback_job_key=current_job or None,
+        fallback_shift_type="standard_shift",
+    )
 
     player_warnings = ((economy_payload or {}).get("player_warnings") or [])[:3]
     player_opportunities = ((economy_payload or {}).get("player_opportunities") or [])[:3]
@@ -550,6 +729,7 @@ def get_gameplay_dashboard(player_id: str, db: Session = Depends(get_db)) -> dic
         "top_opportunities": top_opportunities,
         "top_risks": top_risks,
         "recommended_actions": recommended_actions,
+        "job_progress": job_progress,
         "debug_meta": {
             "new_player_first_session": is_first_session,
             "has_starter_job_selected": bool(current_job),
@@ -847,9 +1027,16 @@ def execute_gameplay_action(
     player = _resolve_player(db, player_id)
     action_key = str(body.action_key or "").strip().lower()
     params = body.parameters or {}
+    execution_state = _execution_state_snapshot(db, player)
     logger.info(
         "gameplay.actions.execute request received.",
-        extra={"player_id": player_id, "action_key": action_key},
+        extra={
+            "requested_player_id": player_id,
+            "resolved_player_id": str(player.id),
+            "action_key": action_key,
+            "action_payload": params,
+            "execution_state": execution_state,
+        },
     )
 
     if action_key == "switch_job":
@@ -859,7 +1046,7 @@ def execute_gameplay_action(
         shift_type = _normalize_shift_type(params.get("shift_type"))
         try:
             result = switch_player_job(db, player_id, target)
-            _upsert_employment_foundation(
+            job_progress = _upsert_employment_foundation(
                 db,
                 player=player,
                 settled_day=max(1, _safe_int(getattr(player, "last_settled_day", None), 0) + 1),
@@ -867,6 +1054,14 @@ def execute_gameplay_action(
                 shift_type=shift_type,
             )
             db.commit()
+            logger.info(
+                "gameplay.actions.execute switch_job succeeded.",
+                extra={
+                    "player_id": str(player.id),
+                    "target_job": target,
+                    "job_progress": job_progress,
+                },
+            )
             return {
                 "player_id": str(player.id),
                 "action_key": action_key,
@@ -883,10 +1078,20 @@ def execute_gameplay_action(
                     "employer_company_name": JOB_COMPANY_MAP.get(target, {}).get("name"),
                     "position_title": JOB_COMPANY_MAP.get(target, {}).get("position"),
                     "shift_type": shift_type,
+                    "job_progress": job_progress,
                 },
             }
         except Exception as exc:
             db.rollback()
+            logger.exception(
+                "gameplay.actions.execute switch_job failed.",
+                extra={
+                    "player_id": str(player.id),
+                    "requested_player_id": player_id,
+                    "target_job": target,
+                    "action_payload": params,
+                },
+            )
             _raise_gameplay_http_error(exc)
 
     if action_key == "work_shift":
@@ -899,12 +1104,24 @@ def execute_gameplay_action(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Choose a job before running work_shift.")
         try:
             result = _work_engine.process_work_action(db=db, player=player, job_name=job_name, hours_worked=hours_worked)
-            _upsert_employment_foundation(
+            job_progress = _upsert_employment_foundation(
                 db,
                 player=player,
                 settled_day=max(1, _safe_int(getattr(player, "last_settled_day", None), 0) + 1),
                 job_key=job_name,
                 shift_type=shift_type,
+                grant_work_xp=_work_xp_for_hours(result.hours_worked),
+            )
+            db.commit()
+            logger.info(
+                "gameplay.actions.execute work_shift succeeded.",
+                extra={
+                    "player_id": str(player.id),
+                    "job_name": job_name,
+                    "hours_worked": result.hours_worked,
+                    "earned_cash": _safe_float(result.earned_cash),
+                    "job_progress": job_progress,
+                },
             )
             return {
                 "player_id": str(player.id),
@@ -926,11 +1143,31 @@ def execute_gameplay_action(
                     "shift_label": shift_profile["label"],
                     "employer_company_symbol": JOB_COMPANY_MAP.get(job_name, {}).get("symbol"),
                     "employer_company_name": JOB_COMPANY_MAP.get(job_name, {}).get("name"),
+                    "job_progress": job_progress,
                 },
             }
         except ValueError as exc:
+            logger.warning(
+                "gameplay.actions.execute work_shift rejected.",
+                extra={
+                    "player_id": str(player.id),
+                    "job_name": job_name,
+                    "hours_worked": hours_worked,
+                    "reason": str(exc),
+                },
+            )
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
         except Exception as exc:
+            db.rollback()
+            logger.exception(
+                "gameplay.actions.execute work_shift failed.",
+                extra={
+                    "player_id": str(player.id),
+                    "job_name": job_name,
+                    "hours_worked": hours_worked,
+                    "action_payload": params,
+                },
+            )
             _raise_gameplay_http_error(exc)
 
     if action_key == "study":
@@ -962,6 +1199,16 @@ def execute_gameplay_action(
         hours_worked = max(1, min(6, _safe_int(params.get("hours_worked"), 2)))
         try:
             result = process_rideshare_action(db=db, player=player, hours_worked=float(hours_worked))
+            logger.info(
+                "gameplay.actions.execute side_income succeeded.",
+                extra={
+                    "player_id": str(player.id),
+                    "hours_worked": hours_worked,
+                    "net_income_xgp": _safe_float(result.get("net_income_xgp")),
+                    "stress_change": _safe_int(result.get("stress_change")),
+                    "health_change": _safe_int(result.get("health_change")),
+                },
+            )
             return {
                 "player_id": str(player.id),
                 "action_key": action_key,
@@ -974,7 +1221,25 @@ def execute_gameplay_action(
                 "health_delta": _safe_int(result.get("health_change")),
                 "raw_result": result,
             }
+        except ValueError as exc:
+            logger.warning(
+                "gameplay.actions.execute side_income rejected.",
+                extra={
+                    "player_id": str(player.id),
+                    "hours_worked": hours_worked,
+                    "reason": str(exc),
+                },
+            )
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
         except Exception as exc:
+            logger.exception(
+                "gameplay.actions.execute side_income failed.",
+                extra={
+                    "player_id": str(player.id),
+                    "hours_worked": hours_worked,
+                    "action_payload": params,
+                },
+            )
             _raise_gameplay_http_error(exc)
 
     if action_key == "rest":

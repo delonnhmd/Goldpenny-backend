@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Optional
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
 from pydantic import BaseModel, Field
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.api.auth import get_current_user
+from app.api.auth import ALGORITHM, SECRET_KEY, get_current_user
 from app.db.database import get_db
 from app.engine.daily_engine import get_or_create_game_state
 from app.engine.rideshare_engine import (
@@ -21,6 +26,8 @@ from app.models.side_income_action import SideIncomeAction
 from app.models.user import User
 
 router = APIRouter(prefix="/side-income", tags=["Side Income"])
+logger = logging.getLogger(__name__)
+_optional_oauth2 = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 
 
 class SideIncomeOption(BaseModel):
@@ -37,6 +44,7 @@ class SideIncomeOptionsResponse(BaseModel):
 
 class RideShareRequest(BaseModel):
     hours_worked: float = Field(..., gt=0, description="Ride-share hours to work.")
+    player_id: str | None = Field(default=None, description="Gameplay player id or display_name alias.")
 
 
 class RideShareResponse(BaseModel):
@@ -98,6 +106,41 @@ def _get_player_or_404(db: Session, user: User) -> Player:
     return player
 
 
+def _resolve_player_by_identifier(db: Session, player_id: str) -> Player | None:
+    raw = str(player_id or "").strip()
+    if not raw:
+        return None
+
+    try:
+        pid = UUID(raw)
+        player = db.query(Player).filter(Player.id == pid).first()
+        if player is not None:
+            return player
+    except ValueError:
+        pass
+
+    return (
+        db.query(Player)
+        .filter(func.lower(Player.display_name) == raw.lower())
+        .order_by(Player.created_at.asc())
+        .first()
+    )
+
+
+def _resolve_user_from_token(db: Session, token: str | None) -> User | None:
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id_raw = payload.get("sub")
+        if not user_id_raw:
+            return None
+        user_id = UUID(str(user_id_raw))
+    except (JWTError, ValueError):
+        return None
+    return db.query(User).filter(User.id == user_id).first()
+
+
 @router.get("/options", response_model=SideIncomeOptionsResponse)
 def get_side_income_options() -> SideIncomeOptionsResponse:
     return SideIncomeOptionsResponse(
@@ -120,9 +163,50 @@ def get_side_income_options() -> SideIncomeOptionsResponse:
 def run_rideshare_action(
     payload: RideShareRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    auth_token: str | None = Depends(_optional_oauth2),
+    x_player_id: str | None = Header(default=None, alias="X-Player-Id"),
 ) -> RideShareResponse:
-    player = _get_player_or_404(db, current_user)
+    identity_source = "none"
+    player: Player | None = None
+
+    requested_player_id = str(payload.player_id or x_player_id or "").strip()
+    if requested_player_id:
+        player = _resolve_player_by_identifier(db, requested_player_id)
+        identity_source = "player_id"
+
+    if player is None:
+        user = _resolve_user_from_token(db, auth_token)
+        if user is not None:
+            player = _get_player_or_404(db, user)
+            identity_source = "bearer_token"
+
+    if player is None:
+        logger.warning(
+            "side_income.rideshare unauthorized request.",
+            extra={
+                "identity_source": identity_source,
+                "payload_player_id": payload.player_id,
+                "header_player_id": x_player_id,
+                "has_bearer_token": bool(auth_token),
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated. Provide player_id in body/header or a valid bearer token.",
+        )
+
+    game_state = get_or_create_game_state(db)
+    logger.info(
+        "side_income.rideshare request resolved.",
+        extra={
+            "player_id": str(player.id),
+            "identity_source": identity_source,
+            "hours_worked": payload.hours_worked,
+            "current_day": int(game_state.current_day),
+            "last_settled_day": int(getattr(player, "last_settled_day", 0) or 0),
+            "hours_available": int(getattr(player, "hours_available", 0) or 0),
+        },
+    )
 
     try:
         result = process_rideshare_action(
@@ -131,7 +215,26 @@ def run_rideshare_action(
             hours_worked=payload.hours_worked,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        logger.warning(
+            "side_income.rideshare request rejected.",
+            extra={
+                "player_id": str(player.id),
+                "identity_source": identity_source,
+                "hours_worked": payload.hours_worked,
+                "reason": str(exc),
+            },
+        )
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    except Exception:
+        logger.exception(
+            "side_income.rideshare request failed unexpectedly.",
+            extra={
+                "player_id": str(player.id),
+                "identity_source": identity_source,
+                "hours_worked": payload.hours_worked,
+            },
+        )
+        raise
 
     return RideShareResponse(message="Ride share completed", **result)
 

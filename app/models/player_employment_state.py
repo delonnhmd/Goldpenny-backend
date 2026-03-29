@@ -50,6 +50,11 @@ class PlayerEmploymentState(Base):
     employer_company_name = Column(String(120), nullable=True)
     position_title = Column(String(120), nullable=True)
     shift_type = Column(String(40), nullable=True)
+    # Step 79 foundation: explicit job-level progression track.
+    # job_level_xp: current XP progress inside the current level.
+    # job_level_xp_to_next: XP needed to reach the next level.
+    job_level_xp = Column(Integer, nullable=False, default=0)
+    job_level_xp_to_next = Column(Integer, nullable=False, default=100)
 
     created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
