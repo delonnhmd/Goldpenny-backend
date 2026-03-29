@@ -1,29 +1,42 @@
-# Environment variables — never commit secrets
+# --- Env files ---
 .env
 .env.*
 !.env.example
+backend/.env
+expo/.env
+expo/.env.local
+expo/.env.*.local
 
-# Python
+# --- Python / backend ---
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
 .Python
 *.egg-info/
-dist/
-build/
-.venv/
-venv/
-env/
-
-# Alembic
-alembic/versions/__pycache__/
-
-# Test cache
 .pytest_cache/
 .coverage
 htmlcov/
+backend/.venv/
+backend/venv/
+backend/env/
+backend/alembic/versions/__pycache__/
 
-# OS
+# --- Node / Expo ---
+expo/node_modules/
+expo/.expo/
+expo/dist/
+expo/web-build/
+expo/.metro-health-check*
+expo/*.tsbuildinfo
+
+# --- Build / native artifacts ---
+expo/android/.gradle/
+expo/android/app/build/
+expo/android/build/
+expo/ios/
+
+# --- OS/editor ---
 .DS_Store
 Thumbs.db
+.vscode/

@@ -1,0 +1,1 @@
+export { default, IconSymbol } from './icon-symbol.android';
