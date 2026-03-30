@@ -19,6 +19,7 @@ import {
   ActionPreviewResponse,
   ActionRecommendationState,
   ConfidenceLevel,
+  CompletedShiftSnapshot,
   DailyActionHubResponse,
   DailyActionItem,
   EndDayResponse,
@@ -31,6 +32,7 @@ import {
   TransactionHistoryResponse,
   TrendDirection,
   WeeklyPlayerSummaryResponse,
+  WorkStateSnapshot,
 } from '@/types/gameplay';
 
 
@@ -171,6 +173,13 @@ function normalizeDashboard(raw: Record<string, unknown>, playerId: string): Pla
     : Array.isArray(raw.action_hints_json)
       ? raw.action_hints_json
       : [];
+  const workState = normalizeWorkState(
+    raw.work_state
+      ?? ((raw.debug_meta && typeof raw.debug_meta === 'object')
+        ? (raw.debug_meta as Record<string, unknown>).work_state
+        : null),
+    playerId,
+  );
 
   return {
     player_id: toString(raw.player_id, playerId),
@@ -240,6 +249,7 @@ function normalizeDashboard(raw: Record<string, unknown>, playerId: string): Pla
         shift_type: toString(jobProgressRaw.shift_type, ''),
       }
       : null,
+    work_state: workState,
     debug_meta: (raw.debug_meta as Record<string, unknown>) || {},
   };
 }
@@ -248,6 +258,8 @@ function normalizeActionHub(raw: Record<string, unknown>, playerId: string): Dai
   const recommendedRaw = Array.isArray(raw.recommended_actions) ? raw.recommended_actions : [];
   const availableRaw = Array.isArray(raw.available_actions) ? raw.available_actions : [];
   const blockedRaw = Array.isArray(raw.blocked_actions) ? raw.blocked_actions : [];
+  const debugMeta = (raw.debug_meta as Record<string, unknown>) || {};
+  const workState = normalizeWorkState(raw.work_state ?? debugMeta.work_state, playerId);
 
   return {
     player_id: toString(raw.player_id, playerId),
@@ -261,7 +273,49 @@ function normalizeActionHub(raw: Record<string, unknown>, playerId: string): Dai
     next_risk_warnings: Array.isArray(raw.next_risk_warnings)
       ? raw.next_risk_warnings.map((entry) => toString(entry))
       : [],
-    debug_meta: (raw.debug_meta as Record<string, unknown>) || {},
+    work_state: workState,
+    debug_meta: debugMeta,
+  };
+}
+
+function normalizeCompletedShift(raw: unknown): CompletedShiftSnapshot {
+  const obj = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  return {
+    earned_cash_xgp: normalizeMoneyValue(obj.earned_cash_xgp, { allowNegative: true, fallback: 0 }),
+    xp_gained: Math.max(0, Math.round(toNumber(obj.xp_gained, 0))),
+    stress_change: clampDeltaRange(obj.stress_change, { min: -100, max: 100, fallback: 0 }),
+    health_change: clampDeltaRange(obj.health_change, { min: -100, max: 100, fallback: 0 }),
+  };
+}
+
+function normalizeWorkState(raw: unknown, playerId: string): WorkStateSnapshot | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  return {
+    player_id: toString(obj.player_id, playerId),
+    current_houston_time: toString(obj.current_houston_time, ''),
+    current_game_day: normalizeCurrentDay(obj.current_game_day ?? obj.current_day, 1),
+    day_settled: Boolean(obj.day_settled),
+    shift_status: toString(obj.shift_status, 'idle'),
+    main_shift_active_flag: Boolean(obj.main_shift_active_flag),
+    shift_started_at: obj.shift_started_at == null ? null : toString(obj.shift_started_at, ''),
+    shift_ends_at: obj.shift_ends_at == null ? null : toString(obj.shift_ends_at, ''),
+    shift_completed_at: obj.shift_completed_at == null ? null : toString(obj.shift_completed_at, ''),
+    shift_job_name: obj.shift_job_name == null ? null : toString(obj.shift_job_name, ''),
+    shift_type: obj.shift_type == null ? null : toString(obj.shift_type, ''),
+    shift_hours: Math.max(0, Math.round(toNumber(obj.shift_hours, 0))),
+    shift_number: Math.max(0, Math.round(toNumber(obj.shift_number, 0))),
+    shift_expired: Boolean(obj.shift_expired),
+    shift_found: Boolean(obj.shift_found),
+    hours_available: Math.max(0, Math.round(toNumber(obj.hours_available, 0))),
+    main_shift_hours_today: normalizeFiniteNumber(obj.main_shift_hours_today, { fallback: 0 }),
+    side_income_hours_today: normalizeFiniteNumber(obj.side_income_hours_today, { fallback: 0 }),
+    recovery_hours_today: normalizeFiniteNumber(obj.recovery_hours_today, { fallback: 0 }),
+    total_time_used_today: normalizeFiniteNumber(obj.total_time_used_today, { fallback: 0 }),
+    last_completed_shift: normalizeCompletedShift(obj.last_completed_shift),
+    rideshare_unlocked: Boolean(obj.rideshare_unlocked),
+    rideshare_available: Boolean(obj.rideshare_available),
+    remaining_side_income_hours_today: normalizeFiniteNumber(obj.remaining_side_income_hours_today, { fallback: 0 }),
   };
 }
 
@@ -505,6 +559,22 @@ export async function getPlayerActions(playerId: string): Promise<DailyActionHub
       debug_meta: { source: 'brief_fallback' },
     };
   }
+}
+
+export async function getPlayerWorkState(playerId: string): Promise<WorkStateSnapshot | null> {
+  const path = `/gameplay/player/${playerId}/work-state`;
+  logCanonicalRoute('work_state', playerId, path);
+  const raw = await fetchApi<Record<string, unknown>>(path);
+  return normalizeWorkState(raw, playerId);
+}
+
+export async function finalizePlayerWorkState(playerId: string): Promise<WorkStateSnapshot | null> {
+  const path = `/gameplay/player/${playerId}/work-state/finalize`;
+  logCanonicalRoute('work_state_finalize', playerId, path);
+  const raw = await fetchApi<Record<string, unknown>>(path, {
+    method: 'POST',
+  });
+  return normalizeWorkState(raw, playerId);
 }
 
 export async function previewPlayerAction(
@@ -775,23 +845,37 @@ export async function executeAction(
   }
 
   if (canonical === 'side_income') {
+    const requestedTripsRaw = Math.round(toNumber(params.trips, toNumber(params.trip_count, 1)));
+    const requestedTrips = requestedTripsRaw === 3 || requestedTripsRaw === 5 ? requestedTripsRaw : 1;
     const raw = await fetchApiWithFallback<Record<string, unknown>>(
       [`/side-income/rideshare`],
       {
         method: 'POST',
         body: JSON.stringify({
           player_id: playerId,
-          hours_worked: Math.max(1, Math.min(8, toNumber(params.hours_worked, 3))),
+          trips: requestedTrips,
+          hours_worked: Math.max(1, Math.min(8, toNumber(params.hours_worked, requestedTrips))),
+          on_shift: Boolean(params.on_shift),
         }),
       },
     );
+    const earned = normalizeMoneyValue(
+      raw.earned ?? raw.net_income_xgp ?? raw.cash_delta_xgp,
+      { allowNegative: true, fallback: 0 },
+    );
+    const shapedRaw: Record<string, unknown> = {
+      ...raw,
+      cash_delta_xgp: earned,
+      stress_delta: toNumber(raw.stress_change ?? raw.stress_delta, 0),
+      health_delta: toNumber(raw.health_change ?? raw.health_delta, 0),
+    };
     return executionResponseBase(
       playerId,
       canonical,
       toString(raw.message, 'Rideshare completed'),
       toString(raw.message, 'Side-income action applied.'),
-      toNumber(params.time_cost_units, 3),
-      raw,
+      toNumber(raw.time_used, toNumber(raw.trips, toNumber(params.time_cost_units, requestedTrips))),
+      shapedRaw,
     );
   }
 

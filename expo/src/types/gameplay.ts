@@ -43,6 +43,40 @@ export interface JobProgressSnapshot {
   shift_type?: string | null;
 }
 
+export interface CompletedShiftSnapshot {
+  earned_cash_xgp: number;
+  xp_gained: number;
+  stress_change: number;
+  health_change: number;
+}
+
+export interface WorkStateSnapshot {
+  player_id: string;
+  current_houston_time: string;
+  current_game_day: number;
+  day_settled: boolean;
+  shift_status: 'idle' | 'active' | 'completed' | string;
+  main_shift_active_flag: boolean;
+  shift_started_at?: string | null;
+  shift_ends_at?: string | null;
+  shift_completed_at?: string | null;
+  shift_job_name?: string | null;
+  shift_type?: string | null;
+  shift_hours: number;
+  shift_number: number;
+  shift_expired: boolean;
+  shift_found: boolean;
+  hours_available: number;
+  main_shift_hours_today: number;
+  side_income_hours_today: number;
+  recovery_hours_today: number;
+  total_time_used_today: number;
+  last_completed_shift: CompletedShiftSnapshot;
+  rideshare_unlocked: boolean;
+  rideshare_available: boolean;
+  remaining_side_income_hours_today: number;
+}
+
 export interface DashboardStateCard {
   title: string;
   summary: string;
@@ -75,6 +109,7 @@ export interface PlayerDashboardResponse {
   top_risks: DashboardSignalItem[];
   recommended_actions: ActionRecommendation[];
   job_progress?: JobProgressSnapshot | null;
+  work_state?: WorkStateSnapshot | null;
   debug_meta?: Record<string, unknown>;
 }
 
@@ -100,6 +135,7 @@ export interface DailyActionHubResponse {
   blocked_actions: DailyActionItem[];
   top_tradeoffs: string[];
   next_risk_warnings: string[];
+  work_state?: WorkStateSnapshot | null;
   debug_meta?: Record<string, unknown>;
 }
 
@@ -234,6 +270,7 @@ export interface DailyActionHistoryEntry {
     stress_delta?: number;
     health_delta?: number;
   };
+  raw_result?: Record<string, unknown>;
 }
 
 export interface ActionExecutionResponse {

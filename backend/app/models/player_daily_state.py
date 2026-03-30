@@ -136,6 +136,7 @@ class PlayerDailyState(Base):
     # Step 8: side-income totals for the current day.
     # Ride share is a flexible emergency income system: it trades time and
     # wellbeing for money. These values accumulate across multiple actions.
+    main_shift_hours_today = Column(Numeric(12, 4), nullable=False, default=0)
     side_income_hours = Column(Numeric(12, 4), nullable=False, default=0)
     side_income_gross_xgp = Column(Numeric(14, 4), nullable=False, default=0)
     side_income_fuel_cost_xgp = Column(Numeric(14, 4), nullable=False, default=0)
@@ -204,6 +205,9 @@ class PlayerDailyState(Base):
     end_cash_xgp = synonym("cash_end")
     end_stress = synonym("stress_end")
     end_health = synonym("health_end")
+    side_income_hours_today = synonym("side_income_hours")
+    recovery_hours_today = synonym("recovery_hours")
+    total_time_used_today = synonym("total_hours_used")
 
     # Free-form notes for debugging / audit.
     notes = Column(Text, nullable=True)

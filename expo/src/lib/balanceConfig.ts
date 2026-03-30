@@ -11,7 +11,7 @@ export const BALANCE = {
   // ─── Time cost per action type (units consumed per use) ───────────────────────
   ACTION_TIME_COST: {
     work_shift: 3,       // heavy — takes most of a half-day slot
-    side_income: 3,
+    side_income: 1,
     operate_business: 2,
     buy_inventory: 1,
     rest: 2,
@@ -26,7 +26,7 @@ export const BALANCE = {
   // Caps are the primary guard against action spam.
   ACTION_CAPS: {
     work_shift: 2,        // max 2 × 3 = 6 units per day on work
-    side_income: 2,
+    side_income: 6,
     operate_business: 1,
     buy_inventory: 2,
     rest: 2,
@@ -75,7 +75,7 @@ export const BALANCE = {
     MIN_CREDIT_SCORE: 300,
     MAX_CREDIT_SCORE: 850,
     MIN_TIME_COST_UNITS: 1,
-    MAX_TIME_COST_UNITS: 4,
+    MAX_TIME_COST_UNITS: 8,
     MAX_GAME_DAY: 36500,
     MAX_NET_CASHFLOW_MISMATCH_XGP: 1000,
   },

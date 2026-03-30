@@ -31,10 +31,8 @@ from app.engine.career_service import (
 )
 from app.engine.economy_presentation_service import build_economy_presentation_summary
 from app.engine.rideshare_engine import process_rideshare_action
-from app.engine.work_engine import WorkEngine
 from app.models.game_state import GameState
 from app.models.player import Player
-from app.models.player_employment_state import PlayerEmploymentState
 from app.services.daily_brief_service import (
     DailyBriefError,
     DailyBriefNotFoundError,
@@ -58,11 +56,25 @@ from app.services.player_onboarding_service import (
     OnboardingNotFoundError,
     get_playable_player_summary,
 )
+from app.services.job_progress_service import (
+    JOB_COMPANY_MAP,
+    SHIFT_PROFILES,
+    build_job_progress_payload,
+    latest_employment_state,
+    normalize_shift_type,
+    upsert_employment_foundation,
+)
+from app.services.shift_state_service import (
+    SHIFT_STATUS_ACTIVE,
+    build_work_state_payload,
+    finalize_active_main_shift,
+    resolve_expired_shift_if_needed,
+    start_main_shift,
+)
 from app.services.player_transaction_log_service import list_recent_player_transactions
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-_work_engine = WorkEngine()
 
 
 class GameplayActionRequest(BaseModel):
@@ -78,232 +90,8 @@ class GameplayActionPreviewRequest(BaseModel):
 class EndOfDaySummaryAckRequest(BaseModel):
     day_number: int | None = None
 
-
-SHIFT_PROFILES: dict[str, dict[str, Any]] = {
-    "morning_shift": {
-        "label": "Morning Shift",
-        "window": "5:00-13:00",
-        "hours_worked": 4,
-        "stress_modifier": 0.9,
-        "health_modifier": 1.05,
-    },
-    "standard_shift": {
-        "label": "Standard Shift",
-        "window": "9:00-17:00",
-        "hours_worked": 6,
-        "stress_modifier": 1.0,
-        "health_modifier": 1.0,
-    },
-    "long_shift": {
-        "label": "Long Shift",
-        "window": "9:00-21:00",
-        "hours_worked": 8,
-        "stress_modifier": 1.2,
-        "health_modifier": 0.9,
-    },
-}
-
-JOB_COMPANY_MAP: dict[str, dict[str, str]] = {
-    "auto_mechanic": {"symbol": "GP_AUTO", "name": "GP Auto", "position": "Auto Mechanic"},
-    "aircraft_mechanic": {"symbol": "GP_TRANSPORT", "name": "GP Transport", "position": "Aircraft Mechanic"},
-    "banker": {"symbol": "GP_BANK", "name": "GP Bank", "position": "Junior Banker"},
-    "chef": {"symbol": "GP_CONSUMER", "name": "GP Consumer", "position": "Kitchen Lead"},
-    "retail_worker": {"symbol": "GP_RETAIL", "name": "GP Retail", "position": "Retail Associate"},
-    "delivery_driver": {"symbol": "GP_TRANSPORT", "name": "GP Transport", "position": "Delivery Driver"},
-    "rideshare": {"symbol": "GP_TRANSPORT", "name": "GP Transport", "position": "Ride Share Driver"},
-}
-
-JOB_LEVEL_MAX = 40
-JOB_LEVEL_XP_BASE = 100
-JOB_LEVEL_XP_STEP = 20
-JOB_XP_PER_WORK_HOUR = 25
-JOB_SALARY_GROWTH_PER_LEVEL = Decimal("0.025")
-
-
 def _money_decimal(value: Any) -> Decimal:
     return Decimal(str(value or 0)).quantize(Decimal("0.01"))
-
-
-def _xp_required_for_next_level(level: int) -> int:
-    safe_level = max(1, min(level, JOB_LEVEL_MAX))
-    return int(JOB_LEVEL_XP_BASE + ((safe_level - 1) * JOB_LEVEL_XP_STEP))
-
-
-def _latest_employment_state(db: Session, player_id: UUID) -> PlayerEmploymentState | None:
-    return (
-        db.query(PlayerEmploymentState)
-        .filter(PlayerEmploymentState.player_id == player_id)
-        .order_by(PlayerEmploymentState.day.desc(), PlayerEmploymentState.created_at.desc())
-        .first()
-    )
-
-
-def _latest_employment_state_for_job(
-    db: Session,
-    *,
-    player_id: UUID,
-    job_key: str,
-) -> PlayerEmploymentState | None:
-    return (
-        db.query(PlayerEmploymentState)
-        .filter(
-            PlayerEmploymentState.player_id == player_id,
-            func.lower(PlayerEmploymentState.current_job_code) == job_key.lower(),
-        )
-        .order_by(PlayerEmploymentState.day.desc(), PlayerEmploymentState.created_at.desc())
-        .first()
-    )
-
-
-def _base_monthly_pay_for_job(job_key: str) -> Decimal:
-    cfg = CAREER_CONFIG.get(job_key)
-    if cfg is not None:
-        return _money_decimal(cfg.base_pay_reference)
-    return _money_decimal(3200)
-
-
-def _build_job_progress_payload(
-    row: PlayerEmploymentState | None,
-    *,
-    fallback_job_key: str | None = None,
-    fallback_shift_type: str | None = None,
-) -> dict[str, Any] | None:
-    if row is None:
-        return None
-    level = max(1, min(_safe_int(getattr(row, "skill_level", 1), 1), JOB_LEVEL_MAX))
-    xp = max(0, _safe_int(getattr(row, "job_level_xp", 0), 0))
-    xp_to_next = max(0, _safe_int(getattr(row, "job_level_xp_to_next", _xp_required_for_next_level(level)), 0))
-    if level >= JOB_LEVEL_MAX:
-        xp = 0
-        xp_to_next = 0
-
-    return {
-        "job_key": str(getattr(row, "current_job_code", None) or fallback_job_key or ""),
-        "job_level": level,
-        "skill_level": level,
-        "job_xp": xp,
-        "job_xp_to_next_level": xp_to_next,
-        "max_job_level": JOB_LEVEL_MAX,
-        "monthly_pay_xgp": _safe_float(getattr(row, "monthly_pay_xgp", 0), 0.0),
-        "employer_company_symbol": getattr(row, "employer_company_symbol", None),
-        "employer_company_name": getattr(row, "employer_company_name", None),
-        "position_title": getattr(row, "position_title", None),
-        "shift_type": str(getattr(row, "shift_type", None) or fallback_shift_type or "standard_shift"),
-    }
-
-
-def _normalize_shift_type(raw_shift: Any) -> str:
-    key = str(raw_shift or "").strip().lower()
-    if key in SHIFT_PROFILES:
-        return key
-    return "standard_shift"
-
-
-def _upsert_employment_foundation(
-    db: Session,
-    *,
-    player: Player,
-    settled_day: int,
-    job_key: str | None,
-    shift_type: str | None,
-    grant_work_xp: int = 0,
-) -> dict[str, Any] | None:
-    key = (job_key or "").strip().lower()
-    if not key:
-        return None
-
-    company = JOB_COMPANY_MAP.get(
-        key,
-        {"symbol": "GP_CONSUMER", "name": "Gold Penny Group", "position": key.replace("_", " ").title()},
-    )
-    normalized_shift = _normalize_shift_type(shift_type)
-    previous_for_job = _latest_employment_state_for_job(db, player_id=player.id, job_key=key)
-
-    row = (
-        db.query(PlayerEmploymentState)
-        .filter(
-            PlayerEmploymentState.player_id == player.id,
-            PlayerEmploymentState.day == int(settled_day),
-        )
-        .first()
-    )
-    if row is None:
-        row = PlayerEmploymentState(
-            player_id=player.id,
-            day=int(settled_day),
-            current_job_code=key,
-            monthly_pay_xgp=_base_monthly_pay_for_job(key),
-            employed_flag=True,
-            job_status="employed",
-        )
-        db.add(row)
-        db.flush()
-
-    base_level = max(
-        1,
-        min(
-            _safe_int(
-                getattr(previous_for_job, "skill_level", None),
-                _safe_int(getattr(player, "skill_level", None), 1),
-            ),
-            JOB_LEVEL_MAX,
-        ),
-    )
-    row.skill_level = base_level
-    row.job_level_xp = max(0, _safe_int(getattr(previous_for_job, "job_level_xp", None), 0))
-    row.job_level_xp_to_next = max(
-        0,
-        _safe_int(
-            getattr(previous_for_job, "job_level_xp_to_next", None),
-            _xp_required_for_next_level(base_level),
-        ),
-    )
-
-    row.current_job_code = key
-    row.position_title = company["position"]
-    row.employer_company_symbol = company["symbol"]
-    row.employer_company_name = company["name"]
-    row.shift_type = normalized_shift
-    row.employed_flag = True
-    row.job_status = "employed"
-
-    earned_xp = max(0, int(grant_work_xp))
-    level = max(1, min(_safe_int(getattr(row, "skill_level", 1), 1), JOB_LEVEL_MAX))
-    xp = max(0, _safe_int(getattr(row, "job_level_xp", 0), 0))
-    xp_to_next = max(1, _safe_int(getattr(row, "job_level_xp_to_next", _xp_required_for_next_level(level)), 1))
-    leveled_up = False
-
-    while earned_xp > 0 and level < JOB_LEVEL_MAX:
-        needed = max(1, xp_to_next - xp)
-        if earned_xp >= needed:
-            earned_xp -= needed
-            level += 1
-            xp = 0
-            xp_to_next = _xp_required_for_next_level(level) if level < JOB_LEVEL_MAX else 0
-            leveled_up = True
-        else:
-            xp += earned_xp
-            earned_xp = 0
-
-    if level >= JOB_LEVEL_MAX:
-        level = JOB_LEVEL_MAX
-        xp = 0
-        xp_to_next = 0
-
-    row.skill_level = level
-    row.job_level_xp = xp
-    row.job_level_xp_to_next = xp_to_next
-    player.skill_level = max(_safe_int(getattr(player, "skill_level", 1), 1), level)
-
-    base_monthly_pay = _base_monthly_pay_for_job(key)
-    salary_multiplier = Decimal("1.00") + (Decimal(level - 1) * JOB_SALARY_GROWTH_PER_LEVEL)
-    row.monthly_pay_xgp = _money_decimal(base_monthly_pay * salary_multiplier)
-    if leveled_up:
-        row.last_employment_event = "level_up"
-    elif getattr(row, "last_employment_event", None) in (None, "", "none"):
-        row.last_employment_event = "work_progress"
-
-    return _build_job_progress_payload(row)
 
 def _resolve_player(db: Session, player_id: str) -> Player:
     raw_player_id = str(player_id or "").strip()
@@ -377,7 +165,30 @@ def _current_game_day(db: Session) -> int:
     return max(1, _safe_int(getattr(state, "current_day", 1), 1))
 
 
+def _sync_player_work_state(db: Session, player: Player) -> dict[str, Any]:
+    return resolve_expired_shift_if_needed(db, player=player)
+
+
+def _assert_no_active_main_shift(work_state: dict[str, Any], *, action_key: str) -> None:
+    if not bool(work_state.get("main_shift_active_flag")):
+        return
+    if action_key == "work_shift":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Main shift is already active and ends at {work_state.get('shift_ends_at') or 'the scheduled Houston end time'}."
+            ),
+        )
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail=(
+            f"Main shift is still active. Post-shift actions unlock after {work_state.get('shift_ends_at') or 'shift completion'}."
+        ),
+    )
+
+
 def _execution_state_snapshot(db: Session, player: Player) -> dict[str, Any]:
+    work_state = build_work_state_payload(db, player)
     return {
         "current_day": _current_game_day(db),
         "last_settled_day": _safe_int(getattr(player, "last_settled_day", 0), 0),
@@ -390,11 +201,8 @@ def _execution_state_snapshot(db: Session, player: Player) -> dict[str, Any]:
         "stress": _safe_int(getattr(player, "stress", 0), 0),
         "health": _safe_int(getattr(player, "health", 100), 100),
         "main_job": str(getattr(player, "main_job", None) or ""),
+        "work_state": work_state,
     }
-
-
-def _work_xp_for_hours(hours_worked: int) -> int:
-    return max(5, int(max(1, hours_worked) * JOB_XP_PER_WORK_HOUR))
 
 
 def _is_new_player_first_session(player: Player) -> bool:
@@ -459,12 +267,23 @@ def _starter_daily_brief(current_job: str | None) -> str:
     )
 
 
-def _build_action_hub_payload(player: Player) -> dict[str, Any]:
+def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> dict[str, Any]:
     current_job = (player.main_job or "").strip()
     has_job = bool(current_job)
     is_first_session = _is_new_player_first_session(player)
     as_of_date = date.today().isoformat()
     job_options = _job_options_payload()
+    shift_active = bool(work_state.get("main_shift_active_flag"))
+    shift_completed_today = (
+        str(work_state.get("shift_status") or "") == "completed"
+        and _safe_float(work_state.get("main_shift_hours_today"), 0.0) > 0
+    )
+    rideshare_available = bool(work_state.get("rideshare_available"))
+    rideshare_unlock_reason = (
+        f"Unavailable during active work shift until {work_state.get('shift_ends_at') or 'backend completion'}."
+        if shift_active
+        else "Finish and backend-confirm a main shift before starting ride share."
+    )
 
     recommended_actions: list[dict[str, Any]] = []
     available_actions: list[dict[str, Any]] = []
@@ -472,7 +291,7 @@ def _build_action_hub_payload(player: Player) -> dict[str, Any]:
     top_tradeoffs: list[str] = []
     next_risk_warnings: list[str] = []
 
-    if has_job:
+    if has_job and not shift_active and not shift_completed_today:
         recommended_actions.append(
             {
                 "action_key": "work_shift",
@@ -499,13 +318,43 @@ def _build_action_hub_payload(player: Player) -> dict[str, Any]:
                 },
             }
         )
-        available_actions.append(
+    elif has_job:
+        blocked_actions.append(
+            {
+                "action_key": "work_shift",
+                "title": "Work Shift",
+                "description": (
+                    f"Your main shift is active until {work_state.get('shift_ends_at')}."
+                    if shift_active
+                    else "Today's main shift is already completed."
+                ),
+                "status": "blocked",
+                "blockers": [
+                    (
+                        f"Main shift is active until {work_state.get('shift_ends_at') or 'Houston shift end'}."
+                        if shift_active
+                        else "You have already completed your main shift today."
+                    )
+                ],
+                "tradeoffs": [],
+                "warnings": [],
+                "confidence_level": "high",
+                "parameters": {
+                    "job_name": current_job,
+                    "shift_type": "standard_shift",
+                    "hours_worked": SHIFT_PROFILES["standard_shift"]["hours_worked"],
+                },
+            }
+        )
+
+    if has_job:
+        (blocked_actions if shift_active else available_actions).append(
             {
                 "action_key": "switch_job",
                 "title": "Switch Job",
                 "description": "Change role if your current lane does not fit your strategy.",
-                "status": "available",
-                "blockers": [],
+                "status": "blocked" if shift_active else "available",
+                "blockers": ([f"Switch jobs after the active shift ends at {work_state.get('shift_ends_at')}."] if shift_active else []),
                 "tradeoffs": ["Role change can shift stress profile and promotion pace."],
                 "warnings": [],
                 "confidence_level": "medium",
@@ -549,36 +398,25 @@ def _build_action_hub_payload(player: Player) -> dict[str, Any]:
             }
         )
 
-    available_actions.extend(
+    (blocked_actions if shift_active else available_actions).extend(
         [
             {
                 "action_key": "study",
                 "title": "Skill Training",
                 "description": "Invest 2 hours in career growth for better long-term outcomes.",
-                "status": "available",
-                "blockers": [],
+                "status": "blocked" if shift_active else "available",
+                "blockers": ([f"Training unlocks after the active shift ends at {work_state.get('shift_ends_at')}."] if shift_active else []),
                 "tradeoffs": ["No immediate cash today."],
                 "warnings": [],
                 "confidence_level": "medium",
                 "parameters": {"training_hours": 2},
             },
             {
-                "action_key": "side_income",
-                "title": "Ride Share",
-                "description": "Flexible emergency income with higher stress volatility.",
-                "status": "available",
-                "blockers": [],
-                "tradeoffs": ["Variable payout and stress cost."],
-                "warnings": ["Use short shifts to avoid stacking stress."],
-                "confidence_level": "low",
-                "parameters": {"hours_worked": 2},
-            },
-            {
                 "action_key": "rest",
                 "title": "Recovery Block",
                 "description": "Lower stress and protect health before settlement.",
-                "status": "available",
-                "blockers": [],
+                "status": "blocked" if shift_active else "available",
+                "blockers": ([f"Recovery unlocks after the active shift ends at {work_state.get('shift_ends_at')}."] if shift_active else []),
                 "tradeoffs": ["No direct income this action."],
                 "warnings": [],
                 "confidence_level": "high",
@@ -587,7 +425,23 @@ def _build_action_hub_payload(player: Player) -> dict[str, Any]:
         ]
     )
 
-    if has_job:
+    (available_actions if rideshare_available else blocked_actions).append(
+        {
+            "action_key": "side_income",
+            "title": "Ride Share",
+            "description": "Flexible emergency income with higher stress volatility.",
+            "status": "available" if rideshare_available else "blocked",
+            "blockers": [] if rideshare_available else [rideshare_unlock_reason],
+            "tradeoffs": ["Variable payout and stress cost."],
+            "warnings": ["Use short shifts to avoid stacking stress."],
+            "confidence_level": "low",
+            "parameters": {"hours_worked": 2},
+        }
+    )
+
+    if shift_active:
+        top_tradeoffs.append("Your main shift is in progress. The backend will unlock post-shift actions after completion.")
+    elif has_job:
         top_tradeoffs.append("Use one cash-positive shift before optional upside actions.")
     else:
         top_tradeoffs.append("Pick a first job first so day-1 work actions unlock.")
@@ -606,11 +460,14 @@ def _build_action_hub_payload(player: Player) -> dict[str, Any]:
         "blocked_actions": blocked_actions,
         "top_tradeoffs": top_tradeoffs,
         "next_risk_warnings": next_risk_warnings,
+        "work_state": work_state,
         "debug_meta": {
             "new_player_first_session": is_first_session,
             "has_starter_job_selected": has_job,
             "current_job_key": current_job or None,
             "job_options_count": len(job_options),
+            "work_state": work_state,
+            "rideshare_available": rideshare_available,
         },
     }
 
@@ -623,6 +480,7 @@ def get_gameplay_dashboard(player_id: str, db: Session = Depends(get_db)) -> dic
     )
     try:
         player = _resolve_player(db, player_id)
+        work_state = _sync_player_work_state(db, player)
         playable = get_playable_player_summary(db, player.id)
     except Exception as exc:
         _raise_gameplay_http_error(exc)
@@ -653,8 +511,8 @@ def get_gameplay_dashboard(player_id: str, db: Session = Depends(get_db)) -> dic
         or player.main_job
     )
     current_job = str(current_job).strip() if current_job else ""
-    employment_state = _latest_employment_state(db, player.id)
-    job_progress = _build_job_progress_payload(
+    employment_state = latest_employment_state(db, player.id)
+    job_progress = build_job_progress_payload(
         employment_state,
         fallback_job_key=current_job or None,
         fallback_shift_type="standard_shift",
@@ -730,11 +588,13 @@ def get_gameplay_dashboard(player_id: str, db: Session = Depends(get_db)) -> dic
         "top_risks": top_risks,
         "recommended_actions": recommended_actions,
         "job_progress": job_progress,
+        "work_state": work_state,
         "debug_meta": {
             "new_player_first_session": is_first_session,
             "has_starter_job_selected": bool(current_job),
             "source_brief_available": brief_payload is not None,
             "source_economy_available": economy_payload is not None,
+            "work_state": work_state,
         },
     }
     logger.info(
@@ -757,7 +617,8 @@ def get_gameplay_actions(player_id: str, db: Session = Depends(get_db)) -> dict[
     )
     try:
         player = _resolve_player(db, player_id)
-        payload = _build_action_hub_payload(player)
+        work_state = _sync_player_work_state(db, player)
+        payload = _build_action_hub_payload(player, work_state=work_state)
         logger.info(
             "gameplay.actions resolved player action hub.",
             extra={
@@ -784,6 +645,45 @@ def get_gameplay_action_hub_alias(player_id: str, db: Session = Depends(get_db))
     return get_gameplay_actions(player_id=player_id, db=db)
 
 
+@router.get("/player/{player_id}/work-state")
+def get_gameplay_work_state(player_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+    player = _resolve_player(db, player_id)
+    work_state = _sync_player_work_state(db, player)
+    logger.info(
+        "gameplay.work_state resolved.",
+        extra={
+            "requested_player_id": player_id,
+            "resolved_player_id": str(player.id),
+            "shift_status": work_state.get("shift_status"),
+            "shift_expired": work_state.get("shift_expired"),
+            "rideshare_available": work_state.get("rideshare_available"),
+        },
+    )
+    return work_state
+
+
+@router.post("/player/{player_id}/work-state/finalize")
+def post_gameplay_finalize_work_state(player_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+    player = _resolve_player(db, player_id)
+    work_state = finalize_active_main_shift(
+        db,
+        player=player,
+        trigger="frontend_finalize_request",
+        require_expired=True,
+    )
+    logger.info(
+        "gameplay.work_state finalize request handled.",
+        extra={
+            "requested_player_id": player_id,
+            "resolved_player_id": str(player.id),
+            "shift_status": work_state.get("shift_status"),
+            "main_shift_active_flag": work_state.get("main_shift_active_flag"),
+            "rideshare_available": work_state.get("rideshare_available"),
+        },
+    )
+    return work_state
+
+
 @router.get("/player/{player_id}/end-of-day-summary")
 def get_gameplay_end_of_day_summary(player_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     logger.info(
@@ -792,6 +692,7 @@ def get_gameplay_end_of_day_summary(player_id: str, db: Session = Depends(get_db
     )
     try:
         player = _resolve_player(db, player_id)
+        _sync_player_work_state(db, player)
         payload = get_latest_settlement_summary(db, str(player.id))
         latest_completed_day = int(payload.get("day_number") or 0)
         summary_seen_day = int(getattr(player, "last_seen_settlement_day", 0) or 0)
@@ -883,6 +784,7 @@ def get_gameplay_transaction_history(
 ) -> dict[str, Any]:
     """Return recent cash movement history for gameplay auditing and UI display."""
     player = _resolve_player(db, player_id)
+    _sync_player_work_state(db, player)
     rows = list_recent_player_transactions(db, player=player, limit=limit)
     items: list[dict[str, Any]] = []
     for row in rows:
@@ -921,11 +823,14 @@ def post_gameplay_end_day(player_id: str, db: Session = Depends(get_db)) -> dict
     )
     try:
         player = _resolve_player(db, player_id)
+        work_state = _sync_player_work_state(db, player)
+        _assert_no_active_main_shift(work_state, action_key="end_day")
         logger.info(
             "gameplay.end_day resolved player.",
             extra={
                 "requested_player_id": player_id,
                 "resolved_player_id": str(player.id),
+                "shift_status": work_state.get("shift_status"),
             },
         )
         return run_player_next_day(db, str(player.id))
@@ -940,9 +845,10 @@ def preview_gameplay_action(
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     player = _resolve_player(db, player_id)
+    work_state = _sync_player_work_state(db, player)
     key = str(body.action_key or "").strip().lower()
     params = body.parameters or {}
-    shift_type = _normalize_shift_type(params.get("shift_type"))
+    shift_type = normalize_shift_type(params.get("shift_type"))
     shift_profile = SHIFT_PROFILES[shift_type]
     hours = max(1, _safe_int(params.get("hours_worked"), int(shift_profile["hours_worked"])))
     training = max(1, _safe_int(params.get("training_hours"), 2))
@@ -963,6 +869,14 @@ def preview_gameplay_action(
         "debug_meta": {"preview_route": "canonical"},
     }
 
+    if key in {"switch_job", "study", "rest", "side_income"} and bool(work_state.get("main_shift_active_flag")):
+        base["blockers"] = [
+            f"Main shift is active until {work_state.get('shift_ends_at') or 'backend completion'}."
+        ]
+        base["warnings"] = ["Refresh after backend shift completion to unlock this action."]
+        base["confidence_level"] = "high"
+        return base
+
     if key == "work_shift":
         base["summary"] = "Work shift should improve cash and add moderate stress."
         base["expected_cash_impact"] = {"label": "Cash", "direction": "up", "amount": 65 * hours, "text": f"+~{65 * hours} xgp"}
@@ -973,6 +887,7 @@ def preview_gameplay_action(
             "shift_type": shift_type,
             "shift_window": shift_profile["window"],
             "shift_label": shift_profile["label"],
+            "work_state": work_state,
         }
     elif key == "switch_job":
         base["summary"] = "Switching jobs changes pay trajectory and stress profile."
@@ -1027,6 +942,7 @@ def execute_gameplay_action(
     player = _resolve_player(db, player_id)
     action_key = str(body.action_key or "").strip().lower()
     params = body.parameters or {}
+    work_state = _sync_player_work_state(db, player)
     execution_state = _execution_state_snapshot(db, player)
     logger.info(
         "gameplay.actions.execute request received.",
@@ -1040,13 +956,14 @@ def execute_gameplay_action(
     )
 
     if action_key == "switch_job":
+        _assert_no_active_main_shift(work_state, action_key=action_key)
         target = str(params.get("new_job_key") or params.get("job_key") or params.get("target_job") or "").strip()
         if not target:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="switch_job requires new_job_key.")
-        shift_type = _normalize_shift_type(params.get("shift_type"))
+        shift_type = normalize_shift_type(params.get("shift_type"))
         try:
             result = switch_player_job(db, player_id, target)
-            job_progress = _upsert_employment_foundation(
+            job_progress = upsert_employment_foundation(
                 db,
                 player=player,
                 settled_day=max(1, _safe_int(getattr(player, "last_settled_day", None), 0) + 1),
@@ -1074,6 +991,7 @@ def execute_gameplay_action(
                 "health_delta": 0,
                 "raw_result": {
                     **result,
+                    "work_state": build_work_state_payload(db, player),
                     "employer_company_symbol": JOB_COMPANY_MAP.get(target, {}).get("symbol"),
                     "employer_company_name": JOB_COMPANY_MAP.get(target, {}).get("name"),
                     "position_title": JOB_COMPANY_MAP.get(target, {}).get("position"),
@@ -1095,7 +1013,7 @@ def execute_gameplay_action(
             _raise_gameplay_http_error(exc)
 
     if action_key == "work_shift":
-        shift_type = _normalize_shift_type(params.get("shift_type"))
+        shift_type = normalize_shift_type(params.get("shift_type"))
         shift_profile = SHIFT_PROFILES[shift_type]
         requested_hours = _safe_int(params.get("hours_worked"), int(shift_profile["hours_worked"]))
         hours_worked = max(1, min(8, requested_hours))
@@ -1103,23 +1021,26 @@ def execute_gameplay_action(
         if not job_name:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Choose a job before running work_shift.")
         try:
-            result = _work_engine.process_work_action(db=db, player=player, job_name=job_name, hours_worked=hours_worked)
-            job_progress = _upsert_employment_foundation(
+            work_state = start_main_shift(
                 db,
                 player=player,
-                settled_day=max(1, _safe_int(getattr(player, "last_settled_day", None), 0) + 1),
-                job_key=job_name,
+                job_name=job_name,
                 shift_type=shift_type,
-                grant_work_xp=_work_xp_for_hours(result.hours_worked),
+                hours_worked=hours_worked,
             )
-            db.commit()
+            job_progress = build_job_progress_payload(
+                latest_employment_state(db, player.id),
+                fallback_job_key=job_name,
+                fallback_shift_type=shift_type,
+            )
             logger.info(
-                "gameplay.actions.execute work_shift succeeded.",
+                "gameplay.actions.execute work_shift started backend shift.",
                 extra={
                     "player_id": str(player.id),
                     "job_name": job_name,
-                    "hours_worked": result.hours_worked,
-                    "earned_cash": _safe_float(result.earned_cash),
+                    "hours_worked": hours_worked,
+                    "shift_started_at": work_state.get("shift_started_at"),
+                    "shift_ends_at": work_state.get("shift_ends_at"),
                     "job_progress": job_progress,
                 },
             )
@@ -1127,17 +1048,19 @@ def execute_gameplay_action(
                 "player_id": str(player.id),
                 "action_key": action_key,
                 "success": True,
-                "message": "Work shift completed.",
-                "result_summary": f"Worked {result.hours_worked}h as {result.job_name.replace('_', ' ')}.",
-                "time_cost_units": max(1, min(4, result.hours_worked // 2)),
-                "cash_delta_xgp": _safe_float(result.earned_cash),
-                "stress_delta": _safe_int(result.stress_change),
-                "health_delta": _safe_int(result.health_change),
+                "message": "Shift clocked in.",
+                "result_summary": (
+                    f"Clocked in as {job_name.replace('_', ' ')}. "
+                    f"Backend shift ends at {work_state.get('shift_ends_at')}."
+                ),
+                "time_cost_units": max(1, min(4, hours_worked // 2)),
+                "cash_delta_xgp": 0.0,
+                "stress_delta": 0,
+                "health_delta": 0,
                 "raw_result": {
-                    "job_name": result.job_name,
-                    "hours_worked": result.hours_worked,
-                    "earned_cash": _safe_float(result.earned_cash),
-                    "productivity": _safe_float(result.productivity),
+                    "job_name": job_name,
+                    "hours_worked": hours_worked,
+                    "work_state": work_state,
                     "shift_type": shift_type,
                     "shift_window": shift_profile["window"],
                     "shift_label": shift_profile["label"],
@@ -1171,6 +1094,7 @@ def execute_gameplay_action(
             _raise_gameplay_http_error(exc)
 
     if action_key == "study":
+        _assert_no_active_main_shift(work_state, action_key=action_key)
         training_hours = Decimal(str(max(1, min(4, _safe_int(params.get("training_hours"), 2)))))
         try:
             result = apply_daily_career_progression(
@@ -1189,22 +1113,46 @@ def execute_gameplay_action(
                 "cash_delta_xgp": 0.0,
                 "stress_delta": 1,
                 "health_delta": 0,
-                "raw_result": result,
+                "raw_result": {
+                    **result,
+                    "work_state": build_work_state_payload(db, player),
+                },
             }
         except Exception as exc:
             db.rollback()
             _raise_gameplay_http_error(exc)
 
     if action_key == "side_income":
-        hours_worked = max(1, min(6, _safe_int(params.get("hours_worked"), 2)))
+        _assert_no_active_main_shift(work_state, action_key=action_key)
+        requested_trips = _safe_int(params.get("trips"), 0)
+        if requested_trips not in (1, 3, 5):
+            hours_worked = max(1, min(6, _safe_int(params.get("hours_worked"), 1)))
+            if hours_worked <= 1:
+                requested_trips = 1
+            elif hours_worked <= 3:
+                requested_trips = 3
+            else:
+                requested_trips = 5
         try:
-            result = process_rideshare_action(db=db, player=player, hours_worked=float(hours_worked))
+            result = process_rideshare_action(db=db, player=player, trips=requested_trips)
+            completed_trips = max(0, _safe_int(result.get("trips"), requested_trips))
+            time_used = max(1, _safe_int(result.get("time_used"), completed_trips or 1))
+            earned = _safe_float(result.get("earned"), _safe_float(result.get("net_income_xgp")))
+            mode_used = str(result.get("mode") or result.get("mode_used") or "midday")
+            partial_completion = bool(result.get("partial_completion", False))
+            completion_note = (
+                f" ({completed_trips}/{requested_trips} trips due to remaining time)"
+                if partial_completion
+                else f" ({completed_trips} trips)"
+            )
             logger.info(
                 "gameplay.actions.execute side_income succeeded.",
                 extra={
                     "player_id": str(player.id),
-                    "hours_worked": hours_worked,
-                    "net_income_xgp": _safe_float(result.get("net_income_xgp")),
+                    "requested_trips": requested_trips,
+                    "completed_trips": completed_trips,
+                    "earned_xgp": earned,
+                    "mode_used": mode_used,
                     "stress_change": _safe_int(result.get("stress_change")),
                     "health_change": _safe_int(result.get("health_change")),
                 },
@@ -1214,19 +1162,22 @@ def execute_gameplay_action(
                 "action_key": action_key,
                 "success": True,
                 "message": "Ride share completed.",
-                "result_summary": "Side-income shift completed.",
-                "time_cost_units": max(1, min(4, hours_worked // 2)),
-                "cash_delta_xgp": _safe_float(result.get("net_income_xgp")),
+                "result_summary": f"Ride share {mode_used}{completion_note}: +{earned:.2f} XGP.",
+                "time_cost_units": time_used,
+                "cash_delta_xgp": earned,
                 "stress_delta": _safe_int(result.get("stress_change")),
                 "health_delta": _safe_int(result.get("health_change")),
-                "raw_result": result,
+                "raw_result": {
+                    **result,
+                    "work_state": build_work_state_payload(db, player),
+                },
             }
         except ValueError as exc:
             logger.warning(
                 "gameplay.actions.execute side_income rejected.",
                 extra={
                     "player_id": str(player.id),
-                    "hours_worked": hours_worked,
+                    "requested_trips": requested_trips,
                     "reason": str(exc),
                 },
             )
@@ -1236,13 +1187,14 @@ def execute_gameplay_action(
                 "gameplay.actions.execute side_income failed.",
                 extra={
                     "player_id": str(player.id),
-                    "hours_worked": hours_worked,
+                    "requested_trips": requested_trips,
                     "action_payload": params,
                 },
             )
             _raise_gameplay_http_error(exc)
 
     if action_key == "rest":
+        _assert_no_active_main_shift(work_state, action_key=action_key)
         stress_before = _safe_int(player.stress, 0)
         health_before = _safe_int(player.health, 100)
         player.stress = max(0, stress_before - 6)
@@ -1259,6 +1211,7 @@ def execute_gameplay_action(
             "stress_delta": player.stress - stress_before,
             "health_delta": player.health - health_before,
             "raw_result": {
+                "work_state": build_work_state_payload(db, player),
                 "stress_before": stress_before,
                 "stress_after": _safe_int(player.stress, stress_before),
                 "health_before": health_before,

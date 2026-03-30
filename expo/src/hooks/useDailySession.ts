@@ -26,6 +26,8 @@ export interface ActionExecutionGuard {
 const DEFAULT_TOTAL_TIME_UNITS = BALANCE.DEFAULT_TOTAL_TIME_UNITS;
 const MIN_TOTAL_TIME_UNITS = BALANCE.MIN_TOTAL_TIME_UNITS;
 const MAX_TOTAL_TIME_UNITS = BALANCE.MAX_TOTAL_TIME_UNITS;
+const MIN_ACTION_TIME_COST_UNITS = BALANCE.SAFETY.MIN_TIME_COST_UNITS;
+const MAX_ACTION_TIME_COST_UNITS = BALANCE.SAFETY.MAX_TIME_COST_UNITS;
 const DEFAULT_ACTION_TIME_COST: Record<string, number> = BALANCE.ACTION_TIME_COST;
 const DEFAULT_ACTION_CAPS: Record<string, number> = BALANCE.ACTION_CAPS;
 
@@ -207,11 +209,11 @@ export function useDailySession(playerId: string) {
   const estimateTimeCost = useCallback(
     (actionKey: GameplayActionKey, explicitCost?: number): number => {
       if (Number.isFinite(explicitCost)) {
-        return Math.max(1, Math.min(4, Number(explicitCost)));
+        return Math.max(MIN_ACTION_TIME_COST_UNITS, Math.min(MAX_ACTION_TIME_COST_UNITS, Number(explicitCost)));
       }
       const normalized = normalizeActionKey(actionKey);
       const mapped = DEFAULT_ACTION_TIME_COST[normalized] ?? 2;
-      return Math.max(1, Math.min(4, mapped));
+      return Math.max(MIN_ACTION_TIME_COST_UNITS, Math.min(MAX_ACTION_TIME_COST_UNITS, mapped));
     },
     [],
   );

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import ActionHubPanel from '@/components/gameplay/ActionHubPanel';
@@ -9,6 +9,7 @@ import SecondaryButton from '@/components/ui/SecondaryButton';
 import { theme } from '@/design/theme';
 import { useOnboarding } from '@/features/onboarding';
 import { useScreenTimer } from '@/hooks/useScreenTimer';
+import { finalizePlayerWorkState } from '@/lib/api/gameplay';
 import { BALANCE } from '@/lib/balanceConfig';
 import { formatMoney } from '@/lib/gameplayFormatters';
 import { recordInfo } from '@/lib/logger';
@@ -36,20 +37,11 @@ function signedWhole(value: number): string {
 }
 
 const HOUSTON_TIMEZONE = 'America/Chicago';
-const SHIFT_START_HOUR = 9;
-const SHIFT_END_HOUR = 17;
-const FULL_SHIFT_SECONDS = 8 * 60 * 60;
-const SHORT_SHIFT_SECONDS = Math.max(30, Number(process.env.EXPO_PUBLIC_SHIFT_TIMER_SECONDS || 90));
+const RIDESHARE_TRIP_OPTIONS = [1, 3, 5] as const;
 const SHIFT_SHORT_MODE =
   __DEV__
   || process.env.EXPO_PUBLIC_SHIFT_TIMER_SHORT_MODE === 'true'
   || process.env.EXPO_PUBLIC_SHIFT_TIMER_SHORT_MODE === '1';
-
-interface ShiftClockState {
-  startedAtMs: number;
-  endsAtMs: number;
-  action: DailyActionItem;
-}
 
 interface TimelineNote {
   id: string;
@@ -141,6 +133,38 @@ function shiftWindowLabel(): string {
   return '9:00 AM - 5:00 PM (Houston)';
 }
 
+type RideshareMode = 'morning_peak' | 'midday' | 'evening_peak' | 'night';
+
+function getRideshareMode(hour: number): RideshareMode {
+  if (hour >= 6 && hour < 9) return 'morning_peak';
+  if (hour >= 9 && hour < 16) return 'midday';
+  if (hour >= 16 && hour < 19) return 'evening_peak';
+  if (hour >= 20 || hour < 1) return 'night';
+  return 'midday';
+}
+
+function formatRideshareMode(mode: RideshareMode): string {
+  if (mode === 'morning_peak') return 'Morning Peak';
+  if (mode === 'evening_peak') return 'Evening Peak';
+  if (mode === 'night') return 'Night';
+  return 'Midday';
+}
+
+function getRideshareTripPreview(mode: RideshareMode, trips: number): {
+  payMin: number;
+  payMax: number;
+  stress: number;
+  health: number;
+} {
+  if (mode === 'night') {
+    return { payMin: trips * 22, payMax: trips * 35, stress: trips * 4, health: trips * -3 };
+  }
+  if (mode === 'morning_peak' || mode === 'evening_peak') {
+    return { payMin: trips * 18, payMax: trips * 28, stress: trips * 5, health: trips * -1 };
+  }
+  return { payMin: trips * 12, payMax: trips * 20, stress: trips * 2, health: trips * -1 };
+}
+
 function sanitizeRideShareReason(reason: string | null | undefined): string {
   const normalized = String(reason || '').trim();
   if (!normalized) return 'Ride share unavailable right now.';
@@ -188,6 +212,9 @@ const LOAN_AMOUNTS = [100, 200, 300, 500] as const;
 export default function DashboardScreen() {
   useScreenTimer('dashboard');
   const loop = useGameplayLoop();
+  const loopPlayerId = loop.playerId;
+  const refreshGameplay = loop.refresh;
+  const setLoopFeedback = loop.setFeedback;
   const onboarding = useOnboarding();
   const guidedDashboardActive = onboarding.isActive && onboarding.currentStep?.route === 'dashboard';
 
@@ -202,10 +229,18 @@ export default function DashboardScreen() {
   const debt = loop.expenseDebt?.debtAmount ?? stats?.debt_xgp ?? 0;
 
   const [houstonNow, setHoustonNow] = useState(() => new Date());
-  const [activeShift, setActiveShift] = useState<ShiftClockState | null>(null);
   const [autoClockingOut, setAutoClockingOut] = useState(false);
   const [timelineNotes, setTimelineNotes] = useState<TimelineNote[]>([]);
   const [busyRecoveryId, setBusyRecoveryId] = useState<RecoveryPresetId | null>(null);
+  const previousWorkStateRef = useRef<{
+    completedAt: string | null;
+    shiftEndsAt: string | null;
+    active: boolean;
+  } | null>(null);
+  const autoFinalizeAttemptRef = useRef<{
+    shiftEndsAt: string;
+    attemptedAtMs: number;
+  } | null>(null);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -232,12 +267,29 @@ export default function DashboardScreen() {
     () => allActionItems.find((action) => canonicalDashboardActionKey(String(action.action_key || '')) === 'side_income') || null,
     [allActionItems],
   );
+  const workState = loop.dashboard?.work_state || loop.actionHub?.work_state || null;
+  const backendShiftActive = Boolean(workState?.main_shift_active_flag);
+  const backendShiftCompleted = Boolean(
+    workState
+    && workState.shift_status === 'completed'
+    && !workState.main_shift_active_flag
+    && Number(workState.main_shift_hours_today || 0) > 0,
+  );
+  const backendShiftEndsAtMs = workState?.shift_ends_at ? new Date(workState.shift_ends_at).getTime() : Number.NaN;
+  const backendShiftCompletedAt = workState?.shift_completed_at || null;
+  const shiftRemainingSeconds = Number.isFinite(backendShiftEndsAtMs) && backendShiftActive
+    ? Math.max(0, Math.floor((backendShiftEndsAtMs - houstonNow.getTime()) / 1000))
+    : 0;
+  const shiftRemainingLabel = formatSecondsRemaining(shiftRemainingSeconds);
+  const shiftEndLabel = workState?.shift_ends_at ? formatHoustonNow(new Date(workState.shift_ends_at)) : '5:00 PM';
+  const lastCompletedShift = workState?.last_completed_shift || null;
 
   useEffect(() => {
-    setActiveShift(null);
     setAutoClockingOut(false);
     setTimelineNotes([]);
     setBusyRecoveryId(null);
+    previousWorkStateRef.current = null;
+    autoFinalizeAttemptRef.current = null;
   }, [loop.dailySession.currentDay]);
 
   const appendTimelineNote = (note: Omit<TimelineNote, 'id'>) => {
@@ -246,15 +298,6 @@ export default function DashboardScreen() {
   };
 
   const houstonHour = getHoustonHour(houstonNow);
-  const currentShiftWindowOpen = houstonHour >= SHIFT_START_HOUR && houstonHour < SHIFT_END_HOUR;
-  const shiftDurationSeconds = SHIFT_SHORT_MODE ? SHORT_SHIFT_SECONDS : FULL_SHIFT_SECONDS;
-  const shiftRemainingSeconds = activeShift
-    ? Math.max(0, Math.floor((activeShift.endsAtMs - houstonNow.getTime()) / 1000))
-    : 0;
-  const shiftRemainingLabel = formatSecondsRemaining(shiftRemainingSeconds);
-  const shiftEndLabel = activeShift
-    ? formatHoustonNow(new Date(activeShift.endsAtMs))
-    : '5:00 PM';
 
   const workExecutionGuard = workShiftAction
     ? loop.dailySession.canExecuteAction(workShiftAction)
@@ -262,24 +305,22 @@ export default function DashboardScreen() {
 
   const canClockIn = Boolean(
     workShiftAction
-    && !activeShift
+    && !backendShiftActive
     && !autoClockingOut
     && loop.dailySession.sessionStatus === 'active'
     && workExecutionGuard.allowed
-    && (SHIFT_SHORT_MODE || currentShiftWindowOpen),
   );
 
   const clockInBlocker = useMemo(() => {
-    if (activeShift) return 'You are already clocked in.';
+    if (backendShiftActive) return `Backend shows an active shift until ${shiftEndLabel}.`;
     if (loop.dailySession.sessionStatus !== 'active') return 'Day already ended.';
     if (!workShiftAction) return 'No work shift is available right now.';
-    if (!SHIFT_SHORT_MODE && !currentShiftWindowOpen) return 'Clock-in opens at 9:00 AM Houston time.';
     if (!workExecutionGuard.allowed) return workExecutionGuard.reason || 'Cannot start shift right now.';
     return null;
   }, [
-    activeShift,
-    currentShiftWindowOpen,
+    backendShiftActive,
     loop.dailySession.sessionStatus,
+    shiftEndLabel,
     workExecutionGuard.allowed,
     workExecutionGuard.reason,
     workShiftAction,
@@ -287,55 +328,66 @@ export default function DashboardScreen() {
 
   const gamePhaseLabel = useMemo(() => {
     if (loop.dailySession.sessionStatus === 'ended') return 'End of day';
-    if (activeShift) return 'On shift';
-    if (houstonHour < SHIFT_START_HOUR) return 'Before shift';
-    if (houstonHour >= SHIFT_END_HOUR) return 'After shift';
+    if (autoClockingOut) return 'Auto-finalizing';
+    if (backendShiftActive) return 'On shift';
+    if (backendShiftCompleted) return 'Shift completed';
+    if (houstonHour < 9) return 'Before shift';
+    if (houstonHour >= 17) return 'After shift';
     return 'Before shift';
-  }, [activeShift, houstonHour, loop.dailySession.sessionStatus]);
+  }, [autoClockingOut, backendShiftActive, backendShiftCompleted, houstonHour, loop.dailySession.sessionStatus]);
 
   const dayLabel = loop.dailySession.currentDay || loop.dailyProgression.currentGameDay || 1;
+  const rideshareMode = getRideshareMode(houstonHour);
 
   const rideshareTripsToday = useMemo(
-    () => loop.dailySession.actionsTakenToday.filter((entry) => canonicalDashboardActionKey(String(entry.action_key || '')) === 'side_income' && entry.success).length,
+    () => loop.dailySession.actionsTakenToday
+      .filter((entry) => canonicalDashboardActionKey(String(entry.action_key || '')) === 'side_income' && entry.success)
+      .reduce((sum, entry) => {
+        const rawTrips = Number(entry.raw_result?.trips ?? entry.raw_result?.trips_completed ?? 1);
+        return sum + (Number.isFinite(rawTrips) ? Math.max(1, Math.round(rawTrips)) : 1);
+      }, 0),
     [loop.dailySession.actionsTakenToday],
   );
   const rideshareEarnedToday = useMemo(
     () => loop.dailySession.actionsTakenToday
       .filter((entry) => canonicalDashboardActionKey(String(entry.action_key || '')) === 'side_income' && entry.success)
-      .reduce((sum, entry) => sum + Number(entry.impact_snapshot?.cash_delta_xgp || 0), 0),
+      .reduce((sum, entry) => {
+        const earnedRaw = Number(
+          (entry.raw_result?.earned ?? entry.raw_result?.net_income_xgp ?? entry.impact_snapshot?.cash_delta_xgp) || 0,
+        );
+        return sum + (Number.isFinite(earnedRaw) ? earnedRaw : 0);
+      }, 0),
     [loop.dailySession.actionsTakenToday],
   );
-  const rideshareDailyCap = Math.max(1, Number(BALANCE.ACTION_CAPS.side_income || 5));
-  const rideshareTimeWindowOpen = SHIFT_SHORT_MODE || houstonHour < SHIFT_START_HOUR || houstonHour >= SHIFT_END_HOUR;
+  const rideshareDailyCap = Math.max(1, Number(BALANCE.ACTION_CAPS.side_income || 6));
   const sideIncomeGuard = sideIncomeAction
     ? loop.dailySession.canExecuteAction(sideIncomeAction)
     : { allowed: false, reason: 'Ride share action is not available yet.', timeCostUnits: 0 };
   const rideshareAvailable = Boolean(
     sideIncomeAction
-    && !activeShift
-    && rideshareTimeWindowOpen
+    && !backendShiftActive
+    && Boolean(workState?.rideshare_available)
     && sideIncomeGuard.allowed
     && loop.dailySession.sessionStatus === 'active',
   );
 
   const rideshareStatusLabel = useMemo(() => {
     if (loop.dailySession.sessionStatus !== 'active') return 'Day ended';
-    if (activeShift) return `Unavailable during work shift (available after ${shiftEndLabel})`;
-    if (!rideshareTimeWindowOpen) return 'Available after 5:00 PM';
+    if (backendShiftActive || autoClockingOut) return `Unavailable during work shift (available after ${shiftEndLabel})`;
+    if (!workState?.rideshare_unlocked) return 'Complete and backend-confirm your main shift first';
     if (!sideIncomeAction) return 'Ride share not unlocked yet';
     if (!sideIncomeGuard.allowed) return sanitizeRideShareReason(sideIncomeGuard.reason);
-    if (houstonHour >= SHIFT_END_HOUR) return 'Available after shift';
-    if (houstonHour < SHIFT_START_HOUR) return 'Available before shift';
-    return 'Available now';
+    return `Available now (${formatRideshareMode(rideshareMode)})`;
   }, [
-    activeShift,
-    houstonHour,
+    autoClockingOut,
+    backendShiftActive,
     loop.dailySession.sessionStatus,
-    rideshareTimeWindowOpen,
+    rideshareMode,
     shiftEndLabel,
     sideIncomeAction,
     sideIncomeGuard.allowed,
     sideIncomeGuard.reason,
+    workState?.rideshare_unlocked,
   ]);
 
   const busyActionKey = canonicalDashboardActionKey(String(loop.busyActionKey || ''));
@@ -385,7 +437,7 @@ export default function DashboardScreen() {
   );
   const showStarterJobChooser = starterJobOptions.length > 0 && (firstSessionFlag || !hasStarterJobSelected);
   const selectingStarterJob = loop.executingAction && loop.busyActionKey === 'switch_job';
-  const endDayDisabled = !loop.dailyProgression.canAdvanceDay || loop.endingDay || Boolean(activeShift) || autoClockingOut;
+  const endDayDisabled = !loop.dailyProgression.canAdvanceDay || loop.endingDay || backendShiftActive || autoClockingOut;
 
   useEffect(() => {
     if (!INTERACTION_DIAGNOSTICS_ENABLED) return;
@@ -486,65 +538,182 @@ export default function DashboardScreen() {
       return;
     }
 
-    const startMs = Date.now();
-    const endMs = startMs + (shiftDurationSeconds * 1000);
-
-    setActiveShift({
-      startedAtMs: startMs,
-      endsAtMs: endMs,
-      action: workShiftAction,
-    });
+    const ok = await loop.executeAction(workShiftAction);
+    if (!ok) return;
 
     appendTimelineNote({
-      timestampIso: new Date(startMs).toISOString(),
+      timestampIso: new Date().toISOString(),
       title: `Clocked in to ${workShiftAction.title}`,
-      detail: `Shift timer started (${formatSecondsRemaining(shiftDurationSeconds)}${SHIFT_SHORT_MODE ? ' short mode' : ''}).`,
+      detail: 'Backend shift started. Waiting for Houston-time completion.',
       category: 'work',
-    });
-
-    loop.setFeedback({
-      tone: 'info',
-      message: `Clocked in. Shift auto-completes in ${formatSecondsRemaining(shiftDurationSeconds)}.`,
     });
   };
 
   useEffect(() => {
-    if (!activeShift || autoClockingOut) return;
-    if (houstonNow.getTime() < activeShift.endsAtMs) return;
+    const previous = previousWorkStateRef.current;
+    if (previous?.active && !backendShiftActive) {
+      setAutoClockingOut(false);
+      autoFinalizeAttemptRef.current = null;
+    }
+
+    if (
+      previous
+      && previous.completedAt !== backendShiftCompletedAt
+      && backendShiftCompletedAt
+      && lastCompletedShift
+    ) {
+      appendTimelineNote({
+        timestampIso: backendShiftCompletedAt,
+        title: 'Backend confirmed shift completion',
+        detail: (
+          `Earned ${formatMoney(lastCompletedShift.earned_cash_xgp)} | `
+          + `XP +${Math.round(lastCompletedShift.xp_gained)} | `
+          + `Stress ${signedWhole(lastCompletedShift.stress_change)} | `
+          + `Health ${signedWhole(lastCompletedShift.health_change)}`
+        ),
+        category: 'work',
+      });
+      recordInfo('gameplayLoop', 'Backend returned completed shift state.', {
+        action: 'work_state_completed',
+        context: {
+          playerId: loop.playerId,
+          shiftCompletedAt: backendShiftCompletedAt,
+          rideshareAvailable: Boolean(workState?.rideshare_available),
+          earnedCash: lastCompletedShift.earned_cash_xgp,
+          xpGained: lastCompletedShift.xp_gained,
+        },
+      });
+    }
+
+    previousWorkStateRef.current = {
+      completedAt: backendShiftCompletedAt,
+      shiftEndsAt: workState?.shift_ends_at || null,
+      active: backendShiftActive,
+    };
+  }, [
+    backendShiftActive,
+    backendShiftCompletedAt,
+    lastCompletedShift,
+    loop.playerId,
+    workState?.rideshare_available,
+    workState?.shift_ends_at,
+  ]);
+
+  useEffect(() => {
+    if (!INTERACTION_DIAGNOSTICS_ENABLED || !workState) return;
+    recordInfo('gameplayLoop', 'Ride share availability state refreshed.', {
+      action: 'rideshare_availability_refresh',
+      context: {
+        playerId: loopPlayerId,
+        shiftStatus: workState.shift_status,
+        backendActive: workState.main_shift_active_flag,
+        rideshareAvailable: workState.rideshare_available,
+        rideshareUnlocked: workState.rideshare_unlocked,
+      },
+    });
+  }, [
+    loopPlayerId,
+    workState,
+  ]);
+
+  useEffect(() => {
+    if (!backendShiftActive || !workState?.shift_ends_at || autoClockingOut) return;
+    if (shiftRemainingSeconds > 0) return;
+
+    const currentAttempt = autoFinalizeAttemptRef.current;
+    const nowMs = houstonNow.getTime();
+    if (
+      currentAttempt
+      && currentAttempt.shiftEndsAt === workState.shift_ends_at
+      && nowMs - currentAttempt.attemptedAtMs < 5000
+    ) {
+      return;
+    }
 
     let cancelled = false;
+    autoFinalizeAttemptRef.current = {
+      shiftEndsAt: workState.shift_ends_at,
+      attemptedAtMs: nowMs,
+    };
 
-    const autoClockOut = async () => {
+    const autoFinalize = async () => {
       setAutoClockingOut(true);
+      recordInfo('gameplayLoop', 'Shift timer reached zero.', {
+        action: 'shift_timer_zero',
+        context: {
+          playerId: loopPlayerId,
+          shiftEndsAt: workState.shift_ends_at,
+          shiftStatus: workState.shift_status,
+        },
+      });
       appendTimelineNote({
         timestampIso: new Date().toISOString(),
         title: 'Shift timer ended',
-        detail: 'Auto clock-out triggered.',
+        detail: 'Requesting backend finalize/refresh.',
         category: 'system',
       });
 
-      const ok = await loop.executeAction(activeShift.action);
-
-      if (!cancelled) {
-        appendTimelineNote({
-          timestampIso: new Date().toISOString(),
-          title: ok ? 'Shift completed' : 'Shift completion failed',
-          detail: ok ? 'Shift payout and effects were applied.' : 'Shift payout failed. Try clocking in again.',
-          category: 'work',
+      try {
+        const finalizedState = await finalizePlayerWorkState(loopPlayerId);
+        recordInfo('gameplayLoop', 'Finalize request fired after timer end.', {
+          action: 'work_state_finalize_request',
+          context: {
+            playerId: loopPlayerId,
+            shiftStatus: finalizedState?.shift_status || 'unknown',
+            backendActive: Boolean(finalizedState?.main_shift_active_flag),
+            rideshareAvailable: Boolean(finalizedState?.rideshare_available),
+          },
         });
-        setActiveShift(null);
-        setAutoClockingOut(false);
+        await refreshGameplay({ silent: true });
+
+        if (cancelled) return;
+
+        if (finalizedState?.main_shift_active_flag) {
+          setLoopFeedback({
+            tone: 'info',
+            message: 'Timer reached zero. Waiting for backend confirmation to finish the shift.',
+          });
+        } else if (finalizedState?.shift_status === 'completed') {
+          const earnedCash = Number(finalizedState.last_completed_shift?.earned_cash_xgp || 0);
+          const xpGained = Number(finalizedState.last_completed_shift?.xp_gained || 0);
+          setLoopFeedback({
+            tone: 'success',
+            message: `Shift completed. Earned ${formatMoney(earnedCash)} and ${Math.round(xpGained)} XP.`,
+          });
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setLoopFeedback({
+            tone: 'error',
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      } finally {
+        if (!cancelled) {
+          setAutoClockingOut(false);
+        }
       }
     };
 
-    void autoClockOut();
+    void autoFinalize();
 
     return () => {
       cancelled = true;
     };
-  }, [activeShift, autoClockingOut, houstonNow, loop]);
+  }, [
+    autoClockingOut,
+    backendShiftActive,
+    houstonNow,
+    loopPlayerId,
+    refreshGameplay,
+    setLoopFeedback,
+    shiftRemainingSeconds,
+    workState,
+    workState?.shift_ends_at,
+    workState?.shift_status,
+  ]);
 
-  const runRideShareTrip = async () => {
+  const runRideShareTrip = async (requestedTrips: number) => {
     if (!sideIncomeAction) {
       loop.setFeedback({
         tone: 'error',
@@ -553,18 +722,10 @@ export default function DashboardScreen() {
       return;
     }
 
-    if (activeShift) {
+    if (backendShiftActive || autoClockingOut) {
       loop.setFeedback({
         tone: 'error',
         message: `Unavailable during work shift. Available after ${shiftEndLabel}.`,
-      });
-      return;
-    }
-
-    if (!rideshareTimeWindowOpen) {
-      loop.setFeedback({
-        tone: 'error',
-        message: 'Ride share is only available before 9:00 AM or after 5:00 PM.',
       });
       return;
     }
@@ -577,11 +738,22 @@ export default function DashboardScreen() {
       return;
     }
 
-    await loop.executeAction(sideIncomeAction);
+    const trips = requestedTrips === 3 || requestedTrips === 5 ? requestedTrips : 1;
+    const tripAction: DailyActionItem = {
+      ...sideIncomeAction,
+      title: `Ride Share (${trips} ${trips === 1 ? 'Trip' : 'Trips'})`,
+      parameters: {
+        ...(sideIncomeAction.parameters || {}),
+        trips,
+        time_cost_units: trips,
+      },
+    };
+
+    await loop.executeAction(tripAction);
   };
 
   const runRecoveryAction = async (preset: RecoveryPreset) => {
-    if (activeShift || autoClockingOut) {
+    if (backendShiftActive || autoClockingOut) {
       loop.setFeedback({
         tone: 'error',
         message: `Recovery actions are unavailable during shift. Available after ${shiftEndLabel}.`,
@@ -650,10 +822,10 @@ export default function DashboardScreen() {
 
   // Life / Meals
   const [busyMeal, setBusyMeal] = useState<string | null>(null);
-  const busyLife = loop.executingAction || busyMeal !== null || Boolean(activeShift) || autoClockingOut;
+  const busyLife = loop.executingAction || busyMeal !== null || backendShiftActive || autoClockingOut;
 
   async function handleEat(mealType: 'breakfast' | 'lunch' | 'dinner') {
-    if (activeShift || autoClockingOut) {
+    if (backendShiftActive || autoClockingOut) {
       loop.setFeedback({
         tone: 'error',
         message: `Meals and recovery are unavailable during shift. Available after ${shiftEndLabel}.`,
@@ -688,7 +860,13 @@ export default function DashboardScreen() {
       activeNavKey="dashboard"
       footer={guidedDashboardActive ? null : (
         <GameplayStickyActionArea
-          summary={activeShift ? `On shift - ${shiftRemainingLabel} remaining` : `${loop.dailySession.remainingTimeUnits} time units left today`}
+          summary={
+            backendShiftActive
+              ? `On shift - ${shiftRemainingLabel} remaining`
+              : autoClockingOut
+                ? 'Auto-finalizing shift...'
+                : `${loop.dailySession.remainingTimeUnits} time units left today`
+          }
           secondaryLabel="Check Market"
           onSecondaryPress={() => onboarding.navigateTo('market')}
           primaryLabel={loop.endingDay ? 'Settling Day...' : 'End Day'}
@@ -753,7 +931,11 @@ export default function DashboardScreen() {
             { label: 'Current day', value: `Day ${dayLabel}` },
             { label: 'Current time', value: `${formatHoustonNow(houstonNow)} CT` },
             { label: 'Date', value: formatHoustonDate(houstonNow) },
-            { label: 'Phase / status', value: gamePhaseLabel, tone: activeShift ? 'warning' : 'info' },
+            {
+              label: 'Phase / status',
+              value: gamePhaseLabel,
+              tone: backendShiftActive || autoClockingOut ? 'warning' : backendShiftCompleted ? 'positive' : 'info',
+            },
             { label: 'Shift window', value: shiftWindowLabel() },
             { label: 'Timer mode', value: SHIFT_SHORT_MODE ? 'Accelerated testing mode' : 'Real-time mode' },
           ]}
@@ -783,15 +965,21 @@ export default function DashboardScreen() {
           />
           <GameplayStatCard
             label="Shift status"
-            value={activeShift ? 'On shift' : autoClockingOut ? 'Auto clocking out' : canClockIn ? 'Ready to clock in' : 'Off shift'}
-            tone={activeShift ? 'warning' : canClockIn ? 'positive' : 'neutral'}
-            note={activeShift ? `Ends at ${shiftEndLabel} CT` : `Window: ${shiftWindowLabel()}`}
+            value={autoClockingOut ? 'Auto-finalizing' : backendShiftActive ? 'On shift' : backendShiftCompleted ? 'Completed' : canClockIn ? 'Ready to clock in' : 'Off shift'}
+            tone={backendShiftActive || autoClockingOut ? 'warning' : backendShiftCompleted ? 'positive' : canClockIn ? 'positive' : 'neutral'}
+            note={
+              backendShiftActive || autoClockingOut
+                ? `Ends at ${shiftEndLabel} CT`
+                : backendShiftCompleted
+                  ? 'Backend confirmed completion'
+                  : `Window: ${shiftWindowLabel()}`
+            }
           />
           <GameplayStatCard
             label="Shift timer"
-            value={activeShift ? shiftRemainingLabel : '--'}
-            tone={activeShift ? 'warning' : 'neutral'}
-            note={SHIFT_SHORT_MODE ? `Short mode (${shiftDurationSeconds}s)` : 'Auto clock-out at shift end'}
+            value={backendShiftActive ? shiftRemainingLabel : autoClockingOut ? 'Syncing...' : '--'}
+            tone={backendShiftActive || autoClockingOut ? 'warning' : 'neutral'}
+            note={SHIFT_SHORT_MODE ? 'Backend timer (accelerated testing mode)' : 'Backend auto-finalizes at shift end'}
           />
           <GameplayStatCard
             label="Time left"
@@ -805,29 +993,41 @@ export default function DashboardScreen() {
           <PrimaryButton
             label={
               autoClockingOut
-                ? 'Auto clocking out...'
+                ? 'Auto-finalizing...'
                 : runningWorkAction
-                  ? 'Applying shift...'
-                  : activeShift
+                  ? 'Starting shift...'
+                  : backendShiftActive
                     ? `On shift (${shiftRemainingLabel})`
                     : 'Clock In'
             }
             onPress={() => void handleClockIn()}
-            disabled={!canClockIn || Boolean(activeShift) || autoClockingOut || runningWorkAction}
+            disabled={!canClockIn || backendShiftActive || autoClockingOut || runningWorkAction}
           />
         </View>
 
-        {activeShift ? (
+        {backendShiftActive ? (
           <GameplayWarningBanner
             title="Shift active"
-            message={`You are clocked in. Auto clock-out at ${shiftEndLabel} CT.`}
+            message={`Backend shows you clocked in. Shift ends at ${shiftEndLabel} CT.`}
+            tone="info"
+          />
+        ) : autoClockingOut ? (
+          <GameplayWarningBanner
+            title="Auto-finalizing"
+            message="Timer reached zero. Waiting for backend confirmation before unlocking ride share."
+            tone="warning"
+          />
+        ) : backendShiftCompleted && lastCompletedShift ? (
+          <GameplayWarningBanner
+            title="Shift completed"
+            message={`Earned ${formatMoney(lastCompletedShift.earned_cash_xgp)} | XP +${Math.round(lastCompletedShift.xp_gained)} | Ride share ${workState?.rideshare_available ? 'available now' : 'locked by remaining rules'}.`}
             tone="info"
           />
         ) : clockInBlocker ? (
           <Text style={styles.helperText}>{clockInBlocker}</Text>
         ) : (
           <Text style={styles.helperText}>
-            Clock in during shift hours, then wait for auto clock-out and payout.
+            Clock in, then let the backend finalize the shift when Houston time reaches the scheduled end.
           </Text>
         )}
       </GameplaySummaryCard>
@@ -872,23 +1072,44 @@ export default function DashboardScreen() {
             {
               label: 'Status',
               value: rideshareStatusLabel,
-              tone: rideshareAvailable ? 'positive' : activeShift ? 'warning' : 'neutral',
+              tone: rideshareAvailable ? 'positive' : backendShiftActive || autoClockingOut ? 'warning' : 'neutral',
             },
-            { label: 'Trips today', value: `${rideshareTripsToday} / ${rideshareDailyCap}` },
+            { label: 'Houston time', value: `${formatHoustonNow(houstonNow)} CT` },
+            { label: 'Mode', value: formatRideshareMode(rideshareMode) },
+            {
+              label: 'Trips today',
+              value: `${Math.round(workState?.side_income_hours_today || rideshareTripsToday)} / ${rideshareDailyCap}`,
+            },
             {
               label: 'Ride share earned today',
               value: formatMoney(rideshareEarnedToday),
               tone: rideshareEarnedToday > 0 ? 'positive' : 'neutral',
             },
-            { label: 'Time cost per trip', value: `${sideIncomeGuard.timeCostUnits || 1} units` },
+            { label: 'Time per trip', value: '1 time unit (20-45 mins simulated)' },
           ]}
         />
-        <View style={styles.clockInButtonWrap}>
-          <PrimaryButton
-            label={runningSideIncome ? 'Completing trip...' : 'Run Ride Share Trip'}
-            onPress={() => void runRideShareTrip()}
-            disabled={!rideshareAvailable || runningSideIncome || autoClockingOut || loop.executingAction}
-          />
+
+        <View style={styles.recoveryList}>
+          {RIDESHARE_TRIP_OPTIONS.map((tripOption) => {
+            const preview = getRideshareTripPreview(rideshareMode, tripOption);
+            return (
+              <View key={`rideshare_${tripOption}`} style={styles.recoveryRow}>
+                <View style={styles.recoveryInfo}>
+                  <Text style={styles.recoveryTitle}>{tripOption} {tripOption === 1 ? 'Trip' : 'Trips'}</Text>
+                  <Text style={styles.recoveryMeta}>
+                    Expected pay {formatMoney(preview.payMin)}-{formatMoney(preview.payMax)} | Stress {signedWhole(preview.stress)} | Health {signedWhole(preview.health)}
+                  </Text>
+                </View>
+                <View style={styles.recoveryActionWrap}>
+                  <SecondaryButton
+                    label={runningSideIncome ? 'Running...' : `Run ${tripOption}`}
+                    onPress={() => void runRideShareTrip(tripOption)}
+                    disabled={!rideshareAvailable || runningSideIncome || autoClockingOut || loop.executingAction}
+                  />
+                </View>
+              </View>
+            );
+          })}
         </View>
       </GameplaySummaryCard>
 
@@ -914,7 +1135,7 @@ export default function DashboardScreen() {
 
       {/* Recovery */}
       <GameplaySummaryCard eyebrow="Recovery" title="Recovery Actions">
-        {(activeShift || autoClockingOut) ? (
+        {(backendShiftActive || autoClockingOut) ? (
           <GameplayWarningBanner
             title="Recovery locked during shift"
             message={`Recovery actions unlock after ${shiftEndLabel} CT.`}
@@ -937,7 +1158,7 @@ export default function DashboardScreen() {
                   <SecondaryButton
                     label={running ? 'Running...' : 'Do'}
                     onPress={() => void runRecoveryAction(preset)}
-                    disabled={Boolean(busyRecoveryId) || loop.executingAction || Boolean(activeShift) || autoClockingOut}
+                    disabled={Boolean(busyRecoveryId) || loop.executingAction || backendShiftActive || autoClockingOut}
                   />
                 </View>
               </View>

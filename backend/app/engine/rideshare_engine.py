@@ -1,32 +1,33 @@
-"""Ride share side-income engine (Step 8).
-
-Economic design:
-  - Ride share is a flexible emergency income tool, not a salary replacement.
-  - Players trade remaining daily time and wellbeing for immediate XGP.
-  - Fuel cost is linked to macro oil conditions, so profitability is dynamic.
-  - Every cash movement is ledger-backed for full auditability.
-"""
+"""Ride-share side-income engine with Houston-time trip execution."""
 
 from __future__ import annotations
 
 import json
+import logging
+import random
+from datetime import datetime
 from decimal import Decimal
+from hashlib import sha256
 
+import pytz
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.engine.daily_engine import get_or_create_game_state
-from app.engine.housing_region_service import get_side_income_region_modifier
 from app.engine.macro_engine import get_or_create_macro_state_for_day
-from app.engine.side_income_service import compute_rideshare_shift
 from app.models.contribution_event import ContributionEvent
 from app.models.player import Player
 from app.models.player_daily_state import PlayerDailyState
 from app.models.side_income_action import SideIncomeAction
 from app.models.xgp_transaction import XGPTransaction
 from app.services.player_transaction_log_service import record_player_transaction
+from app.services.shift_state_service import resolve_expired_shift_if_needed
 
 RIDESHARE_TYPE = "ride_share"
-MAX_RIDESHARE_HOURS_PER_DAY = 6
+TRIP_OPTIONS = (1, 3, 5)
+MAX_RIDESHARE_HOURS_PER_DAY = 6  # treated as time-units in the current loop
+HOUSTON_TZ = pytz.timezone("America/Chicago")
+logger = logging.getLogger(__name__)
 
 
 def _clamp_int(value: int, lo: int, hi: int) -> int:
@@ -78,82 +79,92 @@ def get_current_oil_index(db: Session, day_number: int) -> float:
     return round(float(macro.oil_index or 100.0), 4)
 
 
-def calculate_rideshare_gross_income(
-    hours_worked: float,
-    demand_multiplier: float = 1.0,
-) -> float:
-    """Gross ride-share earnings for a shift."""
-    base_rate_per_hour = 18.0
-    gross = float(hours_worked) * base_rate_per_hour * float(demand_multiplier)
-    return round(max(0.0, gross), 2)
+def get_rideshare_mode(hour: int) -> str:
+    """Map Houston hour to rideshare demand/stress mode."""
+    if 6 <= hour < 9:
+        return "morning_peak"
+    if 9 <= hour < 16:
+        return "midday"
+    if 16 <= hour < 19:
+        return "evening_peak"
+    if hour >= 20 or hour < 1:
+        return "night"
+    return "midday"
 
 
-def calculate_rideshare_fuel_cost(hours_worked: float, oil_index: float) -> float:
-    """Fuel cost driven by oil pressure (100 index = baseline fuel cost)."""
-    hourly_fuel_at_baseline = 2.5
-    hourly_cost = hourly_fuel_at_baseline * (float(oil_index) / 100.0)
-    total_cost = hourly_cost * float(hours_worked)
-    return round(max(0.0, total_cost), 2)
+def _seeded_rng(seed: str) -> random.Random:
+    digest = sha256(seed.encode("utf-8")).hexdigest()
+    seed_int = int(digest[:16], 16)
+    return random.Random(seed_int)
 
 
-def calculate_rideshare_stress_change(hours_worked: float) -> int:
-    """Stress gain from side-shift workload."""
-    stress = 1 + round(float(hours_worked) * 0.75)
-    return max(1, int(stress))
+def _trip_duration_hours(rng: random.Random) -> float:
+    return round(rng.uniform(0.30, 0.75), 4)
 
 
-def calculate_rideshare_health_change(hours_worked: float) -> int:
-    """Small health pressure for long side shifts."""
-    hrs = float(hours_worked)
-    if hrs < 4:
-        return 0
-    if hrs < 8:
-        return -1
-    return -2
+def calculate_trip_outcome(mode: str, rng: random.Random) -> dict[str, float | int]:
+    if mode == "midday":
+        return {
+            "pay": round(rng.uniform(12, 20), 2),
+            "stress": 2,
+            "health": -1,
+        }
+    if mode in {"morning_peak", "evening_peak"}:
+        return {
+            "pay": round(rng.uniform(18, 28), 2),
+            "stress": 5,
+            "health": -1,
+        }
+    if mode == "night":
+        return {
+            "pay": round(rng.uniform(22, 35), 2),
+            "stress": 4,
+            "health": -3,
+        }
+    return {
+        "pay": round(rng.uniform(12, 20), 2),
+        "stress": 2,
+        "health": -1,
+    }
 
 
-def validate_rideshare_action(
-    hours_requested: float,
-    hours_available: int,
-    max_side_income_hours_per_day: int = 6,
-) -> tuple[bool, str | None]:
-    """Validate anti-exploit constraints before DB mutation."""
-    if float(hours_requested) <= 0:
-        return False, "hours_requested must be greater than 0."
+def _resolve_requested_trips(trips: int | None, hours_worked: float | None) -> int:
+    if trips is not None:
+        parsed = int(trips)
+        if parsed not in TRIP_OPTIONS:
+            raise ValueError(f"Trips must be one of {list(TRIP_OPTIONS)}.")
+        return parsed
 
-    # Player daily clock currently uses integer hours across the backend.
-    if not float(hours_requested).is_integer():
-        return False, "Ride share currently supports whole-hour shifts only."
+    # Backward-compat path for callers still sending hours_worked.
+    if hours_worked is None:
+        return 1
 
-    if float(hours_requested) > float(hours_available):
-        return (
-            False,
-            f"Not enough available time. Requested {hours_requested}h, "
-            f"but only {hours_available}h remaining.",
-        )
-
-    if float(hours_requested) > float(max_side_income_hours_per_day):
-        return (
-            False,
-            f"Ride share is capped at {max_side_income_hours_per_day} hours per day.",
-        )
-
-    return True, None
+    rounded = int(round(float(hours_worked)))
+    if rounded <= 1:
+        return 1
+    if rounded <= 3:
+        return 3
+    return 5
 
 
-def process_rideshare_action(db: Session, player: Player, hours_worked: float) -> dict:
-    """Process one ride-share side-income action atomically.
-
-    This is the first flexible labor-response mechanic:
-    players can hustle extra XGP when finances are tight, but it costs time,
-    stress, and occasionally health.
-    """
+def process_rideshare_action(
+    db: Session,
+    player: Player,
+    hours_worked: float | None = None,
+    trips: int | None = None,
+) -> dict:
+    """Process rideshare as trip-based execution with Houston-time mode buckets."""
     try:
         game_state = get_or_create_game_state(db)
         current_day = int(game_state.current_day)
+        work_state = resolve_expired_shift_if_needed(db, player=player)
 
-        # Keep daily work counters aligned to this in-game day so the job engine
-        # does not later reset hours and erase side-income time consumption.
+        if bool(work_state.get("main_shift_active_flag")):
+            raise ValueError(
+                "Ride share is unavailable during an active main shift. "
+                "Wait for backend-confirmed shift completion first."
+            )
+
         if player.last_worked_day != current_day:
             player.main_job_hours_today = 0
             player.side_job_hours_today = 0
@@ -161,215 +172,164 @@ def process_rideshare_action(db: Session, player: Player, hours_worked: float) -
             player.work_actions_today = 0
 
         pds = _get_or_create_player_daily_state_in_txn(db, player, current_day)
+        requested_trips = _resolve_requested_trips(trips, hours_worked)
 
-        side_income_hours_today = int(float(getattr(pds, "side_income_hours", 0) or 0))
-        remaining_side_cap = max(0, MAX_RIDESHARE_HOURS_PER_DAY - side_income_hours_today)
-        hours_available_for_action = min(int(player.hours_available or 0), remaining_side_cap)
+        side_income_time_used_today = int(float(getattr(pds, "side_income_hours", 0) or 0))
+        remaining_side_cap = max(0, MAX_RIDESHARE_HOURS_PER_DAY - side_income_time_used_today)
+        available_time_units = min(int(player.hours_available or 0), remaining_side_cap)
 
-        valid, reason = validate_rideshare_action(
-            hours_requested=hours_worked,
-            hours_available=hours_available_for_action,
-            max_side_income_hours_per_day=MAX_RIDESHARE_HOURS_PER_DAY,
-        )
-        if not valid:
-            raise ValueError(reason or "Invalid ride-share action.")
+        if available_time_units < 1:
+            raise ValueError(
+                "Not enough available time for one ride-share trip. "
+                f"Remaining today: {available_time_units}."
+            )
 
-        hours_worked_int = int(hours_worked)
-        macro = get_or_create_macro_state_for_day(db, current_day)
-        oil_index = round(float(macro.oil_index or 100.0), 4)
-        confidence = Decimal(str(getattr(macro, "consumer_confidence", 50) or 50))
-        unemployment = Decimal(str(getattr(macro, "unemployment_rate", 5) or 5))
-        reliability_before = Decimal(str(getattr(player, "rideshare_reliability", 0.95) or 0.95))
-        region = (player.region or "suburban").strip().lower()
-        try:
-            region_side_income_modifier = get_side_income_region_modifier(db, player.id)
-        except Exception:
-            # Backward-compat fallback for test fixtures/DBs missing housing tables.
-            region_side_income_modifier = Decimal("1.0000")
+        trips_completed = min(requested_trips, available_time_units)
+        partial_completion = trips_completed < requested_trips
+
+        now_houston = datetime.now(HOUSTON_TZ)
+        houston_hour = int(now_houston.hour)
+        mode_used = get_rideshare_mode(houston_hour)
+
+        sequence_index = int(
+            db.query(func.count(SideIncomeAction.id))
+            .filter(
+                SideIncomeAction.player_id == player.id,
+                SideIncomeAction.day_number == current_day,
+            )
+            .scalar()
+            or 0
+        ) + 1
+
+        total_pay = Decimal("0.00")
+        total_stress_change = 0
+        total_health_change = 0
+        total_trip_duration_hours = 0.0
+
+        for trip_idx in range(trips_completed):
+            seed = f"{player.id}:{current_day}:{sequence_index}:{mode_used}:{trip_idx}"
+            trip_rng = _seeded_rng(seed)
+            outcome = calculate_trip_outcome(mode_used, trip_rng)
+            total_pay += Decimal(str(outcome["pay"]))
+            total_stress_change += int(outcome["stress"])
+            total_health_change += int(outcome["health"])
+            total_trip_duration_hours += _trip_duration_hours(trip_rng)
+
+        time_used_units = int(trips_completed)  # one time-unit per completed trip
+        total_earned = round(float(total_pay), 2)
+        oil_index = get_current_oil_index(db, current_day)
 
         hours_before = int(player.hours_available or 0)
         balance_before = round(float(player.cash or 0), 4)
         stress_before = int(player.stress or 0)
         health_before = int(player.health or 0)
 
-        shift = compute_rideshare_shift(
-            player_seed=str(player.id),
-            day_number=current_day,
-            region_key=region,
-            hours_worked=hours_worked_int,
-            oil_index=Decimal(str(oil_index)),
-            consumer_confidence=confidence,
-            unemployment_rate=unemployment,
-            reliability=reliability_before,
-            productivity_modifier=Decimal(str(getattr(player, "productivity_modifier", 1.0) or 1.0)),
-            region_side_income_modifier=region_side_income_modifier,
-            opportunity_access_penalty=Decimal(str(getattr(player, "opportunity_access_penalty", 0.0) or 0.0)),
-        )
-
-        gross_income_xgp = round(float(shift["gross_income_xgp"]), 2)
-        fuel_cost_xgp = round(float(shift["gas_cost_xgp"]), 2)
-        wear_cost_xgp = round(float(shift["wear_cost_xgp"]), 2)
-        maintenance_cost_xgp = round(float(shift["maintenance_cost_xgp"]), 2)
-        net_income_xgp = round(float(shift["net_income_xgp"]), 2)
-
-        stress_change = calculate_rideshare_stress_change(hours_worked_int)
-        health_change = calculate_rideshare_health_change(hours_worked_int)
-
-        hours_after = _clamp_int(hours_before - hours_worked_int, 0, 24)
-        balance_after_gross = round(balance_before + gross_income_xgp, 4)
-        balance_after_fuel = round(balance_after_gross - fuel_cost_xgp, 4)
-        balance_after_wear = round(balance_after_fuel - wear_cost_xgp, 4)
-        balance_after = round(balance_after_wear - maintenance_cost_xgp, 4)
+        hours_after = _clamp_int(hours_before - time_used_units, 0, 24)
+        balance_after = round(balance_before + total_earned, 4)
 
         player.cash = balance_after
-        player.stress = _clamp_int(stress_before + stress_change, 0, 100)
-        player.health = _clamp_int(health_before + health_change, 0, 100)
+        player.stress = _clamp_int(stress_before + total_stress_change, 0, 100)
+        player.health = _clamp_int(health_before + total_health_change, 0, 100)
         player.hours_available = hours_after
+        player.side_job_hours_today = int(player.side_job_hours_today or 0) + time_used_units
+        player.total_hours_worked_today = int(player.total_hours_worked_today or 0) + time_used_units
         player.last_worked_day = current_day
-        player.rideshare_reliability = float(shift["reliability_after"])
 
         action = SideIncomeAction(
             player_id=player.id,
             day_number=current_day,
             side_income_type=RIDESHARE_TYPE,
-            hours_worked=float(hours_worked_int),
-            gross_income_xgp=round(gross_income_xgp, 4),
-            fuel_cost_xgp=round(fuel_cost_xgp, 4),
-            wear_cost_xgp=round(wear_cost_xgp, 4),
-            maintenance_cost_xgp=round(maintenance_cost_xgp, 4),
-            net_income_xgp=round(net_income_xgp, 4),
-            stress_change=stress_change,
-            health_change=health_change,
+            hours_worked=float(time_used_units),
+            gross_income_xgp=round(total_earned, 4),
+            fuel_cost_xgp=0.0,
+            wear_cost_xgp=0.0,
+            maintenance_cost_xgp=0.0,
+            net_income_xgp=round(total_earned, 4),
+            stress_change=total_stress_change,
+            health_change=total_health_change,
             hours_before=hours_before,
             hours_after=hours_after,
             oil_index_used=oil_index,
-            demand_multiplier=float(shift["demand_multiplier"]),
-            gross_per_hour_xgp=float(shift["gross_per_hour_xgp"]),
-            gas_price_per_unit_xgp=float(shift["gas_price_xgp"]),
-            wear_cost_per_hour_xgp=float(shift["wear_cost_per_hour_xgp"]),
-            net_per_hour_xgp=float(shift["net_per_hour_xgp"]),
-            reliability_before=float(shift["reliability_before"]),
-            reliability_after=float(shift["reliability_after"]),
+            demand_multiplier=1.0,
+            gross_per_hour_xgp=0.0,
+            gas_price_per_unit_xgp=0.0,
+            wear_cost_per_hour_xgp=0.0,
+            net_per_hour_xgp=0.0,
+            reliability_before=float(getattr(player, "rideshare_reliability", 0.95) or 0.95),
+            reliability_after=float(getattr(player, "rideshare_reliability", 0.95) or 0.95),
         )
         db.add(action)
         db.flush()
 
-        gross_txn = XGPTransaction(
+        income_txn = XGPTransaction(
             player_id=player.id,
             transaction_type="rideshare_income",
             direction="in",
-            amount=round(gross_income_xgp, 4),
+            amount=round(total_earned, 4),
             balance_before=balance_before,
-            balance_after=balance_after_gross,
+            balance_after=balance_after,
             reference_type="side_income_action",
             reference_id=str(action.id),
-            description="Ride share gross income",
+            description=f"Ride share trips ({trips_completed}) - {mode_used}",
         )
-        db.add(gross_txn)
-
-        fuel_txn = XGPTransaction(
-            player_id=player.id,
-            transaction_type="rideshare_fuel_cost",
-            direction="out",
-            amount=round(fuel_cost_xgp, 4),
-            balance_before=balance_after_gross,
-            balance_after=balance_after_fuel,
-            reference_type="side_income_action",
-            reference_id=str(action.id),
-            description="Ride share fuel cost",
-        )
-        db.add(fuel_txn)
-
-        wear_txn = XGPTransaction(
-            player_id=player.id,
-            transaction_type="rideshare_wear_cost",
-            direction="out",
-            amount=round(wear_cost_xgp, 4),
-            balance_before=balance_after_fuel,
-            balance_after=balance_after_wear,
-            reference_type="side_income_action",
-            reference_id=str(action.id),
-            description="Ride share vehicle wear cost",
-        )
-        db.add(wear_txn)
-
-        if maintenance_cost_xgp > 0:
-            maint_txn = XGPTransaction(
-                player_id=player.id,
-                transaction_type="rideshare_maintenance_cost",
-                direction="out",
-                amount=round(maintenance_cost_xgp, 4),
-                balance_before=balance_after_wear,
-                balance_after=balance_after,
-                reference_type="side_income_action",
-                reference_id=str(action.id),
-                description="Ride share maintenance event cost",
-            )
-            db.add(maint_txn)
+        db.add(income_txn)
 
         record_player_transaction(
             db,
             player=player,
             day=current_day,
-            transaction_type="side_income",
+            transaction_type="rideshare",
             category="work",
-            quantity=hours_worked_int,
-            unit_price=round(float(shift["gross_per_hour_xgp"]), 4),
-            gross_amount=round(gross_income_xgp, 4),
-            fee_amount=round(fuel_cost_xgp + wear_cost_xgp + maintenance_cost_xgp, 4),
-            net_cash_delta=round(net_income_xgp, 4),
+            quantity=trips_completed,
+            unit_price=round(total_earned / max(1, trips_completed), 4),
+            gross_amount=round(total_earned, 4),
+            fee_amount=0,
+            net_cash_delta=round(total_earned, 4),
             resulting_cash_balance=balance_after,
             metadata={
-                "mode": RIDESHARE_TYPE,
-                "fuel_cost_xgp": round(fuel_cost_xgp, 4),
-                "wear_cost_xgp": round(wear_cost_xgp, 4),
-                "maintenance_cost_xgp": round(maintenance_cost_xgp, 4),
-                "demand_multiplier": float(shift["demand_multiplier"]),
-                "oil_index_used": oil_index,
+                "type": "rideshare",
+                "trips": trips_completed,
+                "mode": mode_used,
+                "timestamp": now_houston.isoformat(),
+                "time_used_units": time_used_units,
+                "time_used_hours": round(total_trip_duration_hours, 4),
             },
         )
 
         contribution = ContributionEvent(
             player_id=player.id,
             event_type="ride_share",
-            xgp_value=round(net_income_xgp, 4),
-            event_units=float(hours_worked_int),
+            xgp_value=round(total_earned, 4),
+            event_units=float(trips_completed),
             metadata_json=json.dumps(
                 {
                     "side_income_type": RIDESHARE_TYPE,
-                    "gross_income_xgp": round(gross_income_xgp, 4),
-                    "fuel_cost_xgp": round(fuel_cost_xgp, 4),
-                    "wear_cost_xgp": round(wear_cost_xgp, 4),
-                    "maintenance_cost_xgp": round(maintenance_cost_xgp, 4),
-                    "oil_index_used": oil_index,
-                    "demand_multiplier": float(shift["demand_multiplier"]),
-                    "labor_efficiency_modifier": float(shift["labor_efficiency_modifier"]),
-                    "productivity_modifier": float(shift["productivity_modifier"]),
-                    "region_side_income_modifier": float(shift["region_side_income_modifier"]),
-                    "opportunity_access_penalty": float(shift["opportunity_access_penalty"]),
-                    "financial_access_factor": float(shift["financial_access_factor"]),
-                    "maintenance_triggered": bool(shift["maintenance_triggered"]),
+                    "trips": trips_completed,
+                    "requested_trips": requested_trips,
+                    "mode": mode_used,
+                    "timestamp": now_houston.isoformat(),
+                    "time_used_units": time_used_units,
+                    "time_used_hours": round(total_trip_duration_hours, 4),
                     "day_number": current_day,
                 }
             ),
         )
         db.add(contribution)
 
-        pds.side_income_hours = round(float(getattr(pds, "side_income_hours", 0) or 0) + hours_worked_int, 4)
+        pds.side_income_hours = round(float(getattr(pds, "side_income_hours", 0) or 0) + time_used_units, 4)
         pds.side_income_gross_xgp = round(
-            float(getattr(pds, "side_income_gross_xgp", 0) or 0) + gross_income_xgp, 4
+            float(getattr(pds, "side_income_gross_xgp", 0) or 0) + total_earned, 4
         )
-        pds.side_income_fuel_cost_xgp = round(
-            float(getattr(pds, "side_income_fuel_cost_xgp", 0) or 0) + fuel_cost_xgp, 4
-        )
-        pds.side_income_wear_cost_xgp = round(
-            float(getattr(pds, "side_income_wear_cost_xgp", 0) or 0) + wear_cost_xgp, 4
-        )
+        pds.side_income_fuel_cost_xgp = round(float(getattr(pds, "side_income_fuel_cost_xgp", 0) or 0), 4)
+        pds.side_income_wear_cost_xgp = round(float(getattr(pds, "side_income_wear_cost_xgp", 0) or 0), 4)
         pds.side_income_maintenance_cost_xgp = round(
-            float(getattr(pds, "side_income_maintenance_cost_xgp", 0) or 0) + maintenance_cost_xgp, 4
+            float(getattr(pds, "side_income_maintenance_cost_xgp", 0) or 0), 4
         )
         pds.side_income_net_xgp = round(
-            float(getattr(pds, "side_income_net_xgp", 0) or 0) + net_income_xgp, 4
+            float(getattr(pds, "side_income_net_xgp", 0) or 0) + total_earned, 4
+        )
+        pds.total_hours_used = round(
+            float(getattr(pds, "total_hours_used", 0) or 0) + time_used_units, 4
         )
         pds.hours_available_end = player.hours_available
         pds.stress_end = player.stress
@@ -378,7 +338,7 @@ def process_rideshare_action(db: Session, player: Player, hours_worked: float) -
 
         try:
             player.lifetime_xgp_earned = round(
-                float(player.lifetime_xgp_earned or 0.0) + net_income_xgp, 4
+                float(player.lifetime_xgp_earned or 0.0) + total_earned, 4
             )
         except AttributeError:
             pass
@@ -386,34 +346,54 @@ def process_rideshare_action(db: Session, player: Player, hours_worked: float) -
         db.commit()
         db.refresh(player)
 
+        logger.info(
+            "rideshare.process_rideshare_action completed.",
+            extra={
+                "player_id": str(player.id),
+                "requested_trips": requested_trips,
+                "completed_trips": trips_completed,
+                "current_houston_time": now_houston.isoformat(),
+                "main_shift_active_flag": work_state.get("main_shift_active_flag"),
+                "rideshare_unlocked": work_state.get("rideshare_unlocked"),
+                "side_income_hours_today": round(float(getattr(pds, "side_income_hours", 0) or 0), 4),
+                "main_shift_hours_today": round(float(getattr(pds, "main_shift_hours_today", 0) or 0), 4),
+            },
+        )
+
         return {
             "day_number": current_day,
-            "hours_worked": hours_worked_int,
-            "gross_income_xgp": round(gross_income_xgp, 2),
-            "fuel_cost_xgp": round(fuel_cost_xgp, 2),
-            "net_income_xgp": round(net_income_xgp, 2),
+            "hours_worked": float(time_used_units),
+            "trips": int(trips_completed),
+            "trips_completed": int(trips_completed),
+            "requested_trips": int(requested_trips),
+            "mode": mode_used,
+            "mode_used": mode_used,
+            "houston_hour": houston_hour,
+            "current_houston_time": now_houston.isoformat(),
+            "time_used": int(time_used_units),
+            "time_used_hours": round(total_trip_duration_hours, 4),
+            "earned": round(total_earned, 2),
+            "gross_income_xgp": round(total_earned, 2),
+            "fuel_cost_xgp": 0.0,
+            "wear_cost_xgp": 0.0,
+            "maintenance_cost_xgp": 0.0,
+            "net_income_xgp": round(total_earned, 2),
             "oil_index_used": oil_index,
-            "wear_cost_xgp": round(wear_cost_xgp, 2),
-            "maintenance_cost_xgp": round(maintenance_cost_xgp, 2),
-            "demand_multiplier": round(float(shift["demand_multiplier"]), 4),
-            "gas_price_xgp": round(float(shift["gas_price_xgp"]), 4),
-            "wear_cost_per_hour_xgp": round(float(shift["wear_cost_per_hour_xgp"]), 4),
-            "maintenance_triggered": bool(shift["maintenance_triggered"]),
-            "maintenance_probability": round(float(shift["maintenance_probability"]), 4),
-            "reliability_before": round(float(shift["reliability_before"]), 4),
-            "reliability_after": round(float(shift["reliability_after"]), 4),
-            "labor_efficiency_modifier": round(float(shift["labor_efficiency_modifier"]), 4),
-            "productivity_modifier": round(float(shift["productivity_modifier"]), 4),
-            "region_side_income_modifier": round(float(shift["region_side_income_modifier"]), 4),
-            "opportunity_access_penalty": round(float(shift["opportunity_access_penalty"]), 4),
-            "financial_access_factor": round(float(shift["financial_access_factor"]), 4),
-            "stress_change": stress_change,
-            "health_change": health_change,
-            "hours_before": hours_before,
-            "hours_after": hours_after,
+            "demand_multiplier": 1.0,
+            "gas_price_xgp": 0.0,
+            "wear_cost_per_hour_xgp": 0.0,
+            "maintenance_triggered": False,
+            "maintenance_probability": 0.0,
+            "reliability_before": round(float(getattr(player, "rideshare_reliability", 0.95) or 0.95), 4),
+            "reliability_after": round(float(getattr(player, "rideshare_reliability", 0.95) or 0.95), 4),
+            "stress_change": int(total_stress_change),
+            "health_change": int(total_health_change),
+            "hours_before": int(hours_before),
+            "hours_after": int(hours_after),
             "balance_before": round(balance_before, 2),
             "balance_after": round(float(player.cash or 0), 2),
             "side_income_type": RIDESHARE_TYPE,
+            "partial_completion": bool(partial_completion),
         }
     except ValueError:
         db.rollback()

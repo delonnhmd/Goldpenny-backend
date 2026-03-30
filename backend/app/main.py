@@ -108,6 +108,19 @@ def _run_schema_migrations() -> None:
         "ALTER TABLE players ADD COLUMN last_settled_day INTEGER",
         # Step 73: one-time end-of-day summary acknowledgment checkpoint.
         "ALTER TABLE players ADD COLUMN IF NOT EXISTS last_seen_settlement_day INTEGER",
+        "ALTER TABLE players ADD COLUMN IF NOT EXISTS main_shift_active_flag BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE players ADD COLUMN IF NOT EXISTS main_shift_status VARCHAR(20) NOT NULL DEFAULT 'idle'",
+        "ALTER TABLE players ADD COLUMN IF NOT EXISTS main_shift_started_at TIMESTAMPTZ",
+        "ALTER TABLE players ADD COLUMN IF NOT EXISTS main_shift_ends_at TIMESTAMPTZ",
+        "ALTER TABLE players ADD COLUMN IF NOT EXISTS main_shift_completed_at TIMESTAMPTZ",
+        "ALTER TABLE players ADD COLUMN IF NOT EXISTS main_shift_job_name VARCHAR(120)",
+        "ALTER TABLE players ADD COLUMN IF NOT EXISTS main_shift_shift_type VARCHAR(40)",
+        "ALTER TABLE players ADD COLUMN IF NOT EXISTS main_shift_hours INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE players ADD COLUMN IF NOT EXISTS main_shift_number INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE players ADD COLUMN IF NOT EXISTS main_shift_last_cash_xgp NUMERIC(14,4) NOT NULL DEFAULT 0",
+        "ALTER TABLE players ADD COLUMN IF NOT EXISTS main_shift_last_xp_gained INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE players ADD COLUMN IF NOT EXISTS main_shift_last_stress_delta INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE players ADD COLUMN IF NOT EXISTS main_shift_last_health_delta INTEGER NOT NULL DEFAULT 0",
         # day_status and day_started_at extend the existing game_states table.
         "ALTER TABLE game_states ADD COLUMN day_status VARCHAR(20) NOT NULL DEFAULT 'open'",
         "ALTER TABLE game_states ADD COLUMN day_started_at TIMESTAMPTZ",
@@ -143,6 +156,7 @@ def _run_schema_migrations() -> None:
         "ALTER TABLE player_daily_states ADD COLUMN housing_cost_paid NUMERIC(10,2) NOT NULL DEFAULT 0",
         "ALTER TABLE player_daily_states ADD COLUMN housing_region_id TEXT",
         # Step 8: side-income daily totals on player_daily_states.
+        "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS main_shift_hours_today NUMERIC(12,4) NOT NULL DEFAULT 0",
         "ALTER TABLE player_daily_states ADD COLUMN side_income_hours NUMERIC(12,4) NOT NULL DEFAULT 0",
         "ALTER TABLE player_daily_states ADD COLUMN side_income_gross_xgp NUMERIC(14,4) NOT NULL DEFAULT 0",
         "ALTER TABLE player_daily_states ADD COLUMN side_income_fuel_cost_xgp NUMERIC(14,4) NOT NULL DEFAULT 0",

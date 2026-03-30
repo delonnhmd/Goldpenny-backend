@@ -18,12 +18,14 @@ from app.db.database import get_db
 from app.engine.daily_engine import get_or_create_game_state
 from app.engine.rideshare_engine import (
     MAX_RIDESHARE_HOURS_PER_DAY,
+    TRIP_OPTIONS,
     process_rideshare_action,
 )
 from app.models.player import Player
 from app.models.player_daily_state import PlayerDailyState
 from app.models.side_income_action import SideIncomeAction
 from app.models.user import User
+from app.services.shift_state_service import resolve_expired_shift_if_needed
 
 router = APIRouter(prefix="/side-income", tags=["Side Income"])
 logger = logging.getLogger(__name__)
@@ -43,14 +45,31 @@ class SideIncomeOptionsResponse(BaseModel):
 
 
 class RideShareRequest(BaseModel):
-    hours_worked: float = Field(..., gt=0, description="Ride-share hours to work.")
+    trips: int | None = Field(default=1, description="Number of trips to run (1, 3, or 5).")
+    hours_worked: float | None = Field(
+        default=None,
+        gt=0,
+        description="Legacy fallback. Converted into trip count if trips is missing.",
+    )
     player_id: str | None = Field(default=None, description="Gameplay player id or display_name alias.")
+    on_shift: bool = Field(
+        default=False,
+        description="Optional frontend guard flag; rideshare is blocked while on shift.",
+    )
 
 
 class RideShareResponse(BaseModel):
     message: str
     day_number: int
     hours_worked: float
+    trips: int
+    requested_trips: int
+    mode: str
+    mode_used: str
+    earned: float
+    time_used: int
+    time_used_hours: float = 0.0
+    current_houston_time: str
     gross_income_xgp: float
     fuel_cost_xgp: float
     wear_cost_xgp: float = 0.0
@@ -70,6 +89,7 @@ class RideShareResponse(BaseModel):
     hours_after: int
     balance_before: float
     balance_after: float
+    partial_completion: bool = False
 
 
 class SideIncomeHistoryItem(BaseModel):
@@ -151,8 +171,8 @@ def get_side_income_options() -> SideIncomeOptionsResponse:
                 max_hours_per_day=MAX_RIDESHARE_HOURS_PER_DAY,
                 uses_oil_index=True,
                 notes=(
-                    "Flexible emergency income: trades time, stress, and slight health risk "
-                    "for extra XGP."
+                    f"Trip-based side income ({list(TRIP_OPTIONS)} trips per run). "
+                    "Available outside active work shifts."
                 ),
             )
         ]
@@ -165,11 +185,12 @@ def run_rideshare_action(
     db: Session = Depends(get_db),
     auth_token: str | None = Depends(_optional_oauth2),
     x_player_id: str | None = Header(default=None, alias="X-Player-Id"),
+    q_player_id: str | None = Query(default=None, alias="player_id"),
 ) -> RideShareResponse:
     identity_source = "none"
     player: Player | None = None
 
-    requested_player_id = str(payload.player_id or x_player_id or "").strip()
+    requested_player_id = str(payload.player_id or x_player_id or q_player_id or "").strip()
     if requested_player_id:
         player = _resolve_player_by_identifier(db, requested_player_id)
         identity_source = "player_id"
@@ -182,26 +203,35 @@ def run_rideshare_action(
 
     if player is None:
         logger.warning(
-            "side_income.rideshare unauthorized request.",
+            "side_income.rideshare identity missing.",
             extra={
                 "identity_source": identity_source,
                 "payload_player_id": payload.player_id,
                 "header_player_id": x_player_id,
+                "query_player_id": q_player_id,
                 "has_bearer_token": bool(auth_token),
             },
         )
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated. Provide player_id in body/header or a valid bearer token.",
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Player identity missing. Provide player_id in body/header/query or a valid bearer token.",
         )
 
     game_state = get_or_create_game_state(db)
+    work_state = resolve_expired_shift_if_needed(db, player=player)
+    frontend_on_shift = bool(payload.on_shift)
+
     logger.info(
         "side_income.rideshare request resolved.",
         extra={
             "player_id": str(player.id),
             "identity_source": identity_source,
+            "trips_requested": payload.trips,
             "hours_worked": payload.hours_worked,
+            "frontend_on_shift": frontend_on_shift,
+            "backend_main_shift_active": work_state.get("main_shift_active_flag"),
+            "backend_shift_status": work_state.get("shift_status"),
+            "rideshare_available": work_state.get("rideshare_available"),
             "current_day": int(game_state.current_day),
             "last_settled_day": int(getattr(player, "last_settled_day", 0) or 0),
             "hours_available": int(getattr(player, "hours_available", 0) or 0),
@@ -213,6 +243,7 @@ def run_rideshare_action(
             db=db,
             player=player,
             hours_worked=payload.hours_worked,
+            trips=payload.trips,
         )
     except ValueError as exc:
         logger.warning(

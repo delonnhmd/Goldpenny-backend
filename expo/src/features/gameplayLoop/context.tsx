@@ -472,6 +472,7 @@ export function GameplayLoopProvider({
           stress_delta: result.stress_delta,
           health_delta: result.health_delta,
         },
+        raw_result: result.raw_result || undefined,
       });
 
       setFeedback({

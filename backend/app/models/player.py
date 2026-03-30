@@ -66,6 +66,19 @@ class Player(Base):
     total_hours_worked_today = Column(Integer, nullable=False, default=0)
     work_actions_today = Column(Integer, nullable=False, default=0)
     last_worked_day = Column(Integer, nullable=True)   # in-game economy day
+    main_shift_active_flag = Column(Boolean, nullable=False, default=False)
+    main_shift_status = Column(String(20), nullable=False, default="idle")
+    main_shift_started_at = Column(DateTime(timezone=True), nullable=True)
+    main_shift_ends_at = Column(DateTime(timezone=True), nullable=True)
+    main_shift_completed_at = Column(DateTime(timezone=True), nullable=True)
+    main_shift_job_name = Column(String(120), nullable=True)
+    main_shift_shift_type = Column(String(40), nullable=True)
+    main_shift_hours = Column(Integer, nullable=False, default=0)
+    main_shift_number = Column(Integer, nullable=False, default=0)
+    main_shift_last_cash_xgp = Column(Numeric(14, 4), nullable=False, default=0)
+    main_shift_last_xp_gained = Column(Integer, nullable=False, default=0)
+    main_shift_last_stress_delta = Column(Integer, nullable=False, default=0)
+    main_shift_last_health_delta = Column(Integer, nullable=False, default=0)
 
     # last_settled_day prevents players from settling the same day twice.
     # Null until the first successful settlement.  Set to current_day by the
