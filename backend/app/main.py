@@ -440,6 +440,21 @@ def create_app() -> FastAPI:
 app = create_app()
 
 
+@app.get("/")
+def root():
+    return {
+        "status": "ok",
+        "service": "goldpenny-backend",
+    }
+
+
+@app.get("/health")
+def health():
+    return {
+        "status": "healthy",
+    }
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     # Make resolved settings available via app state for future services/routes.

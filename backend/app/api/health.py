@@ -12,12 +12,6 @@ from app.db.database import get_db
 router = APIRouter(tags=["health"])
 
 
-@router.get("/health")
-def health_check() -> dict[str, str]:
-    """Basic app liveness check."""
-    return {"status": "ok"}
-
-
 @router.get("/health/db")
 def health_db(db: Session = Depends(get_db)):
     """Database connectivity check using a minimal SQL query."""
@@ -32,4 +26,3 @@ def health_db(db: Session = Depends(get_db)):
                 "error": str(exc),
             },
         )
-
