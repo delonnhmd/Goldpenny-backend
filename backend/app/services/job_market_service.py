@@ -25,6 +25,7 @@ from app.models.macro_daily_state import MacroDailyState
 from app.models.player import Player
 from app.models.player_employment_state import PlayerEmploymentState
 from app.services.housing_region_service import get_active_housing_state
+from app.services.job_key_service import job_key_lookup_variants, normalize_main_job_key
 
 MONEY_Q = Decimal("0.01")
 Q4 = Decimal("0.0001")
@@ -81,7 +82,7 @@ JOB_BEHAVIOR: dict[str, dict[str, Decimal | int]] = {
         "promotion_gate": 1,
         "layoff_floor": Decimal("1.80"),
     },
-    "retail_worker": {
+    "retail": {
         "unemployment_w": Decimal("0.90"),
         "confidence_w": Decimal("0.24"),
         "inflation_w": Decimal("0.12"),
@@ -92,7 +93,7 @@ JOB_BEHAVIOR: dict[str, dict[str, Decimal | int]] = {
         "promotion_gate": 1,
         "layoff_floor": Decimal("2.60"),
     },
-    "delivery_driver": {
+    "delivery": {
         "unemployment_w": Decimal("0.58"),
         "confidence_w": Decimal("0.09"),
         "inflation_w": Decimal("0.08"),
@@ -133,8 +134,8 @@ SUPPORTED_JOB_KEYS = (
     "aircraft_mechanic",
     "banker",
     "chef",
-    "retail_worker",
-    "delivery_driver",
+    "retail",
+    "delivery",
 )
 
 
@@ -360,10 +361,11 @@ def _job_meta(db: Session, job_code: str | None) -> dict[str, Any]:
             "base_layoff_ratio": Decimal("0.15"),
         }
 
-    normalized = job_code.strip().lower()
+    normalized = normalize_main_job_key(job_code, allow_aliases=True) or job_code.strip().lower()
+    lookup_variants = job_key_lookup_variants(normalized, allow_side_jobs=False)
     db_row = (
         db.query(JobDefinitionDB)
-        .filter(JobDefinitionDB.job_code == normalized)
+        .filter(JobDefinitionDB.job_code.in_(lookup_variants or (normalized,)))
         .first()
     )
     static_row = JOB_CATALOG.get(normalized)
@@ -409,7 +411,8 @@ def _job_meta(db: Session, job_code: str | None) -> dict[str, Any]:
 def _job_behavior(job_code: str | None) -> dict[str, Decimal | int]:
     if not job_code:
         return DEFAULT_BEHAVIOR
-    return JOB_BEHAVIOR.get(job_code.strip().lower(), DEFAULT_BEHAVIOR)
+    normalized = normalize_main_job_key(job_code, allow_aliases=True) or job_code.strip().lower()
+    return JOB_BEHAVIOR.get(normalized, DEFAULT_BEHAVIOR)
 
 
 def _normalize_status(state: PlayerEmploymentState | None, has_job_code: bool) -> str:
@@ -476,7 +479,7 @@ def _bootstrap_or_clone_state_for_day(
         db.flush()
         return state, True
 
-    seed_job = (player.main_job or "").strip().lower() or None
+    seed_job = normalize_main_job_key(player.main_job, allow_aliases=True) or None
     seed_meta = _job_meta(db, seed_job)
     employed = bool(seed_job)
     state = PlayerEmploymentState(
@@ -543,7 +546,10 @@ def compute_job_market_pressure(db: Session, player_id: str | UUID, day: int) ->
 
     player = _resolve_player(db, player_id)
     employment = _latest_employment_state(db, player.id, day)
-    job_code = ((employment.current_job_code if employment else None) or player.main_job or "").strip().lower() or None
+    job_code = normalize_main_job_key(
+        (employment.current_job_code if employment else None) or player.main_job or "",
+        allow_aliases=True,
+    ) or None
     status = _normalize_status(employment, bool(job_code))
 
     macro = _latest_macro_for_day(db, day)
@@ -783,7 +789,7 @@ def evaluate_daily_employment_event(db: Session, player_id: str | UUID, day: int
     employment_event = "none"
     layoff_happened = False
 
-    job_code = (state.current_job_code or "").strip().lower() or None
+    job_code = normalize_main_job_key(state.current_job_code or "", allow_aliases=True) or None
     status = _normalize_status(state, bool(job_code))
     job_meta = _job_meta(db, job_code)
     behavior = _job_behavior(job_code)
@@ -903,7 +909,7 @@ def apply_employment_progression(
         raise JobMarketNotFoundError("Employment state for day could not be resolved.")
 
     if bool(state.employed_flag) and not bool(getattr(state, "layoff_event_flag", False)):
-        job_code = (state.current_job_code or "").strip().lower() or None
+        job_code = normalize_main_job_key(state.current_job_code or "", allow_aliases=True) or None
         job_meta = _job_meta(db, job_code)
         growth_ratio = _d(job_meta["growth_ratio"])
         skill_roll = _deterministic_roll(str(player.id), day, f"skill:{job_code or 'none'}")
@@ -955,16 +961,17 @@ def get_player_job_summary(db: Session, player_id: str | UUID) -> dict[str, Any]
             "skill_level": int(player.skill_level or 1),
             "promotion_count": 0,
             "last_employment_event": None,
-            "current_job_code": player.main_job,
+            "current_job_code": normalize_main_job_key(player.main_job, allow_aliases=True),
         }
 
-    status = _normalize_status(latest, bool(latest.current_job_code))
-    meta = _job_meta(db, latest.current_job_code)
+    current_job_code = normalize_main_job_key(latest.current_job_code, allow_aliases=True)
+    status = _normalize_status(latest, bool(current_job_code))
+    meta = _job_meta(db, current_job_code)
     return {
         "player_id": str(player.id),
-        "current_job_code": latest.current_job_code,
+        "current_job_code": current_job_code,
         "current_job_summary": {
-            "job_code": latest.current_job_code,
+            "job_code": current_job_code,
             "title": meta["title"],
             "status": status,
             "monthly_pay_xgp": float(_money(_d(latest.monthly_pay_xgp))),

@@ -21,6 +21,8 @@ from app.models.player_daily_state import PlayerDailyState
 from app.models.player_employment_state import PlayerEmploymentState
 from app.models.player_housing_state import PlayerHousingState
 from app.models.user import User
+from app.models.job_definition import resolve_job_definition
+from app.services.job_key_service import normalize_main_job_key, supported_main_job_keys_text
 from app.services.housing_region_service import assign_player_housing
 from app.services.stock_trading_service import StockTradingError, StockTradingService
 
@@ -34,8 +36,8 @@ SUPPORTED_STARTER_JOBS = {
     "aircraft_mechanic",
     "banker",
     "chef",
-    "retail_worker",
-    "delivery_driver",
+    "retail",
+    "delivery",
 }
 
 STARTER_BASELINES: dict[str, dict[str, Decimal | int]] = {
@@ -115,12 +117,12 @@ def _normalize_region(region: str) -> str:
 
 
 def _normalize_starter_job(starter_job_code: str) -> str:
-    normalized = (starter_job_code or "").strip().lower()
+    normalized = normalize_main_job_key(starter_job_code, allow_aliases=True)
     if normalized not in SUPPORTED_STARTER_JOBS:
         raise OnboardingValidationError(
-            f"Unsupported starter_job_code. Use one of: {sorted(SUPPORTED_STARTER_JOBS)}"
+            f"Unsupported starter_job_code. Use one of: {supported_main_job_keys_text()}"
         )
-    return normalized
+    return str(normalized)
 
 
 def _resolve_player(db: Session, player_id: str | UUID) -> Player:
@@ -214,7 +216,7 @@ def _starter_monthly_pay_xgp(db: Session, starter_job_code: str) -> Decimal:
     if db_row is not None:
         return _money(_d(db_row.base_monthly_pay_xgp))
 
-    static = JOB_CATALOG.get(normalized)
+    static = resolve_job_definition(normalized)
     if static is not None:
         return _money(_d(static.monthly_salary))
 

@@ -14,6 +14,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from decimal import Decimal
 
+from app.services.job_key_service import normalize_main_job_key, supported_main_job_keys_text
+
 # ── Rank constants ─────────────────────────────────────────────────────────────
 RANK_ENTRY = "entry"
 RANK_INTERMEDIATE = "intermediate"
@@ -232,9 +234,9 @@ CHEF_CONFIG = JobCareerConfig(
     training_skill_rate=Decimal("0.10"),
 )
 
-RETAIL_WORKER_CONFIG = JobCareerConfig(
-    job_key="retail_worker",
-    display_name="Retail Worker",
+RETAIL_CONFIG = JobCareerConfig(
+    job_key="retail",
+    display_name="Retail",
     base_pay_reference=Decimal("2600.00"),
     skill_growth_rate=Decimal("0.30"),    # low barrier, lower ceiling
     stability_weight=Decimal("0.08"),
@@ -265,9 +267,9 @@ RETAIL_WORKER_CONFIG = JobCareerConfig(
     training_skill_rate=Decimal("0.07"),
 )
 
-DELIVERY_DRIVER_CONFIG = JobCareerConfig(
-    job_key="delivery_driver",
-    display_name="Delivery Driver",
+DELIVERY_CONFIG = JobCareerConfig(
+    job_key="delivery",
+    display_name="Delivery",
     base_pay_reference=Decimal("3000.00"),
     skill_growth_rate=Decimal("0.28"),    # flexible but lower ceiling
     stability_weight=Decimal("0.07"),
@@ -305,8 +307,8 @@ CAREER_CONFIG: dict[str, JobCareerConfig] = {
     "aircraft_mechanic": AIRCRAFT_MECHANIC_CONFIG,
     "banker": BANKER_CONFIG,
     "chef": CHEF_CONFIG,
-    "retail_worker": RETAIL_WORKER_CONFIG,
-    "delivery_driver": DELIVERY_DRIVER_CONFIG,
+    "retail": RETAIL_CONFIG,
+    "delivery": DELIVERY_CONFIG,
 }
 
 VALID_JOB_KEYS: frozenset[str] = frozenset(CAREER_CONFIG.keys())
@@ -327,9 +329,12 @@ CERTIFICATION_CATALOG: dict[str, dict] = {
 
 def get_job_config(job_key: str) -> JobCareerConfig:
     """Return the career config for *job_key*, raising ValueError if unknown."""
-    cfg = CAREER_CONFIG.get(job_key)
+    normalized_key = normalize_main_job_key(job_key, allow_aliases=True)
+    cfg = CAREER_CONFIG.get(normalized_key or "")
     if cfg is None:
-        raise ValueError(f"Unknown job key: {job_key!r}. Valid: {sorted(VALID_JOB_KEYS)}")
+        raise ValueError(
+            f"Unknown job key: {job_key!r}. Valid main jobs: {supported_main_job_keys_text()}"
+        )
     return cfg
 
 

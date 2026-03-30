@@ -18,6 +18,7 @@ Public surface:
 from __future__ import annotations
 
 import json
+import logging
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from uuid import UUID
@@ -52,9 +53,11 @@ from app.models.player import Player
 from app.models.player_career import PlayerCareer
 from app.models.player_daily_state import PlayerDailyState
 from app.models.player_employment_state import PlayerEmploymentState
+from app.services.job_key_service import normalize_main_job_key, require_canonical_main_job_key
 
 MONEY_Q = Decimal("0.01")
 Q4 = Decimal("0.0001")
+logger = logging.getLogger(__name__)
 
 GAME_EPOCH = date(2026, 1, 1)
 
@@ -179,10 +182,24 @@ def get_or_create_player_career(db: Session, player_id: str | UUID) -> PlayerCar
         .first()
     )
     if career is not None:
+        canonical_player_job = normalize_main_job_key(player.main_job, allow_aliases=True)
+        canonical_career_job = normalize_main_job_key(career.current_job_key, allow_aliases=True)
+        changed = False
+        if canonical_player_job and player.main_job != canonical_player_job:
+            player.main_job = canonical_player_job
+            changed = True
+        if canonical_career_job and career.current_job_key != canonical_career_job:
+            career.current_job_key = canonical_career_job
+            changed = True
+        elif canonical_career_job is None and canonical_player_job and not career.current_job_key:
+            career.current_job_key = canonical_player_job
+            changed = True
+        if changed:
+            db.flush()
         return career
 
     # Seed from player.main_job if valid
-    job_key = (player.main_job or "").strip().lower()
+    job_key = normalize_main_job_key(player.main_job, allow_aliases=True)
     if job_key not in VALID_JOB_KEYS:
         job_key = None  # type: ignore[assignment]
 
@@ -516,34 +533,46 @@ def switch_player_job(
     - a modest cross-job skill transfer may apply for related transitions
     - preserves global career history
     """
-    if new_job_key not in VALID_JOB_KEYS:
+    raw_new_job_key = str(new_job_key or "").strip()
+    logger.info(
+        "career.switch_player_job request received.",
+        extra={
+            "player_id": str(player_id),
+            "incoming_new_job_key": raw_new_job_key,
+        },
+    )
+
+    try:
+        canonical_new_job_key = require_canonical_main_job_key(raw_new_job_key)
+    except ValueError as exc:
         raise CareerValidationError(
-            f"Invalid job key: {new_job_key!r}. Valid: {sorted(VALID_JOB_KEYS)}"
+            str(exc)
         )
 
     player = _resolve_player(db, player_id)
     career = get_or_create_player_career(db, player.id)
-    cfg = get_job_config(new_job_key)
+    cfg = get_job_config(canonical_new_job_key)
 
     # Gate check for aircraft mechanic
     if cfg.certification_required and not career.certification_completed:
         raise CareerValidationError(
-            f"Cannot switch to {new_job_key!r}: certification "
+            f"Cannot switch to {canonical_new_job_key!r}: certification "
             f"{cfg.certification_track_key!r} must be completed first."
         )
 
-    old_job = career.current_job_key
+    old_job = normalize_main_job_key(career.current_job_key, allow_aliases=True)
+    previous_main_job = normalize_main_job_key(player.main_job, allow_aliases=True)
     old_skill = _d(career.current_job_skill)
 
     # Compute transfer skill bonus for related job transitions
-    transfer_bonus = RELATED_JOB_SKILL_TRANSFER.get((old_job, new_job_key), Decimal("0.00"))
+    transfer_bonus = RELATED_JOB_SKILL_TRANSFER.get((old_job, canonical_new_job_key), Decimal("0.00"))
     transferred_skill = _q4(old_skill * transfer_bonus)
 
     # Starting skill in new job
     # For aircraft_mechanic after auto_mechanic cert: modest boost, never inflated
     new_skill = _clamp(transferred_skill, SKILL_MIN, Decimal("25.0"))
 
-    career.current_job_key = new_job_key
+    career.current_job_key = canonical_new_job_key
     career.current_job_rank = RANK_ENTRY
     career.current_job_skill = new_skill
     career.total_days_worked_in_job = 0
@@ -551,19 +580,32 @@ def switch_player_job(
     career.promotion_eligible = False
 
     # Update player.main_job to match
-    player.main_job = new_job_key
+    player.main_job = canonical_new_job_key
 
     db.flush()
+    logger.info(
+        "career.switch_player_job persisted canonical main job.",
+        extra={
+            "player_id": str(player.id),
+            "incoming_new_job_key": raw_new_job_key,
+            "resolved_new_job_key": canonical_new_job_key,
+            "previous_main_job": previous_main_job,
+            "previous_career_job": old_job,
+            "updated_main_job": player.main_job,
+            "updated_career_job": career.current_job_key,
+            "persistence_success": True,
+        },
+    )
 
     return {
         "success": True,
-        "new_job_key": new_job_key,
+        "new_job_key": canonical_new_job_key,
         "previous_job_key": old_job,
         "new_rank": RANK_ENTRY,
         "transferred_skill": float(_q4(transferred_skill)),
         "starting_skill": float(new_skill),
         "message": (
-            f"Switched from {old_job!r} to {new_job_key!r}. "
+            f"Switched from {old_job!r} to {canonical_new_job_key!r}. "
             f"Starting at entry rank with skill {float(new_skill):.2f}."
         ),
     }
@@ -773,11 +815,16 @@ def apply_daily_career_progression(
     # If career has no job set, seed from employment or player.main_job
     job_key = career.current_job_key
     if not job_key or job_key not in VALID_JOB_KEYS:
-        if emp_state and emp_state.current_job_code in VALID_JOB_KEYS:
-            job_key = emp_state.current_job_code
+        employment_job_key = normalize_main_job_key(
+            getattr(emp_state, "current_job_code", None) if emp_state is not None else None,
+            allow_aliases=True,
+        )
+        player_job_key = normalize_main_job_key(player.main_job, allow_aliases=True)
+        if employment_job_key in VALID_JOB_KEYS:
+            job_key = employment_job_key
             career.current_job_key = job_key
-        elif player.main_job and player.main_job in VALID_JOB_KEYS:
-            job_key = player.main_job
+        elif player_job_key in VALID_JOB_KEYS:
+            job_key = player_job_key
             career.current_job_key = job_key
 
     # Vitals

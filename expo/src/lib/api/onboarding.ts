@@ -80,7 +80,7 @@ export async function createPlayablePlayer(
     display_name: normalizedPlayerId,
     gender: request.gender,
     region: request.region || 'suburban',
-    starter_job_code: request.starter_job_code || 'retail_worker',
+    starter_job_code: request.starter_job_code || 'retail',
   };
   const raw = await fetchApiWithFallback<unknown>(
     ['/onboarding/new-player'],

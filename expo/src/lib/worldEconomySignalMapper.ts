@@ -52,7 +52,9 @@ const BASKET_LABEL: Record<string, string> = {
 // ── Job key → player-readable label ──────────────────────────────────────────
 
 const JOB_LABEL: Record<string, string> = {
+  delivery: 'Delivery',
   delivery_driver: 'Delivery driver',
+  retail: 'Retail',
   market_stall: 'Market stall operator',
   fruit_shop: 'Fruit shop owner',
   food_truck: 'Food truck operator',

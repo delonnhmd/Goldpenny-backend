@@ -63,6 +63,58 @@ function toString(value: unknown, fallback = ''): string {
   return String(value);
 }
 
+function normalizeExecutionParameters(
+  canonical: GameplayActionKey,
+  params: Record<string, unknown>,
+): Record<string, unknown> {
+  const normalizedParams: Record<string, unknown> = { ...params };
+
+  if (canonical === 'switch_job') {
+    const rawJobKey =
+      params.new_job_key ?? params.job_key ?? params.job ?? params.job_name ?? params.target_job;
+    const canonicalJobKey = normalizeJobName(rawJobKey);
+    delete normalizedParams.job_key;
+    delete normalizedParams.job;
+    delete normalizedParams.job_name;
+    delete normalizedParams.target_job;
+    if (canonicalJobKey) {
+      normalizedParams.new_job_key = canonicalJobKey;
+    }
+    if (GAMEPLAY_ROUTE_DIAGNOSTICS_ENABLED) {
+      recordInfo('gameplayApi', 'Normalized switch_job payload.', {
+        action: 'switch_job_payload_normalized',
+        context: {
+          rawJobKey: rawJobKey == null ? null : String(rawJobKey),
+          canonicalJobKey,
+          requestPayload: normalizedParams,
+        },
+      });
+    }
+  }
+
+  if (canonical === 'work_shift') {
+    const rawJobName = params.job_name ?? params.job ?? params.current_job;
+    const canonicalJobName = normalizeJobName(rawJobName);
+    delete normalizedParams.job;
+    delete normalizedParams.current_job;
+    if (canonicalJobName) {
+      normalizedParams.job_name = canonicalJobName;
+    }
+    if (GAMEPLAY_ROUTE_DIAGNOSTICS_ENABLED) {
+      recordInfo('gameplayApi', 'Normalized work_shift payload.', {
+        action: 'work_shift_payload_normalized',
+        context: {
+          rawJobName: rawJobName == null ? null : String(rawJobName),
+          canonicalJobName,
+          requestPayload: normalizedParams,
+        },
+      });
+    }
+  }
+
+  return normalizedParams;
+}
+
 function toTrendDirection(value: unknown, fallback: TrendDirection = 'flat'): TrendDirection {
   const normalized = toString(value).toLowerCase();
   if (normalized === 'up' || normalized === 'increase' || normalized === 'gain') return 'up';
@@ -638,25 +690,47 @@ export async function executeAction(
   params: Record<string, unknown> = {},
 ): Promise<ActionExecutionResponse> {
   const canonical = canonicalActionKey(actionKey);
+  const normalizedParams = normalizeExecutionParameters(canonical, params);
   const unifiedPayload = {
     action_key: canonical,
-    parameters: params,
+    parameters: normalizedParams,
   };
   const canonicalExecutePath = `/gameplay/player/${playerId}/actions/execute`;
 
   try {
     logCanonicalRoute('action_execute', playerId, canonicalExecutePath);
+    if (GAMEPLAY_ROUTE_DIAGNOSTICS_ENABLED && (canonical === 'switch_job' || canonical === 'work_shift')) {
+      recordInfo('gameplayApi', 'Dispatching canonical gameplay action.', {
+        action: `${String(canonical)}_request`,
+        context: {
+          playerId,
+          canonicalActionKey: canonical,
+          requestPayload: unifiedPayload,
+        },
+      });
+    }
     const unified = await fetchApi<Record<string, unknown>>(canonicalExecutePath, {
       method: 'POST',
       body: JSON.stringify(unifiedPayload),
     });
+    if (GAMEPLAY_ROUTE_DIAGNOSTICS_ENABLED && (canonical === 'switch_job' || canonical === 'work_shift')) {
+      recordInfo('gameplayApi', 'Canonical gameplay action completed.', {
+        action: `${String(canonical)}_response`,
+        context: {
+          playerId,
+          canonicalActionKey: canonical,
+          resultSummary: toString(unified.result_summary || unified.summary || unified.message),
+          rawResult: unified.raw_result ?? unified,
+        },
+      });
+    }
 
     return executionResponseBase(
       playerId,
       canonical,
       toString(unified.message, 'Action executed'),
       toString(unified.result_summary || unified.summary || unified.message, 'Action completed.'),
-      toNumber(unified.time_cost_units ?? params.time_cost_units ?? 2, 2),
+      toNumber(unified.time_cost_units ?? normalizedParams.time_cost_units ?? 2, 2),
       unified,
     );
   } catch (error) {
@@ -669,6 +743,18 @@ export async function executeAction(
       || normalized.includes('not found')
       || normalized.includes('failed to fetch')
       || normalized.includes('network request failed');
+    if (GAMEPLAY_ROUTE_DIAGNOSTICS_ENABLED && (canonical === 'switch_job' || canonical === 'work_shift')) {
+      recordWarning('gameplayApi', 'Canonical gameplay action failed before fallback.', {
+        action: `${String(canonical)}_request_failed`,
+        context: {
+          playerId,
+          canonicalActionKey: canonical,
+          requestPayload: unifiedPayload,
+          message,
+          shouldUseFallback,
+        },
+      });
+    }
     if (!shouldUseFallback) {
       throw error instanceof Error ? error : new Error(message);
     }
@@ -763,7 +849,7 @@ export async function executeAction(
 
   if (canonical === 'switch_job') {
     const targetJob = normalizeJobName(
-      params.job_key ?? params.job ?? params.job_name ?? params.target_job,
+      normalizedParams.new_job_key ?? normalizedParams.job_key ?? normalizedParams.job ?? normalizedParams.job_name ?? normalizedParams.target_job,
     );
     if (!targetJob) {
       throw new Error('Job switch requires a target job identifier.');
@@ -817,7 +903,7 @@ export async function executeAction(
 
   if (canonical === 'work_shift') {
     const jobName = normalizeJobName(
-      params.job_name ?? params.job ?? params.current_job,
+      normalizedParams.job_name ?? normalizedParams.job ?? normalizedParams.current_job,
     );
     if (!jobName) {
       throw new Error(
@@ -830,7 +916,7 @@ export async function executeAction(
         method: 'POST',
         body: JSON.stringify({
           job_name: jobName,
-          hours_worked: Math.max(1, Math.min(12, Math.round(toNumber(params.hours_worked, 4)))),
+          hours_worked: Math.max(1, Math.min(12, Math.round(toNumber(normalizedParams.hours_worked, 4)))),
         }),
       },
     );

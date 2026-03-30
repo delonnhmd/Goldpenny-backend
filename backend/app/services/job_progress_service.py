@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.engine.career_config import CAREER_CONFIG
 from app.models.player import Player
 from app.models.player_employment_state import PlayerEmploymentState
+from app.services.job_key_service import job_key_lookup_variants, normalize_main_job_key
 
 SHIFT_PROFILES: dict[str, dict[str, Any]] = {
     "morning_shift": {
@@ -42,8 +43,8 @@ JOB_COMPANY_MAP: dict[str, dict[str, str]] = {
     "aircraft_mechanic": {"symbol": "GP_TRANSPORT", "name": "GP Transport", "position": "Aircraft Mechanic"},
     "banker": {"symbol": "GP_BANK", "name": "GP Bank", "position": "Junior Banker"},
     "chef": {"symbol": "GP_CONSUMER", "name": "GP Consumer", "position": "Kitchen Lead"},
-    "retail_worker": {"symbol": "GP_RETAIL", "name": "GP Retail", "position": "Retail Associate"},
-    "delivery_driver": {"symbol": "GP_TRANSPORT", "name": "GP Transport", "position": "Delivery Driver"},
+    "retail": {"symbol": "GP_RETAIL", "name": "GP Retail", "position": "Retail Associate"},
+    "delivery": {"symbol": "GP_TRANSPORT", "name": "GP Transport", "position": "Delivery Driver"},
     "rideshare": {"symbol": "GP_TRANSPORT", "name": "GP Transport", "position": "Ride Share Driver"},
 }
 
@@ -92,11 +93,14 @@ def latest_employment_state_for_job(
     player_id: UUID,
     job_key: str,
 ) -> PlayerEmploymentState | None:
+    variants = job_key_lookup_variants(job_key, allow_side_jobs=False)
+    if not variants:
+        return None
     return (
         db.query(PlayerEmploymentState)
         .filter(
             PlayerEmploymentState.player_id == player_id,
-            func.lower(PlayerEmploymentState.current_job_code) == job_key.lower(),
+            func.lower(PlayerEmploymentState.current_job_code).in_(variants),
         )
         .order_by(PlayerEmploymentState.day.desc(), PlayerEmploymentState.created_at.desc())
         .first()
@@ -104,7 +108,8 @@ def latest_employment_state_for_job(
 
 
 def base_monthly_pay_for_job(job_key: str) -> Decimal:
-    cfg = CAREER_CONFIG.get(job_key)
+    normalized_job_key = normalize_main_job_key(job_key, allow_aliases=True) or str(job_key or "").strip().lower()
+    cfg = CAREER_CONFIG.get(normalized_job_key)
     if cfg is not None:
         return _money_decimal(cfg.base_pay_reference)
     return _money_decimal(3200)
@@ -124,9 +129,13 @@ def build_job_progress_payload(
     if level >= JOB_LEVEL_MAX:
         xp = 0
         xp_to_next = 0
+    resolved_job_key = normalize_main_job_key(
+        getattr(row, "current_job_code", None) or fallback_job_key or "",
+        allow_aliases=True,
+    ) or str(getattr(row, "current_job_code", None) or fallback_job_key or "")
 
     return {
-        "job_key": str(getattr(row, "current_job_code", None) or fallback_job_key or ""),
+        "job_key": resolved_job_key,
         "job_level": level,
         "skill_level": level,
         "job_xp": xp,
@@ -160,7 +169,7 @@ def upsert_employment_foundation(
     shift_type: str | None,
     grant_work_xp: int = 0,
 ) -> dict[str, Any] | None:
-    key = (job_key or "").strip().lower()
+    key = normalize_main_job_key(job_key, allow_aliases=True)
     if not key:
         return None
 

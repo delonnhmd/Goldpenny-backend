@@ -11,6 +11,7 @@ import { useOnboarding } from '@/features/onboarding';
 import { useScreenTimer } from '@/hooks/useScreenTimer';
 import { finalizePlayerWorkState } from '@/lib/api/gameplay';
 import { BALANCE } from '@/lib/balanceConfig';
+import { normalizeJobName } from '@/lib/economySafety';
 import { formatMoney } from '@/lib/gameplayFormatters';
 import { recordInfo } from '@/lib/logger';
 import { DailyActionItem } from '@/types/gameplay';
@@ -193,7 +194,7 @@ function asStarterJobOptions(raw: unknown): StarterJobOption[] {
   return raw
     .map((entry) => {
       const row = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : {};
-      const job_key = String(row.job_key || '').trim();
+      const job_key = normalizeJobName(row.job_key) || '';
       if (!job_key) return null;
       return {
         job_key,
@@ -462,6 +463,20 @@ export default function DashboardScreen() {
   ]);
 
   const selectStarterJob = (job: StarterJobOption) => {
+    const rawJobKey = String(job.job_key || '');
+    const canonicalJobKey = normalizeJobName(rawJobKey);
+    if (!canonicalJobKey) return;
+    if (INTERACTION_DIAGNOSTICS_ENABLED) {
+      recordInfo('gameplayLoop', 'Starter job selected from dashboard.', {
+        action: 'dashboard_switch_job_selected',
+        context: {
+          playerId: loop.playerId,
+          rawJobKey,
+          canonicalJobKey,
+          hasStarterJobSelected,
+        },
+      });
+    }
     const template: DailyActionItem = switchJobAction || {
       action_key: 'switch_job',
       title: 'Choose Your First Job',
@@ -479,8 +494,7 @@ export default function DashboardScreen() {
       status: 'available',
       parameters: {
         ...(template.parameters || {}),
-        new_job_key: job.job_key,
-        job_key: job.job_key,
+        new_job_key: canonicalJobKey,
       },
     };
     void loop.executeAction(action);

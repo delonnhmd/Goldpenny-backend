@@ -22,10 +22,11 @@ from app.engine.daily_engine import get_or_create_game_state
 from app.engine.work_engine import MAX_FATIGUE_FOR_SECOND_SHIFT, MAX_MAIN_HOURS_PER_DAY, MAX_TOTAL_HOURS_PER_DAY
 from app.models.contribution_event import ContributionEvent
 from app.models.job_action import JobAction
-from app.models.job_definition import JOB_CATALOG, MAIN_JOBS
+from app.models.job_definition import JOB_CATALOG, MAIN_JOBS, resolve_job_definition
 from app.models.player import Player
 from app.models.player_daily_state import PlayerDailyState
 from app.models.xgp_transaction import XGPTransaction
+from app.services.job_key_service import normalize_main_job_key, supported_main_job_keys_text
 from app.services.job_progress_service import normalize_shift_type, upsert_employment_foundation, work_xp_for_hours
 from app.services.player_transaction_log_service import record_player_transaction
 
@@ -161,12 +162,22 @@ def _get_or_create_player_daily_state_in_txn(
     return pds
 
 
-def _validate_main_shift_start(player: Player, *, job_name: str, hours_worked: int, shift_number: int) -> None:
-    if job_name not in MAIN_JOBS:
-        raise ValueError(f"Main shift requires a main job. Received '{job_name}'.")
+def _canonical_main_job(value: object) -> str | None:
+    return normalize_main_job_key(value, allow_aliases=True)
 
-    if job_name != str(getattr(player, "main_job", None) or "").strip().lower():
-        raise ValueError(f"Your assigned main job is '{player.main_job}', not '{job_name}'.")
+
+def _validate_main_shift_start(player: Player, *, job_name: str, hours_worked: int, shift_number: int) -> None:
+    canonical_job_name = _canonical_main_job(job_name)
+    canonical_player_job = _canonical_main_job(getattr(player, "main_job", None))
+    if canonical_job_name not in MAIN_JOBS:
+        raise ValueError(
+            f"Invalid main job key: {job_name}. Expected one of: {supported_main_job_keys_text()}"
+        )
+
+    if canonical_player_job != canonical_job_name:
+        raise ValueError(
+            f"Your assigned main job is '{canonical_player_job or player.main_job}', not '{canonical_job_name}'."
+        )
 
     if hours_worked < 1 or hours_worked > MAX_MAIN_HOURS_PER_DAY:
         raise ValueError(
@@ -272,6 +283,10 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         .first()
     )
 
+    canonical_main_job = _canonical_main_job(getattr(player, "main_job", None))
+    canonical_shift_job_name = _canonical_main_job(
+        getattr(player, "main_shift_job_name", None) or canonical_main_job or ""
+    )
     shift_started_at = _as_houston(getattr(player, "main_shift_started_at", None))
     shift_ends_at = _as_houston(getattr(player, "main_shift_ends_at", None))
     shift_completed_at = _as_houston(getattr(player, "main_shift_completed_at", None))
@@ -311,7 +326,7 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         "shift_started_at": shift_started_at.isoformat() if shift_started_at else None,
         "shift_ends_at": shift_ends_at.isoformat() if shift_ends_at else None,
         "shift_completed_at": shift_completed_at.isoformat() if shift_completed_at else None,
-        "shift_job_name": str(getattr(player, "main_shift_job_name", None) or getattr(player, "main_job", None) or ""),
+        "shift_job_name": canonical_shift_job_name or "",
         "shift_type": str(getattr(player, "main_shift_shift_type", None) or "standard_shift"),
         "shift_hours": int(getattr(player, "main_shift_hours", 0) or 0),
         "shift_number": int(getattr(player, "main_shift_number", 0) or 0),
@@ -355,9 +370,30 @@ def start_main_shift(
             f"Main shift is already active and ends at {state.get('shift_ends_at') or 'the scheduled Houston end time'}."
         )
 
-    normalized_job = str(job_name or "").strip().lower()
+    canonical_player_job = _canonical_main_job(getattr(player, "main_job", None))
+    if canonical_player_job and player.main_job != canonical_player_job:
+        player.main_job = canonical_player_job
+    normalized_job = _canonical_main_job(job_name)
+    if not normalized_job:
+        raise ValueError(
+            f"Invalid main job key: {job_name}. Expected one of: {supported_main_job_keys_text()}"
+        )
     shift_number = _shift_number_for_start(player)
     _validate_main_shift_start(player, job_name=normalized_job, hours_worked=hours_worked, shift_number=shift_number)
+    logger.info(
+        "shift.start_main_shift validating clock-in request.",
+        extra={
+            "player_id": str(player.id),
+            "incoming_clock_in_payload": {
+                "job_name": str(job_name or ""),
+                "hours_worked": int(hours_worked),
+                "shift_type": str(shift_type or ""),
+            },
+            "current_persisted_main_job": canonical_player_job,
+            "resolved_job_name": normalized_job,
+            "validation_result": "passed",
+        },
+    )
 
     hours_before = int(player.hours_available or 0)
     cash_before = _money(getattr(player, "cash", 0))
@@ -444,12 +480,16 @@ def finalize_active_main_shift(
     if require_expired and shift_ends_at is not None and now < shift_ends_at:
         return build_work_state_payload(db, player, now_houston=now)
 
-    job_name = str(getattr(player, "main_shift_job_name", None) or getattr(player, "main_job", None) or "").strip().lower()
+    job_name = _canonical_main_job(
+        getattr(player, "main_shift_job_name", None) or getattr(player, "main_job", None) or ""
+    ) or ""
     hours_worked = max(1, int(getattr(player, "main_shift_hours", 0) or 0))
     shift_number = max(1, int(getattr(player, "main_shift_number", 1) or 1))
-    job_def = JOB_CATALOG.get(job_name)
+    job_def = resolve_job_definition(job_name)
     if job_def is None:
         raise ValueError(f"Cannot finalize unknown active main shift job '{job_name}'.")
+    if job_name and getattr(player, "main_job", None) != job_name:
+        player.main_job = job_name
 
     base_hourly_pay = job_def.monthly_salary / 30 / 8
     productivity = _productivity(player, shift_number=shift_number)

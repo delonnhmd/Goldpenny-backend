@@ -64,6 +64,7 @@ from app.services.job_progress_service import (
     normalize_shift_type,
     upsert_employment_foundation,
 )
+from app.services.job_key_service import normalize_main_job_key
 from app.services.shift_state_service import (
     SHIFT_STATUS_ACTIVE,
     build_work_state_payload,
@@ -189,6 +190,7 @@ def _assert_no_active_main_shift(work_state: dict[str, Any], *, action_key: str)
 
 def _execution_state_snapshot(db: Session, player: Player) -> dict[str, Any]:
     work_state = build_work_state_payload(db, player)
+    canonical_main_job = normalize_main_job_key(getattr(player, "main_job", None), allow_aliases=True)
     return {
         "current_day": _current_game_day(db),
         "last_settled_day": _safe_int(getattr(player, "last_settled_day", 0), 0),
@@ -200,7 +202,7 @@ def _execution_state_snapshot(db: Session, player: Player) -> dict[str, Any]:
         "cash_xgp": _safe_float(getattr(player, "cash_xgp", getattr(player, "cash", 0)), 0),
         "stress": _safe_int(getattr(player, "stress", 0), 0),
         "health": _safe_int(getattr(player, "health", 100), 100),
-        "main_job": str(getattr(player, "main_job", None) or ""),
+        "main_job": canonical_main_job or "",
         "work_state": work_state,
     }
 
@@ -268,7 +270,7 @@ def _starter_daily_brief(current_job: str | None) -> str:
 
 
 def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> dict[str, Any]:
-    current_job = (player.main_job or "").strip()
+    current_job = normalize_main_job_key(player.main_job, allow_aliases=True) or ""
     has_job = bool(current_job)
     is_first_session = _is_new_player_first_session(player)
     as_of_date = date.today().isoformat()
@@ -510,7 +512,7 @@ def get_gameplay_dashboard(player_id: str, db: Session = Depends(get_db)) -> dic
         or playable.get("latest_daily_brief", {}).get("current_job")
         or player.main_job
     )
-    current_job = str(current_job).strip() if current_job else ""
+    current_job = normalize_main_job_key(current_job, allow_aliases=True) or ""
     employment_state = latest_employment_state(db, player.id)
     job_progress = build_job_progress_payload(
         employment_state,
@@ -962,12 +964,22 @@ def execute_gameplay_action(
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="switch_job requires new_job_key.")
         shift_type = normalize_shift_type(params.get("shift_type"))
         try:
+            logger.info(
+                "gameplay.actions.execute switch_job validating payload.",
+                extra={
+                    "player_id": str(player.id),
+                    "incoming_switch_job_payload": params,
+                    "previous_main_job": normalize_main_job_key(player.main_job, allow_aliases=True),
+                    "resolved_new_job_key": normalize_main_job_key(target, allow_aliases=False),
+                },
+            )
             result = switch_player_job(db, player_id, target)
+            db.refresh(player)
             job_progress = upsert_employment_foundation(
                 db,
                 player=player,
                 settled_day=max(1, _safe_int(getattr(player, "last_settled_day", None), 0) + 1),
-                job_key=target,
+                job_key=result.get("new_job_key"),
                 shift_type=shift_type,
             )
             db.commit()
@@ -975,7 +987,9 @@ def execute_gameplay_action(
                 "gameplay.actions.execute switch_job succeeded.",
                 extra={
                     "player_id": str(player.id),
-                    "target_job": target,
+                    "target_job": result.get("new_job_key"),
+                    "updated_main_job": normalize_main_job_key(player.main_job, allow_aliases=True),
+                    "persistence_success": True,
                     "job_progress": job_progress,
                 },
             )
@@ -992,9 +1006,9 @@ def execute_gameplay_action(
                 "raw_result": {
                     **result,
                     "work_state": build_work_state_payload(db, player),
-                    "employer_company_symbol": JOB_COMPANY_MAP.get(target, {}).get("symbol"),
-                    "employer_company_name": JOB_COMPANY_MAP.get(target, {}).get("name"),
-                    "position_title": JOB_COMPANY_MAP.get(target, {}).get("position"),
+                    "employer_company_symbol": JOB_COMPANY_MAP.get(str(result.get("new_job_key") or ""), {}).get("symbol"),
+                    "employer_company_name": JOB_COMPANY_MAP.get(str(result.get("new_job_key") or ""), {}).get("name"),
+                    "position_title": JOB_COMPANY_MAP.get(str(result.get("new_job_key") or ""), {}).get("position"),
                     "shift_type": shift_type,
                     "job_progress": job_progress,
                 },
@@ -1007,6 +1021,9 @@ def execute_gameplay_action(
                     "player_id": str(player.id),
                     "requested_player_id": player_id,
                     "target_job": target,
+                    "resolved_new_job_key": normalize_main_job_key(target, allow_aliases=False),
+                    "previous_main_job": normalize_main_job_key(player.main_job, allow_aliases=True),
+                    "persistence_success": False,
                     "action_payload": params,
                 },
             )
@@ -1017,10 +1034,19 @@ def execute_gameplay_action(
         shift_profile = SHIFT_PROFILES[shift_type]
         requested_hours = _safe_int(params.get("hours_worked"), int(shift_profile["hours_worked"]))
         hours_worked = max(1, min(8, requested_hours))
-        job_name = str(params.get("job_name") or player.main_job or "").strip().lower()
+        job_name = normalize_main_job_key(params.get("job_name") or player.main_job, allow_aliases=True) or ""
         if not job_name:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Choose a job before running work_shift.")
         try:
+            logger.info(
+                "gameplay.actions.execute work_shift validating payload.",
+                extra={
+                    "player_id": str(player.id),
+                    "incoming_clock_in_payload": params,
+                    "current_persisted_main_job": normalize_main_job_key(player.main_job, allow_aliases=True),
+                    "resolved_job_name": job_name,
+                },
+            )
             work_state = start_main_shift(
                 db,
                 player=player,
@@ -1076,6 +1102,8 @@ def execute_gameplay_action(
                     "player_id": str(player.id),
                     "job_name": job_name,
                     "hours_worked": hours_worked,
+                    "current_persisted_main_job": normalize_main_job_key(player.main_job, allow_aliases=True),
+                    "validation_result": "rejected",
                     "reason": str(exc),
                 },
             )

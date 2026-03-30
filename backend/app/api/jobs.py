@@ -7,9 +7,10 @@ from app.api.auth import get_current_user
 from app.db.database import get_db
 from app.engine.work_engine import WorkEngine
 from app.models.job_action import JobAction
-from app.models.job_definition import JOB_CATALOG, MAIN_JOBS, SIDE_JOBS
+from app.models.job_definition import JOB_CATALOG, MAIN_JOBS, SIDE_JOBS, resolve_job_definition
 from app.models.player import Player
 from app.models.user import User
+from app.services.job_key_service import normalize_main_job_key, supported_main_job_keys_text
 from app.services.daily_settlement_service import get_next_player_day
 from app.services.job_market_service import (
     JobMarketError,
@@ -354,13 +355,14 @@ def assign_job(
         { "job_id": "banker" }
     """
     # Validate job exists.
-    job_def = JOB_CATALOG.get(body.job_id)
+    canonical_job_id = normalize_main_job_key(body.job_id, allow_aliases=False)
+    job_def = resolve_job_definition(canonical_job_id)
     if job_def is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
                 f"Unknown job_id '{body.job_id}'. "
-                f"Valid job IDs: {sorted(JOB_CATALOG)}."
+                f"Valid job IDs: {supported_main_job_keys_text()}."
             ),
         )
 
@@ -375,14 +377,14 @@ def assign_job(
         )
 
     player = _get_player_or_404(current_user, db)
-    player.main_job = body.job_id
+    player.main_job = canonical_job_id
     db.commit()
     db.refresh(player)
 
     hourly = round(job_def.monthly_salary / 30 / 8, 4)
     return AssignJobResponse(
-        message=f"Main job assigned to '{body.job_id}'.",
-        job_id=body.job_id,
+        message=f"Main job assigned to '{canonical_job_id}'.",
+        job_id=str(canonical_job_id),
         display_name=job_def.name.replace("_", " ").title(),
         monthly_salary=job_def.monthly_salary,
         hourly_pay=hourly,

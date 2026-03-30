@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from app.services.job_key_service import normalize_job_key
+
 JobCategory = Literal["main", "side"]
 
 
@@ -74,8 +76,8 @@ JOB_CATALOG: dict[str, JobDefinition] = {
         physical_load=0.65,
         mental_load=0.55,
     ),
-    "retail_worker": JobDefinition(
-        name="retail_worker",
+    "retail": JobDefinition(
+        name="retail",
         category="main",
         monthly_salary=2_600.0,
         base_stress=5,
@@ -86,9 +88,9 @@ JOB_CATALOG: dict[str, JobDefinition] = {
         mental_load=0.35,
     ),
     # ── Side jobs ─────────────────────────────────────────────────────────────
-    "delivery_driver": JobDefinition(
-        name="delivery_driver",
-        category="side",
+    "delivery": JobDefinition(
+        name="delivery",
+        category="main",
         monthly_salary=3_000.0,
         base_stress=3,
         stability=0.60,
@@ -112,3 +114,10 @@ JOB_CATALOG: dict[str, JobDefinition] = {
 
 MAIN_JOBS: set[str] = {name for name, j in JOB_CATALOG.items() if j.category == "main"}
 SIDE_JOBS: set[str] = {name for name, j in JOB_CATALOG.items() if j.category == "side"}
+
+
+def resolve_job_definition(job_key: str | None) -> JobDefinition | None:
+    normalized = normalize_job_key(job_key, allow_aliases=True)
+    if normalized is None:
+        return None
+    return JOB_CATALOG.get(normalized)

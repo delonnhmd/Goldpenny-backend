@@ -20,10 +20,11 @@ from app.engine.balance_config import (
 from app.models.contribution_event import ContributionEvent
 from app.models.game_state import GameState
 from app.models.job_action import JobAction
-from app.models.job_definition import JOB_CATALOG, MAIN_JOBS, SIDE_JOBS, JobDefinition
+from app.models.job_definition import JOB_CATALOG, MAIN_JOBS, SIDE_JOBS, JobDefinition, resolve_job_definition
 from app.models.player import Player
 from app.models.player_daily_state import PlayerDailyState
 from app.models.xgp_transaction import XGPTransaction
+from app.services.job_key_service import normalize_job_key, normalize_main_job_key
 from app.services.player_transaction_log_service import record_player_transaction
 
 # â”€â”€ Day limits â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -340,7 +341,8 @@ class WorkEngine:
         job_name: str,
         hours_worked: int,
     ) -> JobDefinition:
-        job_def = JOB_CATALOG.get(job_name)
+        canonical_job_name = normalize_job_key(job_name, allow_aliases=True)
+        job_def = resolve_job_definition(canonical_job_name)
         if job_def is None:
             raise ValueError(f"Unknown job: '{job_name}'. Valid jobs: {sorted(JOB_CATALOG)}")
 
@@ -353,9 +355,10 @@ class WorkEngine:
                     f"Main job shifts cannot exceed {MAX_MAIN_HOURS_PER_DAY} hours. "
                     f"Requested: {hours_worked}."
                 )
-            if player.main_job and player.main_job != job_name:
+            player_main_job = normalize_main_job_key(player.main_job, allow_aliases=True)
+            if player_main_job and player_main_job != canonical_job_name:
                 raise ValueError(
-                    f"Your assigned main job is '{player.main_job}', not '{job_name}'."
+                    f"Your assigned main job is '{player_main_job}', not '{canonical_job_name}'."
                 )
         else:  # side
             if hours_worked > MAX_SIDE_HOURS_PER_DAY:
@@ -365,7 +368,7 @@ class WorkEngine:
                 )
             if player.side_job and player.side_job != job_name:
                 raise ValueError(
-                    f"Your assigned side job is '{player.side_job}', not '{job_name}'."
+                    f"Your assigned side job is '{player.side_job}', not '{canonical_job_name}'."
                 )
 
         return job_def

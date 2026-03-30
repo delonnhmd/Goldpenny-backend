@@ -128,6 +128,11 @@ export function normalizeTimeCostUnits(value: unknown, fallback = 2): number {
   });
 }
 
+const JOB_KEY_ALIASES: Record<string, string> = {
+  retail_worker: 'retail',
+  delivery_driver: 'delivery',
+};
+
 /**
  * Normalizes a raw job name / key string to a clean non-empty value or null.
  * Rejects blank strings, literal "null"/"undefined" tokens, and values over 128 chars.
@@ -138,7 +143,7 @@ export function normalizeJobName(value: unknown): string | null {
   if (!s) return null;
   const lower = s.toLowerCase();
   if (lower === 'null' || lower === 'undefined') return null;
-  return s.slice(0, 128);
+  return (JOB_KEY_ALIASES[lower] || lower).slice(0, 128);
 }
 
 export function safeNetCashFlowCalculation(
