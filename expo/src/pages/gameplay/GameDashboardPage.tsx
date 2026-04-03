@@ -3163,7 +3163,7 @@ export default function GameDashboardPage({
               {actionHubRefreshing ? <LoadingStateCard label="Refreshing available actions..." compact /> : null}
               <ActionHubPanel
                 hub={effectiveActionHub}
-                onPreviewAction={openPreview}
+                onExecuteAction={openPreview}
                 getExecutionGuard={getExecutionGuard}
                 remainingTimeUnits={dailySession.remainingTimeUnits}
                 totalTimeUnits={dailySession.totalTimeUnits}
@@ -3804,4 +3804,3 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
-

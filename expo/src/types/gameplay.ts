@@ -66,11 +66,16 @@ export interface WorkStateSnapshot {
   shift_number: number;
   shift_expired: boolean;
   shift_found: boolean;
+  shift_completed_today?: boolean;
+  no_shift_scheduled?: boolean;
   hours_available: number;
   main_shift_hours_today: number;
   side_income_hours_today: number;
   recovery_hours_today: number;
   total_time_used_today: number;
+  did_work_today?: boolean;
+  salary_earned_today?: number;
+  missed_penalty_today?: number;
   last_completed_shift: CompletedShiftSnapshot;
   rideshare_unlocked: boolean;
   rideshare_available: boolean;
@@ -194,24 +199,21 @@ export interface EndOfDaySummaryResponse {
 export interface TransactionHistoryItem {
   id: string;
   player_id: string;
-  day: number | null;
+  day: number;
   type: string;
   category: string;
-  symbol: string | null;
-  quantity: number | null;
-  unit_price: number | null;
-  gross_amount: number;
-  fee_amount: number;
-  net_cash_delta: number;
-  resulting_cash_balance: number;
-  metadata_json: Record<string, unknown>;
-  created_at: string | null;
+  amount: number;
+  description: string;
+  timestamp: string | null;
 }
 
 export interface TransactionHistoryResponse {
   player_id: string;
-  count: number;
+  day: number;
   transactions: TransactionHistoryItem[];
+  total_income: number;
+  total_expense: number;
+  net: number;
 }
 
 export interface WeeklyIncomeMixItem {

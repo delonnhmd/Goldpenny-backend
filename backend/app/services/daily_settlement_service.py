@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.models.basket_daily_price import BasketDailyPrice
 from app.models.daily_settlement_log import DailySettlementLog
 from app.models.enums import BasketType
+from app.models.gameplay_transaction import GameplayTransaction
 from app.models.player import Player
 from app.models.player_daily_state import PlayerDailyState
 from app.models.player_employment_state import PlayerEmploymentState
@@ -36,8 +37,10 @@ from app.engine.life_balance_service import apply_life_consequences_for_player
 from app.engine.personal_shock_service import apply_personal_life_event
 from app.services.business_daily_operations_service import run_player_businesses_for_day
 from app.services.consumption_behavior_service import compute_player_daily_consumption
+from app.services.gameplay_transaction_service import record_gameplay_transaction
 from app.services.debt_credit_service import apply_daily_debt_and_credit
 from app.services.housing_region_service import compute_housing_effects_for_day
+from app.services.job_key_service import normalize_main_job_key
 from app.services.job_market_service import apply_employment_progression
 from app.services.net_worth_service import compute_player_net_worth_snapshot
 from app.engine.retention_engine import build_retention_summary
@@ -48,6 +51,8 @@ MONEY_Q = Decimal("0.01")
 Q4 = Decimal("0.0001")
 HOURS_RESET = 24
 WEEKLY_GAS_EXPENSE_XGP = Decimal("30.00")
+STANDARD_SHIFT_HOURS = Decimal("6.00")
+MISSED_WORK_STRESS_DELTA = 6
 
 
 logger = logging.getLogger("goldpenny.daily_settlement")
@@ -271,6 +276,25 @@ def _safe_player_day_stock_totals(
         elif txn_type == "fee":
             stock_fee += gross_amount
     return _money(stock_sale_income), _money(stock_fee)
+
+
+def _count_gameplay_transactions_for_category(
+    db: Session,
+    *,
+    player_id: UUID,
+    day_number: int,
+    category: str,
+) -> int:
+    return int(
+        db.query(func.count(GameplayTransaction.id))
+        .filter(
+            GameplayTransaction.player_id == player_id,
+            GameplayTransaction.day == int(day_number),
+            GameplayTransaction.category == str(category or "").strip().lower(),
+        )
+        .scalar()
+        or 0
+    )
 
 
 def _build_settlement_breakdown(
@@ -547,6 +571,21 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
                 * job_income_capture_factor
             )
         job_income = recorded_job_income if recorded_job_income > Decimal("0.00") else derived_job_income
+        did_work = bool(
+            getattr(pds, "did_work", False)
+            or bool(getattr(pds, "worked_main_job", False))
+            or worked_hours > 0
+            or recorded_job_income > Decimal("0.00")
+        )
+        no_shift_scheduled = not bool(normalize_main_job_key(getattr(player, "main_job", None), allow_aliases=True))
+        work_penalty_base = Decimal("0.00")
+        if employed and not no_shift_scheduled:
+            work_penalty_base = _money(
+                (monthly_pay / Decimal("30") / Decimal("8"))
+                * STANDARD_SHIFT_HOURS
+                * life_productivity_before
+                * job_income_capture_factor
+            )
 
         side_income_net = _money(_d(getattr(pds, "side_income_net_xgp", 0)))
         side_income_hours = _q4(_d(getattr(pds, "side_income_hours", 0)))
@@ -624,6 +663,10 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
         )
         medical_cost_xgp = _money(_d(life_result.get("medical_cost_xgp", 0)))
         missed_work_penalty_xgp = _money(_d(life_result.get("missed_work_penalty_xgp", 0)))
+        missed_work_stress_delta = 0
+        if employed and not did_work and not no_shift_scheduled:
+            missed_work_penalty_xgp = _money(max(missed_work_penalty_xgp, work_penalty_base))
+            missed_work_stress_delta = MISSED_WORK_STRESS_DELTA
         total_hours_used = _q4(_d(getattr(pds, "total_hours_used", 0)))
         overtime_hours = _q4(_d(getattr(pds, "overtime_hours", 0)))
         sleep_hours = _q4(_d(getattr(pds, "sleep_hours", 0)))
@@ -981,7 +1024,16 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
         stress_before = int(getattr(pds, "stress_start", stress_before))
         _base_stress_after = int(getattr(pds, "stress_end", player.stress or stress_before))
         stress_after = _clamp_int(
-            int(round(float(_d(_base_stress_after) + shock_stress_delta + financial_survival_stress_impact_delta))),
+            int(
+                round(
+                    float(
+                        _d(_base_stress_after)
+                        + shock_stress_delta
+                        + financial_survival_stress_impact_delta
+                        + Decimal(str(missed_work_stress_delta))
+                    )
+                )
+            ),
             0,
             100,
         )
@@ -1005,6 +1057,83 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
         player.total_hours_worked_today = 0
         player.work_actions_today = 0
         player.net_worth_xgp = _money(_d(player.cash_xgp) + _d(player.bank_savings_xgp) - _d(player.debt_xgp))
+
+        if job_income > Decimal("0.00") and _count_gameplay_transactions_for_category(
+            db,
+            player_id=player.id,
+            day_number=settled_day,
+            category="salary",
+        ) == 0:
+            record_gameplay_transaction(
+                db,
+                player=player,
+                day=settled_day,
+                transaction_type="income",
+                category="salary",
+                amount=job_income,
+                description="Main shift salary",
+            )
+        if side_income_net > Decimal("0.00") and _count_gameplay_transactions_for_category(
+            db,
+            player_id=player.id,
+            day_number=settled_day,
+            category="ride_share",
+        ) == 0:
+            record_gameplay_transaction(
+                db,
+                player=player,
+                day=settled_day,
+                transaction_type="income",
+                category="ride_share",
+                amount=side_income_net,
+                description="Ride Share payout",
+            )
+        if basket_spend > Decimal("0.00"):
+            record_gameplay_transaction(
+                db,
+                player=player,
+                day=settled_day,
+                transaction_type="expense",
+                category="food",
+                amount=basket_spend,
+                description="Daily food cost",
+            )
+        gas_total = _money(weekly_gas_expense + commute_fuel_cost_xgp)
+        if gas_total > Decimal("0.00"):
+            record_gameplay_transaction(
+                db,
+                player=player,
+                day=settled_day,
+                transaction_type="expense",
+                category="gas",
+                amount=gas_total,
+                description="Fuel and commute cost",
+            )
+        rent_total = _money(housing_cost_daily + utilities_cost_daily)
+        if rent_total > Decimal("0.00"):
+            record_gameplay_transaction(
+                db,
+                player=player,
+                day=settled_day,
+                transaction_type="expense",
+                category="rent",
+                amount=rent_total,
+                description="Rent and utilities",
+            )
+        if missed_work_penalty_xgp > Decimal("0.00"):
+            record_gameplay_transaction(
+                db,
+                player=player,
+                day=settled_day,
+                transaction_type="expense",
+                category="stress_penalty",
+                amount=missed_work_penalty_xgp,
+                description=(
+                    "Missed scheduled shift penalty"
+                    if employed and not did_work and not no_shift_scheduled
+                    else "Stress penalty"
+                ),
+            )
 
         settlement_txn = record_player_transaction(
             db,
@@ -1036,7 +1165,10 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
         )
 
         pds.hours_available_end = HOURS_RESET
+        pds.did_work = did_work
         pds.worked_hours = worked_hours
+        pds.salary_earned = _money(job_income)
+        pds.missed_penalty = _money(missed_work_penalty_xgp)
         pds.gross_income_xgp = _money(job_income)
         pds.basket_spend_xgp = _money(basket_spend)
         pds.debt_payment_xgp = _money(debt_payment_paid_xgp)

@@ -359,11 +359,16 @@ function normalizeWorkState(raw: unknown, playerId: string): WorkStateSnapshot |
     shift_number: Math.max(0, Math.round(toNumber(obj.shift_number, 0))),
     shift_expired: Boolean(obj.shift_expired),
     shift_found: Boolean(obj.shift_found),
+    shift_completed_today: Boolean(obj.shift_completed_today),
+    no_shift_scheduled: Boolean(obj.no_shift_scheduled),
     hours_available: Math.max(0, Math.round(toNumber(obj.hours_available, 0))),
     main_shift_hours_today: normalizeFiniteNumber(obj.main_shift_hours_today, { fallback: 0 }),
     side_income_hours_today: normalizeFiniteNumber(obj.side_income_hours_today, { fallback: 0 }),
     recovery_hours_today: normalizeFiniteNumber(obj.recovery_hours_today, { fallback: 0 }),
     total_time_used_today: normalizeFiniteNumber(obj.total_time_used_today, { fallback: 0 }),
+    did_work_today: Boolean(obj.did_work_today),
+    salary_earned_today: normalizeMoneyValue(obj.salary_earned_today, { allowNegative: false, fallback: 0 }),
+    missed_penalty_today: normalizeMoneyValue(obj.missed_penalty_today, { allowNegative: false, fallback: 0 }),
     last_completed_shift: normalizeCompletedShift(obj.last_completed_shift),
     rideshare_unlocked: Boolean(obj.rideshare_unlocked),
     rideshare_available: Boolean(obj.rideshare_available),
@@ -432,25 +437,16 @@ function normalizeEndOfDaySummary(raw: Record<string, unknown>, playerId: string
 
 function normalizeTransactionHistoryItem(raw: unknown, playerId: string, index: number): TransactionHistoryItem {
   const row = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
-  const metadata = row.metadata_json && typeof row.metadata_json === 'object'
-    ? (row.metadata_json as Record<string, unknown>)
-    : {};
 
   return {
     id: toString(row.id, `tx_${index}`),
     player_id: toString(row.player_id, playerId),
-    day: row.day == null ? null : normalizeCurrentDay(row.day, 0),
+    day: normalizeCurrentDay(row.day, 1),
     type: toString(row.type, 'unknown'),
     category: toString(row.category, 'general'),
-    symbol: row.symbol == null ? null : toString(row.symbol, '').toUpperCase() || null,
-    quantity: row.quantity == null ? null : normalizeFiniteNumber(row.quantity, { fallback: 0 }),
-    unit_price: row.unit_price == null ? null : normalizeMoneyValue(row.unit_price, { allowNegative: false, fallback: 0 }),
-    gross_amount: normalizeMoneyValue(row.gross_amount, { allowNegative: true, fallback: 0 }),
-    fee_amount: normalizeMoneyValue(row.fee_amount, { allowNegative: false, fallback: 0 }),
-    net_cash_delta: normalizeMoneyValue(row.net_cash_delta, { allowNegative: true, fallback: 0 }),
-    resulting_cash_balance: normalizeMoneyValue(row.resulting_cash_balance, { allowNegative: true, fallback: 0 }),
-    metadata_json: metadata,
-    created_at: row.created_at == null ? null : toString(row.created_at),
+    amount: normalizeMoneyValue(row.amount, { allowNegative: true, fallback: 0 }),
+    description: toString(row.description, 'Gameplay transaction'),
+    timestamp: row.timestamp == null ? null : toString(row.timestamp),
   };
 }
 
@@ -660,9 +656,11 @@ export async function acknowledgeEndOfDaySummary(playerId: string, dayNumber?: n
   });
 }
 
-export async function getTransactionHistory(playerId: string, limit = 50): Promise<TransactionHistoryResponse> {
-  const safeLimit = Math.max(1, Math.min(Math.round(Number(limit) || 50), 200));
-  const path = `/gameplay/player/${playerId}/transactions?limit=${safeLimit}`;
+export async function getTransactionHistory(playerId: string, day?: number | null): Promise<TransactionHistoryResponse> {
+  const safeDay = day != null ? Math.max(1, Math.round(Number(day) || 1)) : null;
+  const path = safeDay != null
+    ? `/gameplay/player/${playerId}/transactions?day=${safeDay}`
+    : `/gameplay/player/${playerId}/transactions`;
   logCanonicalRoute('transaction_history', playerId, path);
   const raw = await fetchApi<Record<string, unknown>>(path);
   const transactions = Array.isArray(raw.transactions)
@@ -670,8 +668,11 @@ export async function getTransactionHistory(playerId: string, limit = 50): Promi
     : [];
   return {
     player_id: toString(raw.player_id, playerId),
-    count: toNumber(raw.count, transactions.length),
+    day: normalizeCurrentDay(raw.day, safeDay ?? 1),
     transactions,
+    total_income: normalizeMoneyValue(raw.total_income, { allowNegative: false, fallback: 0 }),
+    total_expense: normalizeMoneyValue(raw.total_expense, { allowNegative: false, fallback: 0 }),
+    net: normalizeMoneyValue(raw.net, { allowNegative: true, fallback: 0 }),
   };
 }
 

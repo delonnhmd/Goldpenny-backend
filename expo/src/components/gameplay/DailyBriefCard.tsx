@@ -14,11 +14,14 @@ function firstMeaningfulLine(value: string | null | undefined): string {
 
 export default function DailyBriefCard({
   dashboard,
+  impactBullets = [],
 }: {
   dashboard: PlayerDashboardResponse;
+  impactBullets?: string[];
 }) {
   const summary = firstMeaningfulLine(dashboard.daily_brief);
   const heroWatchValue = `${dashboard.headline || ''}|${summary}`;
+  const visibleBullets = impactBullets.filter((entry) => String(entry || '').trim()).slice(0, 3);
 
   return (
     <View style={styles.card}>
@@ -26,6 +29,16 @@ export default function DailyBriefCard({
         <Text style={styles.headerLabel}>Daily Brief</Text>
         <Text style={styles.headline}>{dashboard.headline || 'Today at Gold Penny'}</Text>
         <Text style={styles.summary}>{summary}</Text>
+        {visibleBullets.length > 0 ? (
+          <View style={styles.bulletList}>
+            {visibleBullets.map((entry) => (
+              <Text key={entry} style={styles.bulletItem}>
+                {'- '}
+                {entry}
+              </Text>
+            ))}
+          </View>
+        ) : null}
       </HighlightOnChangeView>
     </View>
   );
@@ -58,5 +71,14 @@ const styles = StyleSheet.create({
     color: theme.color.textSecondary,
     ...theme.typography.bodyMd,
     lineHeight: 20,
+  },
+  bulletList: {
+    gap: theme.spacing.xxs,
+    paddingTop: theme.spacing.xs,
+  },
+  bulletItem: {
+    color: theme.color.textSecondary,
+    ...theme.typography.bodySm,
+    lineHeight: 18,
   },
 });

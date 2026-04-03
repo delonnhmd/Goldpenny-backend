@@ -62,6 +62,11 @@ class PlayerDailyState(Base):
     # ── Work flags ────────────────────────────────────────────────────────────
     # True once the player has completed at least one main-job shift today.
     worked_main_job = Column(Boolean, nullable=False, default=False)
+    did_work = Column(Boolean, nullable=False, default=False)
+    shift_start = Column(DateTime(timezone=True), nullable=True)
+    shift_end = Column(DateTime(timezone=True), nullable=True)
+    salary_earned = Column(Numeric(14, 4), nullable=False, default=0)
+    missed_penalty = Column(Numeric(14, 4), nullable=False, default=0)
     # Core daily tracking metrics.
     worked_hours = Column(Integer, nullable=False, default=0)
     gross_income_xgp = Column(Numeric(14, 4), nullable=False, default=0)

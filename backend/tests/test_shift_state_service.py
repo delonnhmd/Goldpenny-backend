@@ -10,10 +10,12 @@ from sqlalchemy.orm import sessionmaker
 os.environ["DATABASE_URL"] = "postgresql://goldpenny:goldpenny@localhost:5432/goldpenny_test"
 
 from app.api.gameplay import get_gameplay_actions
+from app.api.gameplay import get_gameplay_transaction_history
 from app.db.database import Base
 from app.engine.rideshare_engine import process_rideshare_action
 from app.models.contribution_event import ContributionEvent
 from app.models.game_state import GameState
+from app.models.gameplay_transaction import GameplayTransaction
 from app.models.job_action import JobAction
 from app.models.job_definition_db import JobDefinition
 from app.models.macro_state import MacroState
@@ -52,6 +54,7 @@ class ShiftStateServiceTests(unittest.TestCase):
                 XGPTransaction.__table__,
                 ContributionEvent.__table__,
                 PlayerTransactionLog.__table__,
+                GameplayTransaction.__table__,
             ],
         )
         self.db = self.SessionLocal()
@@ -139,6 +142,26 @@ class ShiftStateServiceTests(unittest.TestCase):
         self.assertEqual(self.db.query(JobAction).count(), 1)
         self.assertGreater(float(self.player.cash), 1000.0)
 
+        pds = (
+            self.db.query(PlayerDailyState)
+            .filter(
+                PlayerDailyState.player_id == self.player.id,
+                PlayerDailyState.day_number == 1,
+            )
+            .first()
+        )
+        self.assertIsNotNone(pds)
+        self.assertTrue(bool(pds.did_work))
+        self.assertGreater(float(pds.salary_earned or 0), 0.0)
+
+        history = get_gameplay_transaction_history(str(self.player.id), day=1, db=self.db)
+        salary_rows = [entry for entry in history["transactions"] if entry["category"] == "salary"]
+        self.assertEqual(history["day"], 1)
+        self.assertGreater(history["total_income"], 0.0)
+        self.assertEqual(history["total_expense"], 0.0)
+        self.assertEqual(len(salary_rows), 1)
+        self.assertGreater(float(salary_rows[0]["amount"]), 0.0)
+
     def test_expired_shift_finalize_is_idempotent(self) -> None:
         self._start_expired_shift()
 
@@ -149,6 +172,7 @@ class ShiftStateServiceTests(unittest.TestCase):
         xgp_tx_after_first = self.db.query(XGPTransaction).count()
         contributions_after_first = self.db.query(ContributionEvent).count()
         tx_logs_after_first = self.db.query(PlayerTransactionLog).count()
+        gameplay_tx_after_first = self.db.query(GameplayTransaction).count()
 
         second = resolve_expired_shift_if_needed(self.db, player=self.player)
         self.db.refresh(self.player)
@@ -160,6 +184,7 @@ class ShiftStateServiceTests(unittest.TestCase):
         self.assertEqual(self.db.query(XGPTransaction).count(), xgp_tx_after_first)
         self.assertEqual(self.db.query(ContributionEvent).count(), contributions_after_first)
         self.assertEqual(self.db.query(PlayerTransactionLog).count(), tx_logs_after_first)
+        self.assertEqual(self.db.query(GameplayTransaction).count(), gameplay_tx_after_first)
 
     def test_main_shift_hours_do_not_consume_side_income_cap(self) -> None:
         self._start_expired_shift()
@@ -188,6 +213,30 @@ class ShiftStateServiceTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             process_rideshare_action(self.db, self.player, trips=1)
+
+    def test_rideshare_unlocks_when_no_shift_is_scheduled(self) -> None:
+        self.player.main_job = None
+        self.player.last_settled_day = 0
+        self.db.commit()
+        self.db.refresh(self.player)
+
+        work_state = build_work_state_payload(self.db, self.player)
+        result = process_rideshare_action(self.db, self.player, trips=1)
+        ledger_rows = (
+            self.db.query(GameplayTransaction)
+            .filter(
+                GameplayTransaction.player_id == self.player.id,
+                GameplayTransaction.day == 1,
+                GameplayTransaction.category == "ride_share",
+            )
+            .all()
+        )
+
+        self.assertTrue(bool(work_state.get("no_shift_scheduled")))
+        self.assertTrue(bool(work_state.get("rideshare_available")))
+        self.assertEqual(result["trips"], 1)
+        self.assertEqual(len(ledger_rows), 1)
+        self.assertGreater(float(ledger_rows[0].amount), 0.0)
 
 
 if __name__ == "__main__":

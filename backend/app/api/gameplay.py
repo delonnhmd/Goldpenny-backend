@@ -72,7 +72,7 @@ from app.services.shift_state_service import (
     resolve_expired_shift_if_needed,
     start_main_shift,
 )
-from app.services.player_transaction_log_service import list_recent_player_transactions
+from app.services.gameplay_transaction_service import list_gameplay_transactions_for_day
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -280,11 +280,16 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
         str(work_state.get("shift_status") or "") == "completed"
         and _safe_float(work_state.get("main_shift_hours_today"), 0.0) > 0
     )
+    no_shift_scheduled = bool(work_state.get("no_shift_scheduled"))
     rideshare_available = bool(work_state.get("rideshare_available"))
     rideshare_unlock_reason = (
         f"Unavailable during active work shift until {work_state.get('shift_ends_at') or 'backend completion'}."
         if shift_active
-        else "Finish and backend-confirm a main shift before starting ride share."
+        else (
+            "Ride Share is available because you do not have a scheduled shift today."
+            if no_shift_scheduled
+            else "Finish and backend-confirm a main shift before starting Ride Share."
+        )
     )
 
     recommended_actions: list[dict[str, Any]] = []
@@ -781,40 +786,46 @@ def acknowledge_gameplay_end_of_day_summary(
 @router.get("/player/{player_id}/transactions")
 def get_gameplay_transaction_history(
     player_id: str,
-    limit: int = 50,
+    day: int | None = None,
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    """Return recent cash movement history for gameplay auditing and UI display."""
+    """Return one day of player-facing gameplay ledger activity."""
     player = _resolve_player(db, player_id)
-    _sync_player_work_state(db, player)
-    rows = list_recent_player_transactions(db, player=player, limit=limit)
+    work_state = _sync_player_work_state(db, player)
+    resolved_day = max(1, int(day or work_state.get("current_game_day") or 1))
+    rows = list_gameplay_transactions_for_day(db, player=player, day=resolved_day)
     items: list[dict[str, Any]] = []
+    total_income = Decimal("0.00")
+    total_expense = Decimal("0.00")
     for row in rows:
-        try:
-            metadata = json.loads(row.metadata_json or "{}")
-            if not isinstance(metadata, dict):
-                metadata = {}
-        except Exception:
-            metadata = {}
+        amount = _money_decimal(getattr(row, "amount", 0))
+        if str(getattr(row, "type", "")).strip().lower() == "income":
+            total_income += amount
+        else:
+            total_expense += abs(amount)
         items.append(
             {
                 "id": str(row.id),
                 "player_id": str(player.id),
-                "day": int(row.day) if row.day is not None else None,
-                "type": row.transaction_type,
+                "day": int(row.day),
+                "type": row.type,
                 "category": row.category,
-                "symbol": row.asset_symbol,
-                "quantity": float(row.quantity) if row.quantity is not None else None,
-                "unit_price": float(row.unit_price) if row.unit_price is not None else None,
-                "gross_amount": float(row.gross_amount),
-                "fee_amount": float(row.fee_amount),
-                "net_cash_delta": float(row.net_cash_delta),
-                "resulting_cash_balance": float(row.resulting_cash_balance),
-                "metadata_json": metadata,
-                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "amount": float(amount),
+                "description": row.description,
+                "timestamp": row.timestamp.isoformat() if row.timestamp else None,
             }
         )
-    return {"player_id": str(player.id), "count": len(items), "transactions": items}
+    total_income = _money_decimal(total_income)
+    total_expense = _money_decimal(total_expense)
+    net = _money_decimal(total_income - total_expense)
+    return {
+        "player_id": str(player.id),
+        "day": resolved_day,
+        "transactions": items,
+        "total_income": float(total_income),
+        "total_expense": float(total_expense),
+        "net": float(net),
+    }
 
 
 @router.post("/player/{player_id}/end-day")

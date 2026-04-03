@@ -6,7 +6,7 @@ from decimal import Decimal
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-os.environ.setdefault("DATABASE_URL", "sqlite:///./test_day_progression_services.db")
+os.environ["DATABASE_URL"] = "postgresql://goldpenny:goldpenny@localhost:5432/goldpenny_test"
 
 from app.db.database import Base
 from app.models.basket_daily_price import BasketDailyPrice
@@ -17,6 +17,7 @@ from app.models.daily_brief_log import DailyBriefLog
 from app.models.debt_credit_log import DebtCreditLog
 from app.models.daily_settlement_log import DailySettlementLog
 from app.models.enums import BasketType
+from app.models.gameplay_transaction import GameplayTransaction
 from app.models.housing_daily_log import HousingDailyLog
 from app.models.job_definition_db import JobDefinition as JobDefinitionDB
 from app.models.macro_daily_state import MacroDailyState
@@ -27,6 +28,7 @@ from app.models.player_employment_state import PlayerEmploymentState
 from app.models.player_housing_state import PlayerHousingState
 from app.models.player_net_worth_snapshot import PlayerNetWorthSnapshot
 from app.models.player_stock_holding import PlayerStockHolding
+from app.models.player_transaction_log import PlayerTransactionLog
 from app.models.stock_daily_price import StockDailyPrice
 from app.models.user import User
 from app.services.daily_settlement_service import settle_player_day
@@ -58,30 +60,7 @@ class DayProgressionServiceTests(unittest.TestCase):
             future=True,
         )
 
-        Base.metadata.create_all(
-            bind=self.engine,
-            tables=[
-                User.__table__,
-                Player.__table__,
-                PlayerDailyState.__table__,
-                DailySettlementLog.__table__,
-                DailyBriefLog.__table__,
-                DebtCreditLog.__table__,
-                PlayerEmploymentState.__table__,
-                JobDefinitionDB.__table__,
-                MacroDailyState.__table__,
-                BasketDailyPrice.__table__,
-                BasketConsumptionLog.__table__,
-                StockDailyPrice.__table__,
-                PlayerBusiness.__table__,
-                BusinessDailyLog.__table__,
-                BusinessLedgerEntry.__table__,
-                PlayerHousingState.__table__,
-                PlayerNetWorthSnapshot.__table__,
-                PlayerStockHolding.__table__,
-                HousingDailyLog.__table__,
-            ],
-        )
+        Base.metadata.create_all(bind=self.engine)
 
         self.db = self.SessionLocal()
 
@@ -276,6 +255,38 @@ class DayProgressionServiceTests(unittest.TestCase):
         self.db.refresh(self.player)
         cash_after = float(self.player.cash_xgp)
         self.assertNotEqual(cash_before, cash_after)
+
+    def test_settlement_records_daily_ledger_and_missed_work_penalty(self) -> None:
+        self.player.main_job = "banker"
+        self.db.commit()
+
+        result = settle_player_day(self.db, str(self.player.id))
+        rows = (
+            self.db.query(GameplayTransaction)
+            .filter(
+                GameplayTransaction.player_id == self.player.id,
+                GameplayTransaction.day == 1,
+            )
+            .all()
+        )
+        categories = {str(row.category) for row in rows}
+        pds = (
+            self.db.query(PlayerDailyState)
+            .filter(
+                PlayerDailyState.player_id == self.player.id,
+                PlayerDailyState.day_number == 1,
+            )
+            .first()
+        )
+
+        self.assertGreater(float(result.get("missed_work_penalty_xgp", 0.0)), 0.0)
+        self.assertIsNotNone(pds)
+        self.assertFalse(bool(pds.did_work))
+        self.assertGreater(float(pds.missed_penalty or 0), 0.0)
+        self.assertEqual(float(pds.salary_earned or 0), 0.0)
+        self.assertTrue({"food", "rent", "stress_penalty"}.issubset(categories))
+        if float(result.get("weekly_gas_expense_xgp", 0.0)) > 0.0 or float(result.get("commute_fuel_cost_xgp", 0.0)) > 0.0:
+            self.assertIn("gas", categories)
 
     def test_run_player_next_day_returns_coherent_summary(self) -> None:
         first = settle_player_day(self.db, str(self.player.id))

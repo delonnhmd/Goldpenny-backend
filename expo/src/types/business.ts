@@ -42,4 +42,9 @@ export interface PlayerBusinessesResponse {
   player_id: string;
   businesses: PlayerBusinessRecord[];
   profit_snapshot: BusinessProfitSnapshot;
+  starter_options?: {
+    business_type: BusinessTypeKey | string;
+    label: string;
+    cost_xgp: number;
+  }[];
 }

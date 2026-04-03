@@ -29,7 +29,7 @@ import {
   ActionPreviewResponse,
   DailyActionItem,
   EndOfDaySummaryResponse,
-  TransactionHistoryItem,
+  TransactionHistoryResponse,
 } from '@/types/gameplay';
 
 import {
@@ -72,7 +72,7 @@ interface GameplayLoopContextValue {
   sourceMode: GameplayLoopDataMode;
   sourceNotes: string[];
   lastSyncedAt: string | null;
-  transactionHistory: TransactionHistoryItem[];
+  dailyActivity: TransactionHistoryResponse | null;
   feedbackPromptDay: number | null;
   requestFeedbackPrompt: (gameDay: number) => void;
   dismissFeedbackPrompt: () => void;
@@ -145,6 +145,25 @@ function deriveSuggestedTimeUnits(bundle: GameplayLoopBundle | null): number {
   return 10;
 }
 
+function resolveDailyActivityDay(
+  bundle: GameplayLoopBundle,
+  sessionStatus: 'active' | 'ended',
+  fallbackDay: number,
+): number {
+  if (sessionStatus === 'ended' && bundle.endOfDaySummary?.day_number) {
+    return Math.max(1, bundle.endOfDaySummary.day_number);
+  }
+  const workStateDay = bundle.dashboard.work_state?.current_game_day;
+  if (typeof workStateDay === 'number' && Number.isFinite(workStateDay) && workStateDay > 0) {
+    return Math.max(1, Math.round(workStateDay));
+  }
+  const economyDay = Number(bundle.economySummary.current_day);
+  if (Number.isFinite(economyDay) && economyDay > 0) {
+    return Math.max(1, Math.round(economyDay));
+  }
+  return Math.max(1, Math.round(fallbackDay || 1));
+}
+
 export function GameplayLoopProvider({
   playerId,
   children,
@@ -159,7 +178,7 @@ export function GameplayLoopProvider({
   const [feedback, setFeedback] = useState<FeedbackState | null>(null);
   const [feedbackPromptDay, setFeedbackPromptDay] = useState<number | null>(null);
   const [summaryAutoOpenDay, setSummaryAutoOpenDay] = useState<number | null>(null);
-  const [transactionHistory, setTransactionHistory] = useState<TransactionHistoryItem[]>([]);
+  const [dailyActivity, setDailyActivity] = useState<TransactionHistoryResponse | null>(null);
 
   const [selectedPreviewAction, setSelectedPreviewAction] = useState<DailyActionItem | null>(null);
   const [actionPreview, setActionPreview] = useState<ActionPreviewResponse | null>(null);
@@ -223,23 +242,24 @@ export function GameplayLoopProvider({
     setError(null);
 
     try {
-      const [nextBundle, txHistory] = await Promise.all([
-        loadGameplayLoopBundle(playerId, {
-          includeEndOfDaySummary,
-        }),
-        getTransactionHistory(playerId, 80).catch((txError) => {
-          recordWarning('gameplayLoop', 'Failed to load transaction history.', {
-            action: 'transaction_history_load',
-            context: { playerId },
-            error: txError,
-          });
-          return null;
-        }),
-      ]);
+      const nextBundle = await loadGameplayLoopBundle(playerId, {
+        includeEndOfDaySummary,
+      });
       setBundle(nextBundle);
-      if (txHistory) {
-        setTransactionHistory(txHistory.transactions);
-      }
+      const activityDay = resolveDailyActivityDay(
+        nextBundle,
+        dailySession.sessionStatus,
+        dailyProgression.currentGameDay,
+      );
+      const txHistory = await getTransactionHistory(playerId, activityDay).catch((txError) => {
+        recordWarning('gameplayLoop', 'Failed to load transaction history.', {
+          action: 'transaction_history_load',
+          context: { playerId, activityDay },
+          error: txError,
+        });
+        return null;
+      });
+      setDailyActivity(txHistory);
 
       const summary = nextBundle.endOfDaySummary;
       const debug = summary?.debug_meta || {};
@@ -289,7 +309,7 @@ export function GameplayLoopProvider({
       setLoading(false);
       setRefreshing(false);
     }
-  }, [dailySession.sessionStatus, playerId]);
+  }, [dailyProgression.currentGameDay, dailySession.sessionStatus, playerId]);
 
   const consumeSummaryAutoOpen = useCallback(() => {
     setSummaryAutoOpenDay(null);
@@ -717,7 +737,7 @@ export function GameplayLoopProvider({
     sourceMode: bundle?.source.mode || 'live',
     sourceNotes: bundle?.source.notes || [],
     lastSyncedAt: bundle?.fetchedAt || null,
-    transactionHistory,
+    dailyActivity,
     feedbackPromptDay,
     requestFeedbackPrompt,
     dismissFeedbackPrompt,
@@ -761,7 +781,7 @@ export function GameplayLoopProvider({
     loading,
     refreshing,
     error,
-    transactionHistory,
+    dailyActivity,
     feedbackPromptDay,
     requestFeedbackPrompt,
     dismissFeedbackPrompt,

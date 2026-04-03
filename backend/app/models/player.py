@@ -197,6 +197,10 @@ class Player(Base):
         back_populates="player",
         order_by="DailySettlementLog.created_at.desc()",
     )
+    gameplay_transactions = relationship(
+        "GameplayTransaction",
+        order_by="GameplayTransaction.timestamp.desc()",
+    )
     transaction_logs = relationship(
         "PlayerTransactionLog",
         order_by="PlayerTransactionLog.created_at.desc()",

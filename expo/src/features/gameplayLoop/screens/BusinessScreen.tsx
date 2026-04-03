@@ -1,9 +1,8 @@
 import React, { useMemo } from 'react';
 import { router } from 'expo-router';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import BusinessOperationsCard from '@/components/gameplay/BusinessOperationsCard';
-import EmptyStateView from '@/components/ui/EmptyStateView';
 import { theme } from '@/design/theme';
 import { formatMoney } from '@/lib/gameplayFormatters';
 import { useScreenTimer } from '@/hooks/useScreenTimer';
@@ -47,6 +46,14 @@ export default function BusinessScreen() {
     return loop.businessPlan.items.find((item) => item.business_key === activeBusiness.business_type) || null;
   }, [activeBusiness, loop.businessPlan]);
 
+  const starterOptions = useMemo(
+    () => loop.businesses?.starter_options || [
+      { business_type: 'fruit_shop', label: 'Fruit Shop', cost_xgp: 500 },
+      { business_type: 'food_truck', label: 'Food Truck', cost_xgp: 1200 },
+    ],
+    [loop.businesses?.starter_options],
+  );
+
   const operatedToday = loop.dailySession.actionsTakenToday.some(
     (entry) => canonicalActionKey(entry.action_key) === 'operate_business' && entry.success,
   );
@@ -58,6 +65,7 @@ export default function BusinessScreen() {
   const trailingProfit = loop.businesses?.profit_snapshot.trailing_7d_profit_xgp ?? 0;
   const topRisk = marginsForActive?.risk_factors?.[0]
     || 'No business risk flagged.';
+  const cashOnHand = loop.dashboard?.stats.cash_xgp ?? 0;
 
   return (
     <GameplayLoopScaffold
@@ -139,10 +147,27 @@ export default function BusinessScreen() {
           />
         </GameplaySummaryCard>
       ) : (
-        <EmptyStateView
-          title="No business yet"
-          subtitle="Operate business actions unlock once you activate a business profile."
-        />
+        <GameplaySummaryCard
+          eyebrow="Start Business"
+          title="Starter business costs"
+          subtitle="Compare the opening cost to your cash before committing."
+        >
+          <View style={styles.starterList}>
+            {starterOptions.map((option) => {
+              const need = Math.max(option.cost_xgp - cashOnHand, 0);
+              return (
+                <View key={String(option.business_type)} style={styles.starterCard}>
+                  <Text style={styles.starterTitle}>{option.label}</Text>
+                  <Text style={styles.starterLine}>Cost: {formatMoney(option.cost_xgp)}</Text>
+                  <Text style={styles.starterLine}>You have: {formatMoney(cashOnHand)}</Text>
+                  <Text style={[styles.starterLine, need > 0 ? styles.needText : styles.readyText]}>
+                    Need: {formatMoney(need)}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+        </GameplaySummaryCard>
       )}
     </GameplayLoopScaffold>
   );
@@ -154,5 +179,31 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: theme.spacing.sm,
   },
+  starterList: {
+    gap: theme.spacing.sm,
+  },
+  starterCard: {
+    backgroundColor: theme.color.surfaceAlt,
+    borderColor: theme.color.border,
+    borderRadius: theme.radius.lg,
+    borderWidth: 1,
+    gap: theme.spacing.xs,
+    padding: theme.spacing.md,
+  },
+  starterTitle: {
+    color: theme.color.textPrimary,
+    ...theme.typography.headingSm,
+  },
+  starterLine: {
+    color: theme.color.textSecondary,
+    ...theme.typography.bodySm,
+  },
+  needText: {
+    color: theme.color.warning,
+    fontWeight: '700',
+  },
+  readyText: {
+    color: theme.color.positive,
+    fontWeight: '700',
+  },
 });
-

@@ -28,14 +28,21 @@ export default function BriefScreen() {
   const guidedBriefActive = onboarding.isActive && onboarding.currentStep?.route === 'brief';
   const netFlow = loop.economyState.netCashFlow ?? 0;
 
-  // End-of-day summary state
   const summary = loop.endOfDaySummary;
   const hasSummary = Boolean(summary);
   const sessionEnded = loop.dailySession.sessionStatus === 'ended';
   const summaryMissingAfterSettlement = !hasSummary && sessionEnded;
   const netTone = toneFromSignedValue(summary?.net_change_xgp ?? 0);
 
-  // Footer logic: day active vs day ended
+  const dailyActivity = loop.dailyActivity;
+  const transactions = dailyActivity?.transactions ?? [];
+  const workState = loop.dashboard?.work_state ?? loop.actionHub?.work_state ?? null;
+  const salaryEarned = workState?.salary_earned_today ?? 0;
+  const missedPenalty = workState?.missed_penalty_today ?? 0;
+  const noShiftScheduled = Boolean(workState?.no_shift_scheduled);
+  const workedToday = Boolean(workState?.did_work_today) || salaryEarned > 0;
+  const missedToday = !workedToday && !noShiftScheduled && missedPenalty > 0;
+
   const primaryLabel = hasSummary || summaryMissingAfterSettlement
     ? 'Start Next Day'
     : loop.endingDay
@@ -71,42 +78,103 @@ export default function BriefScreen() {
         />
       )}
     >
-      {/* ── Daily Brief card ── */}
       {loop.dashboard ? (
         <OnboardingHighlight target="brief-daily-economy">
           <DailyBriefCard dashboard={loop.dashboard} />
         </OnboardingHighlight>
       ) : null}
 
-      {/* ── Today's Activity ── */}
-      <GameplaySummaryCard eyebrow="Today" title="Activity">
+      <GameplaySummaryCard eyebrow="Today" title="Daily Activity">
         <GameplayCompactMetricRows
           items={[
             {
-              label: 'Net flow',
-              value: `${netFlow > 0 ? '+' : ''}${formatMoney(netFlow)}`,
-              tone: toneFromSignedValue(netFlow),
+              label: 'Income',
+              value: formatMoney(dailyActivity?.total_income ?? 0),
+              tone: 'positive',
             },
             {
-              label: 'Actions taken',
-              value: String(loop.dailySession.actionsTakenToday.length),
-              tone: 'neutral',
+              label: 'Expense',
+              value: formatMoney(dailyActivity?.total_expense ?? 0),
+              tone: 'danger',
+            },
+            {
+              label: 'Net',
+              value: `${(dailyActivity?.net ?? 0) > 0 ? '+' : ''}${formatMoney(dailyActivity?.net ?? netFlow)}`,
+              tone: toneFromSignedValue(dailyActivity?.net ?? netFlow),
             },
           ]}
         />
-        {loop.dailySession.actionsTakenToday.length > 0 ? (
-          <View style={styles.actionsList}>
-            {loop.dailySession.actionsTakenToday.map((entry, idx) => (
-              <Text key={`${entry.id}_${idx}`} style={styles.actionsListItem}>
-                • {entry.title}{entry.success ? '' : ' (failed)'}
-              </Text>
+        {transactions.length > 0 ? (
+          <View style={styles.transactionList}>
+            {transactions.map((entry) => (
+              <View key={entry.id} style={styles.transactionRow}>
+                <View style={styles.transactionCopy}>
+                  <Text style={styles.transactionTitle}>{entry.description}</Text>
+                  <Text style={styles.transactionMeta}>{entry.category.replace(/_/g, ' ')}</Text>
+                </View>
+                <Text style={[styles.transactionAmount, entry.amount >= 0 ? styles.positiveText : styles.negativeText]}>
+                  {entry.amount > 0 ? '+' : ''}
+                  {formatMoney(entry.amount)}
+                </Text>
+              </View>
             ))}
           </View>
-        ) : null}
-        <Text style={styles.txPlaceholder}>Transaction log — coming soon</Text>
+        ) : (
+          <Text style={styles.txPlaceholder}>
+            No transactions recorded yet for Day {dailyActivity?.day ?? workState?.current_game_day ?? 1}.
+          </Text>
+        )}
       </GameplaySummaryCard>
 
-      {/* ── End-of-day settlement (shown once session ended) ── */}
+      <GameplaySummaryCard eyebrow="Work" title="Work Status">
+        {workedToday ? (
+          <GameplayCompactMetricRows
+            items={[
+              { label: 'Status', value: 'Worked', tone: 'positive' },
+              { label: 'Salary', value: `+${formatMoney(salaryEarned)}`, tone: 'positive' },
+            ]}
+          />
+        ) : missedToday ? (
+          <GameplayCompactMetricRows
+            items={[
+              { label: 'Status', value: 'Missed work', tone: 'danger' },
+              { label: 'Penalty', value: `-${formatMoney(missedPenalty)}`, tone: 'danger' },
+            ]}
+          />
+        ) : noShiftScheduled ? (
+          <GameplayCompactMetricRows
+            items={[
+              { label: 'Status', value: 'No shift scheduled', tone: 'neutral' },
+              {
+                label: 'Ride Share',
+                value: workState?.rideshare_available ? 'Unlocked' : 'Available when ready',
+                tone: 'neutral',
+              },
+            ]}
+          />
+        ) : (
+          <GameplayCompactMetricRows
+            items={[
+              { label: 'Status', value: 'Shift not completed yet', tone: 'warning' },
+              {
+                label: 'Ride Share',
+                value: workState?.rideshare_available ? 'Unlocked' : 'Locked until shift completion',
+                tone: 'warning',
+              },
+            ]}
+          />
+        )}
+        {missedToday ? (
+          <Text style={styles.statusCaption}>
+            Missing a scheduled workday now creates a visible cash penalty and added stress.
+          </Text>
+        ) : workedToday ? (
+          <Text style={styles.statusCaption}>
+            Shift completion now records salary directly, so your day summary shows exactly what work paid.
+          </Text>
+        ) : null}
+      </GameplaySummaryCard>
+
       {sessionEnded ? (
         <OnboardingHighlight target="summary-day-results">
           <GameplaySummaryCard
@@ -140,7 +208,7 @@ export default function BriefScreen() {
             eyebrow="Today's result"
             title={summary.net_change_xgp >= 0
               ? 'Nice finish today.'
-              : 'Tough day — tomorrow can recover this.'}
+              : 'Tough day - tomorrow can recover this.'}
           >
             <GameplayCompactMetricRows
               items={[
@@ -157,7 +225,7 @@ export default function BriefScreen() {
       ) : summaryMissingAfterSettlement ? (
         <EmptyStateView
           title="Summary temporarily unavailable"
-          subtitle="Settlement completed. Continue to the next day — refresh later for full recap."
+          subtitle="Settlement completed. Continue to the next day - refresh later for full recap."
         />
       ) : !sessionEnded ? (
         <GameplayWarningBanner
@@ -171,12 +239,41 @@ export default function BriefScreen() {
 }
 
 const styles = StyleSheet.create({
-  actionsList: {
-    gap: theme.spacing.xs,
+  transactionList: {
+    gap: theme.spacing.sm,
   },
-  actionsListItem: {
-    color: theme.color.textSecondary,
+  transactionRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: theme.spacing.md,
+    justifyContent: 'space-between',
+  },
+  transactionCopy: {
+    flex: 1,
+    gap: theme.spacing.xxs,
+  },
+  transactionTitle: {
+    color: theme.color.textPrimary,
     ...theme.typography.bodySm,
+  },
+  transactionMeta: {
+    color: theme.color.textSecondary,
+    ...theme.typography.caption,
+    textTransform: 'capitalize',
+  },
+  transactionAmount: {
+    ...theme.typography.bodySm,
+    fontWeight: '700',
+  },
+  positiveText: {
+    color: theme.color.positive,
+  },
+  negativeText: {
+    color: theme.color.danger,
+  },
+  statusCaption: {
+    color: theme.color.textSecondary,
+    ...theme.typography.caption,
   },
   txPlaceholder: {
     color: theme.color.muted,

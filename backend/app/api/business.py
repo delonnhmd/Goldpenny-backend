@@ -764,6 +764,17 @@ def get_player_businesses_for_day_ops(player_id: str, db: Session = Depends(get_
             "player_id": str(player_id),
             "businesses": businesses,
             "profit_snapshot": snapshot,
+            "starter_options": [
+                {
+                    "business_type": key,
+                    "label": definition.display_name,
+                    "cost_xgp": float(definition.startup_cost),
+                }
+                for key, definition in (
+                    ("fruit_shop", BUSINESS_CATALOG["fruit_shop"]),
+                    ("food_truck", BUSINESS_CATALOG["food_truck"]),
+                )
+            ],
         }
     except Exception as exc:
         _raise_business_service_http_error(exc)

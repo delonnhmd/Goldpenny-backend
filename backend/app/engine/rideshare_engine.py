@@ -20,6 +20,7 @@ from app.models.player import Player
 from app.models.player_daily_state import PlayerDailyState
 from app.models.side_income_action import SideIncomeAction
 from app.models.xgp_transaction import XGPTransaction
+from app.services.gameplay_transaction_service import record_gameplay_transaction
 from app.services.player_transaction_log_service import record_player_transaction
 from app.services.shift_state_service import resolve_expired_shift_if_needed
 
@@ -164,6 +165,11 @@ def process_rideshare_action(
                 "Ride share is unavailable during an active main shift. "
                 "Wait for backend-confirmed shift completion first."
             )
+        if not bool(work_state.get("rideshare_unlocked")):
+            raise ValueError(
+                "Ride share unlocks only after your shift is completed for today "
+                "or when you do not have a scheduled main shift."
+            )
 
         if player.last_worked_day != current_day:
             player.main_job_hours_today = 0
@@ -294,6 +300,15 @@ def process_rideshare_action(
                 "time_used_units": time_used_units,
                 "time_used_hours": round(total_trip_duration_hours, 4),
             },
+        )
+        record_gameplay_transaction(
+            db,
+            player=player,
+            day=current_day,
+            transaction_type="income",
+            category="ride_share",
+            amount=round(total_earned, 4),
+            description=f"Ride Share payout ({trips_completed} trips, {mode_used})",
         )
 
         contribution = ContributionEvent(

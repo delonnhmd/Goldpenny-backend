@@ -249,7 +249,7 @@ export default function WorkScreen() {
         <OnboardingHighlight target="work-first-action">
           <ActionHubPanel
             hub={loop.actionHub}
-            onPreviewAction={(action) => {
+            onExecuteAction={(action: DailyActionItem) => {
               void loop.openActionPreview(action);
             }}
             getExecutionGuard={(action) => loop.dailySession.canExecuteAction(action)}

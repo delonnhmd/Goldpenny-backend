@@ -26,6 +26,7 @@ from app.models.job_definition import JOB_CATALOG, MAIN_JOBS, resolve_job_defini
 from app.models.player import Player
 from app.models.player_daily_state import PlayerDailyState
 from app.models.xgp_transaction import XGPTransaction
+from app.services.gameplay_transaction_service import record_gameplay_transaction
 from app.services.job_key_service import normalize_main_job_key, supported_main_job_keys_text
 from app.services.job_progress_service import normalize_shift_type, upsert_employment_foundation, work_xp_for_hours
 from app.services.player_transaction_log_service import record_player_transaction
@@ -144,6 +145,7 @@ def _get_or_create_player_daily_state_in_txn(
         hours_available_start=int(hours_available_start if hours_available_start is not None else int(player.hours_available or 0)),
         hours_available_end=int(player.hours_available or 0),
         worked_main_job=False,
+        did_work=False,
         did_settlement=False,
         stress_start=int(stress_start if stress_start is not None else int(player.stress or 0)),
         stress_end=int(player.stress or 0),
@@ -151,6 +153,10 @@ def _get_or_create_player_daily_state_in_txn(
         health_end=int(player.health or 0),
         cash_start=cash_value,
         cash_end=_q4(getattr(player, "cash", 0)),
+        shift_start=None,
+        shift_end=None,
+        salary_earned=0,
+        missed_penalty=0,
         main_shift_hours_today=0,
         side_income_hours=0,
         side_income_gross_xgp=0,
@@ -306,9 +312,10 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         and int(getattr(player, "last_worked_day", 0) or 0) == current_day
         and main_shift_hours_today > 0
     )
+    no_shift_scheduled = not bool(canonical_main_job)
     day_settled = int(getattr(player, "last_settled_day", 0) or 0) == current_day
     remaining_side_cap = max(0.0, float(RIDESHARE_DAILY_CAP) - side_income_hours_today)
-    rideshare_unlocked = completed_shift_confirmed
+    rideshare_unlocked = bool(not active_shift and (completed_shift_confirmed or no_shift_scheduled))
     rideshare_available = bool(
         rideshare_unlocked
         and not day_settled
@@ -332,11 +339,16 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         "shift_number": int(getattr(player, "main_shift_number", 0) or 0),
         "shift_expired": shift_expired,
         "shift_found": active_shift,
+        "shift_completed_today": completed_shift_confirmed,
+        "no_shift_scheduled": no_shift_scheduled,
         "hours_available": int(getattr(player, "hours_available", 0) or 0),
         "main_shift_hours_today": round(main_shift_hours_today, 4),
         "side_income_hours_today": round(side_income_hours_today, 4),
         "recovery_hours_today": round(recovery_hours_today, 4),
         "total_time_used_today": round(total_time_used_today, 4),
+        "did_work_today": bool(getattr(pds, "did_work", False)) if pds is not None else completed_shift_confirmed,
+        "salary_earned_today": round(_safe_float(getattr(pds, "salary_earned", 0) if pds is not None else 0, 0.0), 4),
+        "missed_penalty_today": round(_safe_float(getattr(pds, "missed_penalty", 0) if pds is not None else 0, 0.0), 4),
         "last_completed_shift": {
             "earned_cash_xgp": round(_safe_float(getattr(player, "main_shift_last_cash_xgp", 0), 0.0), 4),
             "xp_gained": int(getattr(player, "main_shift_last_xp_gained", 0) or 0),
@@ -436,6 +448,8 @@ def start_main_shift(
     pds.main_shift_hours_today = _q4(Decimal(str(getattr(pds, "main_shift_hours_today", 0) or 0)) + Decimal(str(hours_worked)))
     pds.job_hours = _q4(Decimal(str(getattr(pds, "job_hours", 0) or 0)) + Decimal(str(hours_worked)))
     pds.total_hours_used = _q4(Decimal(str(getattr(pds, "total_hours_used", 0) or 0)) + Decimal(str(hours_worked)))
+    pds.shift_start = now
+    pds.shift_end = None
     pds.hours_available_end = int(player.hours_available or 0)
     pds.stress_end = int(player.stress or 0)
     pds.health_end = int(player.health or 0)
@@ -576,6 +590,18 @@ def finalize_active_main_shift(
             "houston_finalized_at": now.isoformat(),
         },
     )
+    record_gameplay_transaction(
+        db,
+        player=player,
+        day=current_day,
+        transaction_type="income",
+        category="salary",
+        amount=_q4(earned_cash),
+        description=(
+            f"{str(getattr(job_def, 'title', None) or getattr(job_def, 'display_name', None) or job_name.replace('_', ' ').title())} "
+            "shift salary"
+        ),
+    )
 
     contribution = ContributionEvent(
         player_id=player.id,
@@ -600,7 +626,12 @@ def finalize_active_main_shift(
 
     pds = _get_or_create_player_daily_state_in_txn(db, player, day_number=current_day)
     pds.worked_main_job = True
+    pds.did_work = True
+    pds.shift_start = _as_houston(getattr(player, "main_shift_started_at", None)) or now
+    pds.shift_end = now
     pds.worked_hours = int(getattr(pds, "worked_hours", 0) or 0) + hours_worked
+    pds.salary_earned = _q4(Decimal(str(getattr(pds, "salary_earned", 0) or 0)) + Decimal(str(earned_cash)))
+    pds.missed_penalty = Decimal("0")
     pds.gross_income_xgp = _q4(Decimal(str(getattr(pds, "gross_income_xgp", 0) or 0)) + Decimal(str(earned_cash)))
     pds.hours_available_end = int(player.hours_available or 0)
     pds.stress_end = int(player.stress or 0)

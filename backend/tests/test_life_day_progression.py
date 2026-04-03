@@ -6,7 +6,7 @@ from decimal import Decimal
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-os.environ.setdefault("DATABASE_URL", "sqlite:///./test_life_day_progression.db")
+os.environ["DATABASE_URL"] = "postgresql://goldpenny:goldpenny@localhost:5432/goldpenny_test"
 
 from app.db.database import Base
 from app.engine.business_service import create_or_get_starter_business
@@ -18,6 +18,7 @@ from app.models.daily_brief_log import DailyBriefLog
 from app.models.daily_settlement_log import DailySettlementLog
 from app.models.debt_credit_log import DebtCreditLog
 from app.models.enums import BasketType
+from app.models.gameplay_transaction import GameplayTransaction
 from app.models.housing_daily_log import HousingDailyLog
 from app.models.job_definition_db import JobDefinition as JobDefinitionDB
 from app.models.macro_daily_state import MacroDailyState
@@ -28,6 +29,7 @@ from app.models.player_employment_state import PlayerEmploymentState
 from app.models.player_housing_state import PlayerHousingState
 from app.models.player_net_worth_snapshot import PlayerNetWorthSnapshot
 from app.models.player_stock_holding import PlayerStockHolding
+from app.models.player_transaction_log import PlayerTransactionLog
 from app.models.stock_daily_price import StockDailyPrice
 from app.models.user import User
 from app.services.daily_settlement_service import settle_player_day
@@ -52,30 +54,7 @@ class LifeDayProgressionTests(unittest.TestCase):
     def setUp(self) -> None:
         self.engine = create_engine("sqlite:///:memory:", future=True)
         self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine, future=True)
-        Base.metadata.create_all(
-            bind=self.engine,
-            tables=[
-                User.__table__,
-                Player.__table__,
-                PlayerDailyState.__table__,
-                DailySettlementLog.__table__,
-                DailyBriefLog.__table__,
-                DebtCreditLog.__table__,
-                PlayerEmploymentState.__table__,
-                JobDefinitionDB.__table__,
-                MacroDailyState.__table__,
-                BasketDailyPrice.__table__,
-                BasketConsumptionLog.__table__,
-                StockDailyPrice.__table__,
-                PlayerBusiness.__table__,
-                BusinessDailyLog.__table__,
-                BusinessLedgerEntry.__table__,
-                PlayerHousingState.__table__,
-                PlayerNetWorthSnapshot.__table__,
-                PlayerStockHolding.__table__,
-                HousingDailyLog.__table__,
-            ],
-        )
+        Base.metadata.create_all(bind=self.engine)
         self.db = self.SessionLocal()
 
         user = User(email=f"life-day-{uuid.uuid4()}@example.com", hashed_password="hashed")
@@ -247,6 +226,33 @@ class LifeDayProgressionTests(unittest.TestCase):
         self.assertGreaterEqual(float(log.total_hours_used or 0), 0.0)
         self.assertGreaterEqual(float(log.productivity_modifier or 0), 0.70)
         self.assertLessEqual(float(log.productivity_modifier or 0), 1.05)
+
+    def test_settlement_persists_work_tracking_and_salary_ledger(self) -> None:
+        settle_player_day(self.db, str(self.player.id))
+        pds = (
+            self.db.query(PlayerDailyState)
+            .filter(
+                PlayerDailyState.player_id == self.player.id,
+                PlayerDailyState.day_number == 1,
+            )
+            .first()
+        )
+        salary_rows = (
+            self.db.query(GameplayTransaction)
+            .filter(
+                GameplayTransaction.player_id == self.player.id,
+                GameplayTransaction.day == 1,
+                GameplayTransaction.category == "salary",
+            )
+            .all()
+        )
+
+        self.assertIsNotNone(pds)
+        self.assertTrue(bool(pds.did_work))
+        self.assertGreater(float(pds.salary_earned or 0), 0.0)
+        self.assertEqual(float(pds.missed_penalty or 0), 0.0)
+        self.assertEqual(len(salary_rows), 1)
+        self.assertGreater(float(salary_rows[0].amount), 0.0)
 
 
 if __name__ == "__main__":
