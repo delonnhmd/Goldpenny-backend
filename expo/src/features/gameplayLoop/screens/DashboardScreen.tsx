@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import ActionHubPanel from '@/components/gameplay/ActionHubPanel';
@@ -345,66 +345,81 @@ export default function DashboardScreen() {
   }, [autoClockingOut, backendShiftActive, backendShiftCompleted, houstonHour, loop.dailySession.sessionStatus, workState?.is_weekend]);
 
   const dayLabel = loop.dailySession.currentDay || loop.dailyProgression.currentGameDay || 1;
-  const rideshareMode = getRideshareMode(houstonHour);
-
-  const rideshareTripsToday = useMemo(
-    () => loop.dailySession.actionsTakenToday
-      .filter((entry) => canonicalDashboardActionKey(String(entry.action_key || '')) === 'side_income' && entry.success)
-      .reduce((sum, entry) => {
-        const rawTrips = Number(entry.raw_result?.trips ?? entry.raw_result?.trips_completed ?? 1);
-        return sum + (Number.isFinite(rawTrips) ? Math.max(1, Math.round(rawTrips)) : 1);
-      }, 0),
-    [loop.dailySession.actionsTakenToday],
-  );
+  const rideshareState = workState?.rideshare_state || null;
+  const rideshareMode = (
+    rideshareState?.mode
+      ? String(rideshareState.mode)
+      : getRideshareMode(houstonHour)
+  ) as RideshareMode;
+  const rideshareTripsToday = rideshareState?.trips_today ?? Math.max(0, Math.round(workState?.side_income_hours_today ?? 0));
+  const rideshareDailyCap = rideshareState?.max_trips ?? Math.max(1, Number(BALANCE.ACTION_CAPS.side_income || 6));
+  const rideshareRemainingTrips = rideshareState?.remaining_trips ?? Math.max(0, rideshareDailyCap - rideshareTripsToday);
+  const rideshareHoursRemainingToday = rideshareState?.hours_remaining_today ?? Math.max(0, Number(workState?.hours_available || 0));
   const rideshareEarnedToday = useMemo(
-    () => loop.dailySession.actionsTakenToday
-      .filter((entry) => canonicalDashboardActionKey(String(entry.action_key || '')) === 'side_income' && entry.success)
-      .reduce((sum, entry) => {
-        const earnedRaw = Number(
-          (entry.raw_result?.earned ?? entry.raw_result?.net_income_xgp ?? entry.impact_snapshot?.cash_delta_xgp) || 0,
-        );
-        return sum + (Number.isFinite(earnedRaw) ? earnedRaw : 0);
-      }, 0),
-    [loop.dailySession.actionsTakenToday],
-  );
-  const rideshareDailyCap = Math.max(1, Number(BALANCE.ACTION_CAPS.side_income || 6));
-  const sideIncomeGuard = sideIncomeAction
-    ? loop.dailySession.canExecuteAction(sideIncomeAction)
-    : { allowed: false, reason: 'Ride share action is not available yet.', timeCostUnits: 0 };
-  const rideshareAvailable = Boolean(
-    sideIncomeAction
-    && !backendShiftActive
-    && Boolean(workState?.rideshare_available)
-    && sideIncomeGuard.allowed
-    && loop.dailySession.sessionStatus === 'active',
+    () => {
+      const transactionEarned = (loop.dailyActivity?.transactions || [])
+        .filter((entry) => String(entry.category || '').toLowerCase() === 'ride_share' && Number(entry.amount) > 0)
+        .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
+      if (Number.isFinite(transactionEarned) && transactionEarned > 0) {
+        return transactionEarned;
+      }
+      return loop.dailySession.actionsTakenToday
+        .filter((entry) => canonicalDashboardActionKey(String(entry.action_key || '')) === 'side_income' && entry.success)
+        .reduce((sum, entry) => {
+          const earnedRaw = Number(
+            (entry.raw_result?.earned ?? entry.raw_result?.net_income_xgp ?? entry.impact_snapshot?.cash_delta_xgp) || 0,
+          );
+          return sum + (Number.isFinite(earnedRaw) ? earnedRaw : 0);
+        }, 0);
+    },
+    [loop.dailyActivity?.transactions, loop.dailySession.actionsTakenToday],
   );
 
   const rideshareStatusLabel = useMemo(() => {
     if (loop.dailySession.sessionStatus !== 'active') return 'Day ended';
-    if (backendShiftActive || autoClockingOut) return `Unavailable during work shift (available after ${shiftEndLabel})`;
-    if (workState?.is_weekend) return 'Available all day (weekend)';
-    if (workState?.no_shift_scheduled) return 'Available all day (no required shift)';
-    if (!workState?.rideshare_unlocked) return `Available after ${scheduledShiftEndLabel} (shift end)`;
-    if (!sideIncomeAction) return 'Ride share not unlocked yet';
-    if (!sideIncomeGuard.allowed) return sanitizeRideShareReason(sideIncomeGuard.reason);
-    return 'Available now';
-  }, [
-    autoClockingOut,
-    backendShiftActive,
-    loop.dailySession.sessionStatus,
-    scheduledShiftEndLabel,
-    shiftEndLabel,
-    sideIncomeAction,
-    sideIncomeGuard.allowed,
-    sideIncomeGuard.reason,
-    workState?.is_weekend,
-    workState?.no_shift_scheduled,
-    workState?.rideshare_unlocked,
-  ]);
-
+    if (!sideIncomeAction) return 'Ride share action unavailable right now.';
+    if (!rideshareState) return 'Ride share status syncing...';
+    return sanitizeRideShareReason(rideshareState.reason || (rideshareState.can_rideshare ? 'Ride Share is available now.' : 'Ride share unavailable right now.'));
+  }, [loop.dailySession.sessionStatus, rideshareState, sideIncomeAction]);
   const busyActionKey = canonicalDashboardActionKey(String(loop.busyActionKey || ''));
   const runningSideIncome = loop.executingAction && busyActionKey === 'side_income';
   const runningWorkAction = loop.executingAction && busyActionKey === 'work_shift';
+
+  const getRideShareDisabledReason = useCallback((requestedTrips: number): string | null => {
+    if (!sideIncomeAction) return 'Ride share action is not available yet.';
+    if (loop.dailySession.sessionStatus !== 'active') return 'Day ended.';
+    if (autoClockingOut) return 'Auto-finalizing shift. Ride share unlocks after sync.';
+    if (runningSideIncome || loop.executingAction) return 'Another action is running.';
+    if (!rideshareState) return 'Ride share status syncing...';
+    if (!rideshareState.can_rideshare) return sanitizeRideShareReason(rideshareState.reason);
+    if (requestedTrips > rideshareRemainingTrips) {
+      if (rideshareRemainingTrips <= 0) {
+        return sanitizeRideShareReason(rideshareState.reason || 'Daily ride share limit reached.');
+      }
+      return `Only ${rideshareRemainingTrips} ${rideshareRemainingTrips === 1 ? 'trip' : 'trips'} remaining today.`;
+    }
+    if (requestedTrips > rideshareHoursRemainingToday) {
+      return 'Not enough time remaining for that trip bundle.';
+    }
+    return null;
+  }, [
+    autoClockingOut,
+    loop.dailySession.sessionStatus,
+    loop.executingAction,
+    rideshareHoursRemainingToday,
+    rideshareRemainingTrips,
+    rideshareState,
+    runningSideIncome,
+    sideIncomeAction,
+  ]);
+
+  const rideshareDisableReasonsByTrip = useMemo(() => ({
+    1: getRideShareDisabledReason(1),
+    3: getRideShareDisabledReason(3),
+    5: getRideShareDisabledReason(5),
+  }), [getRideShareDisabledReason]);
+
+  const rideshareAvailable = !rideshareDisableReasonsByTrip[1];
 
   const switchJobAction = useMemo(() => {
     if (!loop.actionHub) return null;
@@ -603,7 +618,7 @@ export default function DashboardScreen() {
         context: {
           playerId: loop.playerId,
           shiftCompletedAt: backendShiftCompletedAt,
-          rideshareAvailable: Boolean(workState?.rideshare_available),
+          rideshareAvailable: Boolean(workState?.rideshare_state?.can_rideshare),
           earnedCash: lastCompletedShift.earned_cash_xgp,
           xpGained: lastCompletedShift.xp_gained,
         },
@@ -632,12 +647,17 @@ export default function DashboardScreen() {
         playerId: loopPlayerId,
         shiftStatus: workState.shift_status,
         backendActive: workState.main_shift_active_flag,
-        rideshareAvailable: workState.rideshare_available,
-        rideshareUnlocked: workState.rideshare_unlocked,
+        rideshareStatePayload: workState.rideshare_state || null,
+        statusLabelShown: rideshareStatusLabel,
+        buttonDisabledReasonRun1: rideshareDisableReasonsByTrip[1],
+        buttonDisabledReasonRun3: rideshareDisableReasonsByTrip[3],
+        buttonDisabledReasonRun5: rideshareDisableReasonsByTrip[5],
       },
     });
   }, [
     loopPlayerId,
+    rideshareDisableReasonsByTrip,
+    rideshareStatusLabel,
     workState,
   ]);
 
@@ -747,23 +767,15 @@ export default function DashboardScreen() {
       return;
     }
 
-    if (backendShiftActive || autoClockingOut) {
-      loop.setFeedback({
-        tone: 'error',
-        message: `Unavailable during work shift. Available after ${shiftEndLabel}.`,
-      });
-      return;
-    }
-
-    if (!sideIncomeGuard.allowed) {
-      loop.setFeedback({
-        tone: 'error',
-        message: sanitizeRideShareReason(sideIncomeGuard.reason),
-      });
-      return;
-    }
-
     const trips = requestedTrips === 3 || requestedTrips === 5 ? requestedTrips : 1;
+    const disabledReason = getRideShareDisabledReason(trips);
+    if (disabledReason) {
+      loop.setFeedback({
+        tone: 'error',
+        message: disabledReason,
+      });
+      return;
+    }
     const tripAction: DailyActionItem = {
       ...sideIncomeAction,
       title: `Ride Share (${trips} ${trips === 1 ? 'Trip' : 'Trips'})`,
@@ -1103,8 +1115,9 @@ export default function DashboardScreen() {
             { label: 'Mode', value: formatRideshareMode(rideshareMode) },
             {
               label: 'Trips today',
-              value: `${Math.round(workState?.side_income_hours_today || rideshareTripsToday)} / ${rideshareDailyCap}`,
+              value: `${Math.round(rideshareTripsToday)} / ${rideshareDailyCap}`,
             },
+            { label: 'Trips remaining', value: String(Math.max(0, rideshareRemainingTrips)) },
             {
               label: 'Ride share earned today',
               value: formatMoney(rideshareEarnedToday),
@@ -1117,6 +1130,7 @@ export default function DashboardScreen() {
         <View style={styles.recoveryList}>
           {RIDESHARE_TRIP_OPTIONS.map((tripOption) => {
             const preview = getRideshareTripPreview(rideshareMode, tripOption);
+            const buttonDisabledReason = rideshareDisableReasonsByTrip[tripOption as 1 | 3 | 5];
             return (
               <View key={`rideshare_${tripOption}`} style={styles.recoveryRow}>
                 <View style={styles.recoveryInfo}>
@@ -1129,7 +1143,7 @@ export default function DashboardScreen() {
                   <SecondaryButton
                     label={runningSideIncome ? 'Running...' : `Run ${tripOption}`}
                     onPress={() => void runRideShareTrip(tripOption)}
-                    disabled={!rideshareAvailable || runningSideIncome || autoClockingOut || loop.executingAction}
+                    disabled={Boolean(buttonDisabledReason)}
                   />
                 </View>
               </View>

@@ -340,6 +340,21 @@ function normalizeCompletedShift(raw: unknown): CompletedShiftSnapshot {
   };
 }
 
+function normalizeRideshareState(raw: unknown): WorkStateSnapshot['rideshare_state'] {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  return {
+    can_rideshare: Boolean(obj.can_rideshare),
+    status: toString(obj.status, 'not_enough_time'),
+    reason: toString(obj.reason, ''),
+    trips_today: Math.max(0, Math.round(toNumber(obj.trips_today, 0))),
+    max_trips: Math.max(1, Math.round(toNumber(obj.max_trips, 6))),
+    remaining_trips: Math.max(0, Math.round(toNumber(obj.remaining_trips, 0))),
+    hours_remaining_today: Math.max(0, Math.round(toNumber(obj.hours_remaining_today, 0))),
+    mode: toString(obj.mode, 'midday'),
+  };
+}
+
 function normalizeWorkState(raw: unknown, playerId: string): WorkStateSnapshot | null {
   if (!raw || typeof raw !== 'object') return null;
   const obj = raw as Record<string, unknown>;
@@ -385,6 +400,7 @@ function normalizeWorkState(raw: unknown, playerId: string): WorkStateSnapshot |
     survival_stress_delta: clampDeltaRange(obj.survival_stress_delta, { min: -100, max: 100, fallback: 0 }),
     meals_recorded_today: Math.max(0, Math.round(toNumber(obj.meals_recorded_today, 0))),
     last_completed_shift: normalizeCompletedShift(obj.last_completed_shift),
+    rideshare_state: normalizeRideshareState(obj.rideshare_state),
     rideshare_unlocked: Boolean(obj.rideshare_unlocked),
     rideshare_available: Boolean(obj.rideshare_available),
     rideshare_unlock_time_label: obj.rideshare_unlock_time_label == null ? null : toString(obj.rideshare_unlock_time_label, ''),

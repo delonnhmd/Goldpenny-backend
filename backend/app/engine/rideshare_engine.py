@@ -159,23 +159,33 @@ def process_rideshare_action(
         game_state = get_or_create_game_state(db)
         current_day = int(game_state.current_day)
         work_state = resolve_expired_shift_if_needed(db, player=player)
+        rideshare_state = (
+            (work_state.get("rideshare_state") if isinstance(work_state.get("rideshare_state"), dict) else None)
+            or {}
+        )
+        logger.info(
+            "rideshare.process_rideshare_action eligibility checked.",
+            extra={
+                "player_id": str(player.id),
+                "shift_active": bool(work_state.get("main_shift_active_flag")),
+                "trips_today": int(rideshare_state.get("trips_today") or 0),
+                "max_trips": int(rideshare_state.get("max_trips") or MAX_RIDESHARE_HOURS_PER_DAY),
+                "can_rideshare": bool(rideshare_state.get("can_rideshare")),
+                "rideshare_status": str(rideshare_state.get("status") or ""),
+                "reason": str(rideshare_state.get("reason") or ""),
+            },
+        )
 
         if bool(work_state.get("main_shift_active_flag")):
             raise ValueError(
                 "Ride share is unavailable during an active main shift. "
                 "Wait until the shift is over."
             )
-        if not bool(work_state.get("rideshare_unlocked")):
-            unlock_label = str(work_state.get("rideshare_unlock_time_label") or "shift end").strip()
-            if bool(work_state.get("is_weekend")):
-                detail = "Ride share is available all day on weekends."
-            elif bool(work_state.get("no_shift_scheduled")):
-                detail = "Ride share is available all day when you do not have a main job."
-            else:
-                detail = f"Ride share becomes available after {unlock_label}."
-            raise ValueError(
-                detail
-            )
+        if not bool(rideshare_state.get("can_rideshare")):
+            reason = str(rideshare_state.get("reason") or "").strip()
+            if not reason:
+                reason = "Ride share is not available right now."
+            raise ValueError(reason)
 
         if player.last_worked_day != current_day:
             player.main_job_hours_today = 0
@@ -376,6 +386,10 @@ def process_rideshare_action(
                 "current_houston_time": now_houston.isoformat(),
                 "main_shift_active_flag": work_state.get("main_shift_active_flag"),
                 "rideshare_unlocked": work_state.get("rideshare_unlocked"),
+                "rideshare_status": str(rideshare_state.get("status") or ""),
+                "rideshare_reason": str(rideshare_state.get("reason") or ""),
+                "trips_today_before": int(rideshare_state.get("trips_today") or 0),
+                "max_trips": int(rideshare_state.get("max_trips") or MAX_RIDESHARE_HOURS_PER_DAY),
                 "side_income_hours_today": round(float(getattr(pds, "side_income_hours", 0) or 0), 4),
                 "main_shift_hours_today": round(float(getattr(pds, "main_shift_hours_today", 0) or 0), 4),
             },

@@ -50,6 +50,17 @@ export interface CompletedShiftSnapshot {
   health_change: number;
 }
 
+export interface RideshareStateSnapshot {
+  can_rideshare: boolean;
+  status: 'available' | 'shift_active' | 'limit_reached' | 'not_enough_time' | string;
+  reason: string;
+  trips_today: number;
+  max_trips: number;
+  remaining_trips: number;
+  hours_remaining_today: number;
+  mode: 'morning_peak' | 'midday' | 'evening_peak' | 'night' | string;
+}
+
 export interface WorkStateSnapshot {
   player_id: string;
   current_houston_time: string;
@@ -92,6 +103,7 @@ export interface WorkStateSnapshot {
   survival_stress_delta?: number;
   meals_recorded_today?: number;
   last_completed_shift: CompletedShiftSnapshot;
+  rideshare_state?: RideshareStateSnapshot | null;
   rideshare_unlocked: boolean;
   rideshare_available: boolean;
   rideshare_unlock_time_label?: string | null;

@@ -268,10 +268,52 @@ class ShiftStateServiceTests(unittest.TestCase):
 
         self.assertTrue(bool(work_state.get("no_shift_scheduled")))
         self.assertTrue(bool(work_state.get("rideshare_available")))
+        self.assertIsNotNone(work_state.get("rideshare_state"))
+        self.assertTrue(bool(work_state.get("rideshare_state", {}).get("can_rideshare")))
+        self.assertEqual(str(work_state.get("rideshare_state", {}).get("status")), "available")
         self.assertEqual(result["trips"], 1)
         self.assertGreaterEqual(len(ledger_rows), 2)
         self.assertTrue(any(float(row.amount) == 0.0 for row in ledger_rows))
         self.assertTrue(any(float(row.amount) > 0.0 for row in ledger_rows))
+
+    def test_rideshare_state_reports_limit_reached_at_cap(self) -> None:
+        self.player.main_job = None
+        self.db.commit()
+        self.db.refresh(self.player)
+
+        process_rideshare_action(self.db, self.player, trips=5)
+        process_rideshare_action(self.db, self.player, trips=1)
+
+        state = build_work_state_payload(self.db, self.player)
+        rideshare_state = state.get("rideshare_state") or {}
+
+        self.assertEqual(int(rideshare_state.get("trips_today") or 0), 6)
+        self.assertEqual(int(rideshare_state.get("max_trips") or 0), 6)
+        self.assertFalse(bool(rideshare_state.get("can_rideshare")))
+        self.assertEqual(str(rideshare_state.get("status") or ""), "limit_reached")
+        self.assertFalse(bool(state.get("rideshare_available")))
+
+    def test_rideshare_state_trips_reset_when_game_day_advances(self) -> None:
+        self.player.main_job = None
+        self.db.commit()
+        self.db.refresh(self.player)
+
+        process_rideshare_action(self.db, self.player, trips=5)
+        process_rideshare_action(self.db, self.player, trips=1)
+
+        game_state = self.db.query(GameState).first()
+        assert game_state is not None
+        game_state.current_day = 2
+        self.db.commit()
+
+        next_day_state = build_work_state_payload(self.db, self.player)
+        rideshare_state = next_day_state.get("rideshare_state") or {}
+
+        self.assertEqual(int(next_day_state.get("current_game_day") or 0), 2)
+        self.assertEqual(int(rideshare_state.get("trips_today") or 0), 0)
+        self.assertEqual(int(rideshare_state.get("remaining_trips") or 0), 6)
+        self.assertEqual(str(rideshare_state.get("status") or ""), "available")
+        self.assertTrue(bool(rideshare_state.get("can_rideshare")))
 
     def test_rideshare_stays_locked_until_scheduled_shift_end_after_work(self) -> None:
         shift_start = self._houston_datetime(2026, 1, 1, 9, 0)

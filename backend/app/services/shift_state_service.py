@@ -330,9 +330,19 @@ def _configured_shift_duration_seconds(hours_worked: int) -> int:
     return max(1, int(hours_worked)) * 60 * 60
 
 
-def _maybe_reset_daily_counters(player: Player, current_day: int) -> None:
+def _maybe_reset_daily_counters(player: Player, current_day: int) -> bool:
     if player.last_worked_day == current_day:
-        return
+        return False
+
+    reset_applied = bool(
+        int(getattr(player, "main_job_hours_today", 0) or 0) != 0
+        or int(getattr(player, "side_job_hours_today", 0) or 0) != 0
+        or int(getattr(player, "total_hours_worked_today", 0) or 0) != 0
+        or int(getattr(player, "work_actions_today", 0) or 0) != 0
+        or int(getattr(player, "hours_available", 16) or 16) != 16
+        or bool(getattr(player, "main_shift_active_flag", False))
+        or str(getattr(player, "main_shift_status", SHIFT_STATUS_IDLE) or SHIFT_STATUS_IDLE) != SHIFT_STATUS_IDLE
+    )
 
     player.main_job_hours_today = 0
     player.side_job_hours_today = 0
@@ -348,6 +358,72 @@ def _maybe_reset_daily_counters(player: Player, current_day: int) -> None:
         player.main_shift_shift_type = None
         player.main_shift_hours = 0
         player.main_shift_number = 0
+    return reset_applied
+
+
+def _rideshare_mode_for_houston_hour(hour: int) -> str:
+    if 6 <= int(hour) < 9:
+        return "morning_peak"
+    if 9 <= int(hour) < 16:
+        return "midday"
+    if 16 <= int(hour) < 19:
+        return "evening_peak"
+    if int(hour) >= 20 or int(hour) < 1:
+        return "night"
+    return "midday"
+
+
+def _build_rideshare_state(
+    *,
+    active_shift: bool,
+    rideshare_unlocked: bool,
+    day_settled: bool,
+    is_weekend: bool,
+    no_shift_scheduled: bool,
+    scheduled_shift_end_label: str | None,
+    side_income_hours_today: float,
+    hours_available: int,
+    now_houston: datetime,
+) -> dict[str, Any]:
+    max_trips = int(RIDESHARE_DAILY_CAP)
+    trips_today = max(0, min(max_trips, int(round(float(side_income_hours_today or 0.0)))))
+    hours_remaining_today = max(0, int(hours_available or 0))
+    remaining_by_cap = max(0, max_trips - trips_today)
+    remaining_trips = max(0, min(remaining_by_cap, hours_remaining_today))
+    mode = _rideshare_mode_for_houston_hour(int(now_houston.hour))
+
+    status = "available"
+    reason = "Ride Share is available now."
+    if day_settled:
+        status = "not_enough_time"
+        reason = "Day already settled. Start next day to run ride share."
+    elif active_shift:
+        status = "shift_active"
+        reason = "Ride Share is unavailable during an active shift."
+    elif not rideshare_unlocked:
+        status = "shift_active"
+        reason = f"Available after {scheduled_shift_end_label or 'shift end'} (shift end)."
+    elif remaining_by_cap <= 0:
+        status = "limit_reached"
+        reason = "Daily ride share limit reached."
+    elif hours_remaining_today <= 0 or remaining_trips <= 0:
+        status = "not_enough_time"
+        reason = "Not enough time remaining for ride share."
+    elif is_weekend:
+        reason = "Available all day (weekend)."
+    elif no_shift_scheduled:
+        reason = "Available all day (no required shift)."
+
+    return {
+        "can_rideshare": status == "available",
+        "status": status,
+        "reason": reason,
+        "trips_today": trips_today,
+        "max_trips": max_trips,
+        "remaining_trips": remaining_trips,
+        "hours_remaining_today": hours_remaining_today,
+        "mode": mode,
+    }
 
 
 def _get_or_create_player_daily_state_in_txn(
@@ -548,7 +624,6 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
     )
     no_shift_scheduled = not bool(schedule["has_main_job"])
     day_settled = int(getattr(player, "last_settled_day", 0) or 0) == current_day
-    remaining_side_cap = max(0.0, float(RIDESHARE_DAILY_CAP) - side_income_hours_today)
     rideshare_unlocked = bool(
         not active_shift
         and (
@@ -557,12 +632,19 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
             or bool(schedule["reached_shift_end"])
         )
     )
-    rideshare_available = bool(
-        rideshare_unlocked
-        and not day_settled
-        and remaining_side_cap >= 1.0
-        and int(getattr(player, "hours_available", 0) or 0) >= 1
+    rideshare_state = _build_rideshare_state(
+        active_shift=active_shift,
+        rideshare_unlocked=rideshare_unlocked,
+        day_settled=day_settled,
+        is_weekend=bool(schedule["is_weekend"]),
+        no_shift_scheduled=no_shift_scheduled,
+        scheduled_shift_end_label=schedule["scheduled_shift_end_label"],
+        side_income_hours_today=side_income_hours_today,
+        hours_available=int(getattr(player, "hours_available", 0) or 0),
+        now_houston=now,
     )
+    rideshare_available = bool(rideshare_state.get("can_rideshare"))
+    remaining_side_cap = max(0.0, float(rideshare_state.get("remaining_trips") or 0.0))
     did_work_today = _did_work_for_day(player, pds, current_day=current_day, active_shift=active_shift)
     missed_shift_today = bool(getattr(pds, "missed_shift", False)) if pds is not None else False
 
@@ -613,6 +695,7 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
             "stress_change": int(getattr(player, "main_shift_last_stress_delta", 0) or 0),
             "health_change": int(getattr(player, "main_shift_last_health_delta", 0) or 0),
         },
+        "rideshare_state": rideshare_state,
         "rideshare_unlocked": rideshare_unlocked,
         "rideshare_available": rideshare_available,
         "rideshare_unlock_time_label": schedule["scheduled_shift_end_label"],
@@ -747,7 +830,7 @@ def finalize_active_main_shift(
 ) -> dict[str, Any]:
     now = _as_houston(now_houston) or get_houston_now()
     current_day = _current_game_day(db)
-    _maybe_reset_daily_counters(player, current_day)
+    reset_applied = _maybe_reset_daily_counters(player, current_day)
 
     active = bool(getattr(player, "main_shift_active_flag", False)) and str(getattr(player, "main_shift_status", "")) == SHIFT_STATUS_ACTIVE
     if not active:
@@ -962,22 +1045,36 @@ def resolve_expired_shift_if_needed(
 
     now = _as_houston(now_houston) or get_houston_now()
     current_day = _current_game_day(db)
-    _maybe_reset_daily_counters(player, current_day)
+    reset_applied = _maybe_reset_daily_counters(player, current_day)
     started_at = _as_houston(getattr(player, "main_shift_started_at", None))
     ends_at = _as_houston(getattr(player, "main_shift_ends_at", None))
     active_shift = bool(getattr(player, "main_shift_active_flag", False) and getattr(player, "main_shift_status", "") == SHIFT_STATUS_ACTIVE)
     expired = bool(active_shift and ends_at and now >= ends_at)
 
+    preview_state = None
+    try:
+        preview_state = build_work_state_payload(db, player, now_houston=now)
+    except Exception:
+        preview_state = None
+
     logger.info(
         "shift.resolve_expired_shift_if_needed evaluated.",
         extra={
             "player_id": str(player.id),
+            "daily_reset_applied": bool(reset_applied),
             "active_shift_found": active_shift,
             "shift_started_at": started_at.isoformat() if started_at else None,
             "shift_ends_at": ends_at.isoformat() if ends_at else None,
             "current_houston_time": now.isoformat(),
             "shift_expired": expired,
             "shift_finalized": expired,
+            "rideshare_status": (
+                str(((preview_state or {}).get("rideshare_state") or {}).get("status") or "")
+            ),
+            "rideshare_can_run": bool(((preview_state or {}).get("rideshare_state") or {}).get("can_rideshare")),
+            "rideshare_reason": str(((preview_state or {}).get("rideshare_state") or {}).get("reason") or ""),
+            "rideshare_trips_today": int(((preview_state or {}).get("rideshare_state") or {}).get("trips_today") or 0),
+            "rideshare_max_trips": int(((preview_state or {}).get("rideshare_state") or {}).get("max_trips") or int(RIDESHARE_DAILY_CAP)),
             "side_income_hours_today": _safe_float(
                 getattr(
                     (

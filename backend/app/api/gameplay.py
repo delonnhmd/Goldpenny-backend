@@ -276,12 +276,16 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
     is_first_session = _is_new_player_first_session(player)
     as_of_date = date.today().isoformat()
     job_options = _job_options_payload()
+    rideshare_state = (
+        (work_state.get("rideshare_state") if isinstance(work_state.get("rideshare_state"), dict) else None)
+        or {}
+    )
     shift_active = bool(work_state.get("main_shift_active_flag"))
     shift_completed_today = bool(work_state.get("shift_completed_today"))
     missed_shift_today = bool(work_state.get("missed_shift_today"))
     no_shift_scheduled = bool(work_state.get("no_shift_scheduled"))
     is_weekend = bool(work_state.get("is_weekend"))
-    rideshare_available = bool(work_state.get("rideshare_available"))
+    rideshare_available = bool(rideshare_state.get("can_rideshare"))
     rideshare_unlocked = bool(work_state.get("rideshare_unlocked"))
     shift_end_label = str(work_state.get("scheduled_shift_end_label") or "shift end").strip()
     rideshare_unlock_reason = (
@@ -301,6 +305,9 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
             )
         )
     )
+    backend_rideshare_reason = str(rideshare_state.get("reason") or "").strip()
+    if backend_rideshare_reason:
+        rideshare_unlock_reason = backend_rideshare_reason
 
     recommended_actions: list[dict[str, Any]] = []
     available_actions: list[dict[str, Any]] = []
@@ -525,6 +532,7 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
             "job_options_count": len(job_options),
             "work_state": work_state,
             "rideshare_available": rideshare_available,
+            "rideshare_state": rideshare_state,
         },
     }
 
