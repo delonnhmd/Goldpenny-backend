@@ -33,6 +33,7 @@ from app.engine.economy_presentation_service import build_economy_presentation_s
 from app.engine.rideshare_engine import process_rideshare_action
 from app.models.game_state import GameState
 from app.models.player import Player
+from app.models.player_daily_state import PlayerDailyState
 from app.services.daily_brief_service import (
     DailyBriefError,
     DailyBriefNotFoundError,
@@ -276,19 +277,28 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
     as_of_date = date.today().isoformat()
     job_options = _job_options_payload()
     shift_active = bool(work_state.get("main_shift_active_flag"))
-    shift_completed_today = (
-        str(work_state.get("shift_status") or "") == "completed"
-        and _safe_float(work_state.get("main_shift_hours_today"), 0.0) > 0
-    )
+    shift_completed_today = bool(work_state.get("shift_completed_today"))
+    missed_shift_today = bool(work_state.get("missed_shift_today"))
     no_shift_scheduled = bool(work_state.get("no_shift_scheduled"))
+    is_weekend = bool(work_state.get("is_weekend"))
     rideshare_available = bool(work_state.get("rideshare_available"))
+    rideshare_unlocked = bool(work_state.get("rideshare_unlocked"))
+    shift_end_label = str(work_state.get("scheduled_shift_end_label") or "shift end").strip()
     rideshare_unlock_reason = (
         f"Unavailable during active work shift until {work_state.get('shift_ends_at') or 'backend completion'}."
         if shift_active
         else (
-            "Ride Share is available because you do not have a scheduled shift today."
-            if no_shift_scheduled
-            else "Finish and backend-confirm a main shift before starting Ride Share."
+            "Ride Share is available all day because it is the weekend."
+            if is_weekend
+            else (
+                "Ride Share is available because you do not have a scheduled shift today."
+                if no_shift_scheduled
+                else (
+                    "Ride Share is available now."
+                    if rideshare_unlocked
+                    else f"Ride Share becomes available after {shift_end_label}."
+                )
+            )
         )
     )
 
@@ -298,7 +308,37 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
     top_tradeoffs: list[str] = []
     next_risk_warnings: list[str] = []
 
-    if has_job and not shift_active and not shift_completed_today:
+    if has_job and is_weekend:
+        available_actions.append(
+            {
+                "action_key": "work_shift",
+                "title": "Weekend Shift",
+                "description": (
+                    f"Your {current_job.replace('_', ' ')} role has no required shift today. "
+                    "Work is optional on weekends."
+                ),
+                "status": "available",
+                "blockers": [],
+                "tradeoffs": ["Weekend time is better for flexible side income unless you want routine pay."],
+                "warnings": [],
+                "confidence_level": "medium",
+                "parameters": {
+                    "job_name": current_job,
+                    "shift_type": "standard_shift",
+                    "hours_worked": SHIFT_PROFILES["standard_shift"]["hours_worked"],
+                    "shift_options": [
+                        {
+                            "shift_type": shift_type,
+                            "label": shift_meta["label"],
+                            "window": shift_meta["window"],
+                            "hours_worked": shift_meta["hours_worked"],
+                        }
+                        for shift_type, shift_meta in SHIFT_PROFILES.items()
+                    ],
+                },
+            }
+        )
+    elif has_job and not shift_active and not shift_completed_today and not missed_shift_today:
         recommended_actions.append(
             {
                 "action_key": "work_shift",
@@ -333,14 +373,22 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
                 "description": (
                     f"Your main shift is active until {work_state.get('shift_ends_at')}."
                     if shift_active
-                    else "Today's main shift is already completed."
+                    else (
+                        f"Today's scheduled window ended at {shift_end_label}."
+                        if missed_shift_today
+                        else "Today's main shift is already completed."
+                    )
                 ),
                 "status": "blocked",
                 "blockers": [
                     (
                         f"Main shift is active until {work_state.get('shift_ends_at') or 'Houston shift end'}."
                         if shift_active
-                        else "You have already completed your main shift today."
+                        else (
+                            f"Today's shift window has ended. Ride Share unlocks after {shift_end_label}."
+                            if missed_shift_today
+                            else "You have already completed your main shift today."
+                        )
                     )
                 ],
                 "tradeoffs": [],
@@ -448,6 +496,8 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
 
     if shift_active:
         top_tradeoffs.append("Your main shift is in progress. The backend will unlock post-shift actions after completion.")
+    elif is_weekend:
+        top_tradeoffs.append("Weekend rules are active. Your main shift is optional and ride share is open all day.")
     elif has_job:
         top_tradeoffs.append("Use one cash-positive shift before optional upside actions.")
     else:
@@ -1263,6 +1313,7 @@ def execute_gameplay_action(
         meal_type = str(params.get("meal_type") or "meal").strip().lower()
         MEAL_COSTS: dict[str, int] = {"breakfast": 6, "lunch": 6, "dinner": 6}
         meal_cost = Decimal(str(MEAL_COSTS.get(meal_type, 6)))
+        current_day = _current_game_day(db)
         cash_before = Decimal(str(_safe_float(getattr(player, "cash", 0))))
         if cash_before < meal_cost:
             raise HTTPException(
@@ -1274,6 +1325,35 @@ def execute_gameplay_action(
         player.cash = cash_before - meal_cost  # type: ignore[assignment]
         player.health = min(100, health_before + 5)
         player.stress = max(0, stress_before - 3)
+        pds = (
+            db.query(PlayerDailyState)
+            .filter(
+                PlayerDailyState.player_id == player.id,
+                PlayerDailyState.day_number == current_day,
+            )
+            .first()
+        )
+        if pds is None:
+            pds = PlayerDailyState(
+                player_id=player.id,
+                day_number=current_day,
+                hours_available_start=int(player.hours_available or 0),
+                hours_available_end=int(player.hours_available or 0),
+                worked_main_job=False,
+                did_settlement=False,
+                stress_start=stress_before,
+                stress_end=_safe_int(player.stress, stress_before),
+                health_start=health_before,
+                health_end=_safe_int(player.health, health_before),
+                cash_start=cash_before,
+                cash_end=Decimal(str(player.cash or cash_before)),
+            )
+            db.add(pds)
+            db.flush()
+        pds.meals_recorded = int(getattr(pds, "meals_recorded", 0) or 0) + 1
+        pds.stress_end = _safe_int(player.stress, stress_before)
+        pds.health_end = _safe_int(player.health, health_before)
+        pds.cash_end = Decimal(str(player.cash or cash_before))
         db.commit()
         return {
             "player_id": str(player.id),

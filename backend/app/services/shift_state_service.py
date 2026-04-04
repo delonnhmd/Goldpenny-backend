@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import json
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -21,8 +21,9 @@ from app.engine.balance_config import (
 from app.engine.daily_engine import get_or_create_game_state
 from app.engine.work_engine import MAX_FATIGUE_FOR_SECOND_SHIFT, MAX_MAIN_HOURS_PER_DAY, MAX_TOTAL_HOURS_PER_DAY
 from app.models.contribution_event import ContributionEvent
+from app.models.gameplay_transaction import GameplayTransaction
 from app.models.job_action import JobAction
-from app.models.job_definition import JOB_CATALOG, MAIN_JOBS, resolve_job_definition
+from app.models.job_definition import MAIN_JOBS, resolve_job_definition
 from app.models.player import Player
 from app.models.player_daily_state import PlayerDailyState
 from app.models.xgp_transaction import XGPTransaction
@@ -38,6 +39,18 @@ SHIFT_STATUS_IDLE = "idle"
 SHIFT_STATUS_ACTIVE = "active"
 SHIFT_STATUS_COMPLETED = "completed"
 RIDESHARE_DAILY_CAP = 6
+GAME_EPOCH = date(2026, 1, 1)
+MISSED_SHIFT_HEALTH_DELTA = -5
+MISSED_SHIFT_STRESS_DELTA = 6
+
+JOB_SHIFT_MAP: dict[str, dict[str, str]] = {
+    "banker": {"start": "10:00", "end": "18:00"},
+    "chef": {"start": "09:00", "end": "17:00"},
+    "retail": {"start": "10:00", "end": "18:00"},
+    "delivery": {"start": "08:00", "end": "16:00"},
+    "auto_mechanic": {"start": "08:00", "end": "17:00"},
+    "aircraft_mechanic": {"start": "06:00", "end": "14:00"},
+}
 
 
 def get_houston_now() -> datetime:
@@ -76,6 +89,226 @@ def _safe_float(value: Any, fallback: float = 0.0) -> float:
 
 def _current_game_day(db: Session) -> int:
     return int(get_or_create_game_state(db).current_day)
+
+
+def _day_to_date(day_number: int) -> date:
+    return GAME_EPOCH + timedelta(days=max(1, int(day_number)) - 1)
+
+
+def _parse_houston_hhmm(value: str | None) -> time | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return datetime.strptime(raw, "%H:%M").time()
+    except ValueError:
+        return None
+
+
+def _format_houston_hhmm(value: str | None) -> str | None:
+    parsed = _parse_houston_hhmm(value)
+    if parsed is None:
+        return None
+    return datetime.combine(date(2026, 1, 1), parsed).strftime("%I:%M %p").lstrip("0")
+
+
+def _scheduled_shift_context(player: Player, *, day_number: int, now_houston: datetime) -> dict[str, Any]:
+    resolved_now = _as_houston(now_houston) or get_houston_now()
+    resolved_date = _day_to_date(day_number)
+    canonical_main_job = _canonical_main_job(getattr(player, "main_job", None))
+    day_of_week = resolved_date.strftime("%A")
+    is_weekend = resolved_date.weekday() >= 5
+    shift_template = JOB_SHIFT_MAP.get(canonical_main_job or "")
+    scheduled_shift_start = str((shift_template or {}).get("start") or "")
+    scheduled_shift_end = str((shift_template or {}).get("end") or "")
+    scheduled_start_time = _parse_houston_hhmm(scheduled_shift_start)
+    scheduled_end_time = _parse_houston_hhmm(scheduled_shift_end)
+    current_local_time = resolved_now.timetz().replace(tzinfo=None)
+    reached_shift_end = bool(scheduled_end_time and current_local_time >= scheduled_end_time)
+    passed_shift_end = bool(scheduled_end_time and current_local_time > scheduled_end_time)
+    return {
+        "day_of_week": day_of_week,
+        "is_weekend": is_weekend,
+        "has_main_job": bool(canonical_main_job),
+        "canonical_main_job": canonical_main_job or "",
+        "shift_required_today": bool(canonical_main_job and not is_weekend and shift_template),
+        "scheduled_shift_start": scheduled_shift_start or None,
+        "scheduled_shift_end": scheduled_shift_end or None,
+        "scheduled_shift_start_label": _format_houston_hhmm(scheduled_shift_start),
+        "scheduled_shift_end_label": _format_houston_hhmm(scheduled_shift_end),
+        "scheduled_shift_window_label": (
+            f"{_format_houston_hhmm(scheduled_shift_start)}-{_format_houston_hhmm(scheduled_shift_end)}"
+            if scheduled_shift_start and scheduled_shift_end
+            else None
+        ),
+        "reached_shift_end": reached_shift_end,
+        "passed_shift_end": passed_shift_end,
+    }
+
+
+def _gameplay_event_exists(
+    db: Session,
+    *,
+    player_id: UUID,
+    day_number: int,
+    category: str,
+    description: str,
+) -> bool:
+    return bool(
+        db.query(GameplayTransaction.id)
+        .filter(
+            GameplayTransaction.player_id == player_id,
+            GameplayTransaction.day == int(day_number),
+            GameplayTransaction.category == str(category or "").strip().lower(),
+            GameplayTransaction.description == str(description or "").strip(),
+        )
+        .first()
+    )
+
+
+def _record_gameplay_event_once(
+    db: Session,
+    *,
+    player: Player,
+    day_number: int,
+    category: str,
+    description: str,
+) -> bool:
+    normalized_description = str(description or "").strip()
+    if not normalized_description:
+        return False
+    if _gameplay_event_exists(
+        db,
+        player_id=player.id,
+        day_number=day_number,
+        category=category,
+        description=normalized_description,
+    ):
+        return False
+    record_gameplay_transaction(
+        db,
+        player=player,
+        day=day_number,
+        transaction_type="expense",
+        category=category,
+        amount=0,
+        description=normalized_description,
+    )
+    return True
+
+
+def _did_work_for_day(player: Player, pds: PlayerDailyState | None, *, current_day: int, active_shift: bool) -> bool:
+    main_shift_hours_today = _safe_float(
+        getattr(pds, "main_shift_hours_today", None),
+        _safe_float(getattr(player, "main_job_hours_today", 0), 0.0),
+    )
+    return bool(
+        (bool(getattr(pds, "did_work", False)) if pds is not None else False)
+        or (bool(getattr(pds, "worked_main_job", False)) if pds is not None else False)
+        or (bool(getattr(pds, "salary_earned", 0)) if pds is not None else False)
+        or (
+            not active_shift
+            and str(getattr(player, "main_shift_status", SHIFT_STATUS_IDLE) or SHIFT_STATUS_IDLE) == SHIFT_STATUS_COMPLETED
+            and int(getattr(player, "last_worked_day", 0) or 0) == current_day
+            and main_shift_hours_today > 0
+        )
+        or (main_shift_hours_today > 0)
+    )
+
+
+def sync_shift_day_rules_if_needed(
+    db: Session,
+    *,
+    player: Player,
+    day_number: int | None = None,
+    now_houston: datetime | None = None,
+) -> dict[str, Any]:
+    resolved_now = _as_houston(now_houston) or get_houston_now()
+    current_day = max(1, int(day_number or _current_game_day(db)))
+    if current_day == _current_game_day(db):
+        _maybe_reset_daily_counters(player, current_day)
+
+    pds = _get_or_create_player_daily_state_in_txn(db, player, day_number=current_day)
+    active_shift = bool(
+        getattr(player, "main_shift_active_flag", False)
+        and str(getattr(player, "main_shift_status", "") or "") == SHIFT_STATUS_ACTIVE
+    )
+    schedule = _scheduled_shift_context(player, day_number=current_day, now_houston=resolved_now)
+    did_work_today = _did_work_for_day(player, pds, current_day=current_day, active_shift=active_shift)
+    changes_applied = False
+
+    if (
+        schedule["shift_required_today"]
+        and not active_shift
+        and not did_work_today
+        and schedule["passed_shift_end"]
+        and not bool(getattr(pds, "missed_shift", False))
+    ):
+        player.health = _clamp_int(int(player.health or 0) + MISSED_SHIFT_HEALTH_DELTA, 0, 100)
+        player.stress = _clamp_int(int(player.stress or 0) + MISSED_SHIFT_STRESS_DELTA, 0, 100)
+        pds.missed_shift = True
+        pds.did_work = False
+        pds.salary_earned = Decimal("0")
+        pds.missed_penalty = Decimal("0")
+        pds.health_end = int(player.health or 0)
+        pds.stress_end = int(player.stress or 0)
+        pds.cash_end = _q4(getattr(player, "cash", 0))
+        pds.notes = (
+            f"Missed shift on {schedule['day_of_week']} "
+            f"({schedule['scheduled_shift_window_label'] or 'unscheduled'})."
+        )
+        job_label = (schedule["canonical_main_job"] or "main job").replace("_", " ").title()
+        window_label = schedule["scheduled_shift_window_label"] or "scheduled window"
+        _record_gameplay_event_once(
+            db,
+            player=player,
+            day_number=current_day,
+            category="missed_work",
+            description=f"Missed shift ({job_label} {window_label}) - no salary earned",
+        )
+        _record_gameplay_event_once(
+            db,
+            player=player,
+            day_number=current_day,
+            category="health_penalty",
+            description=f"Health {MISSED_SHIFT_HEALTH_DELTA}, Stress +{MISSED_SHIFT_STRESS_DELTA}",
+        )
+        changes_applied = True
+
+    rideshare_unlocked = bool(
+        not active_shift
+        and (
+            bool(schedule["is_weekend"])
+            or not bool(schedule["has_main_job"])
+            or bool(schedule["reached_shift_end"])
+        )
+    )
+    if rideshare_unlocked:
+        if bool(schedule["is_weekend"]):
+            rideshare_description = "Rideshare available all day (weekend)"
+        elif not bool(schedule["has_main_job"]):
+            rideshare_description = "Rideshare available all day (no required shift)"
+        else:
+            rideshare_description = f"Rideshare unlocked at {schedule['scheduled_shift_end_label'] or 'shift end'}"
+        if _record_gameplay_event_once(
+            db,
+            player=player,
+            day_number=current_day,
+            category="ride_share",
+            description=rideshare_description,
+        ):
+            changes_applied = True
+
+    if changes_applied:
+        db.flush()
+
+    return {
+        "applied": changes_applied,
+        "current_day": current_day,
+        "missed_shift_today": bool(getattr(pds, "missed_shift", False)),
+        "rideshare_unlocked": rideshare_unlocked,
+        "schedule": schedule,
+    }
 
 
 def _configured_shift_duration_seconds(hours_worked: int) -> int:
@@ -298,6 +531,7 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
     shift_completed_at = _as_houston(getattr(player, "main_shift_completed_at", None))
     active_shift = bool(getattr(player, "main_shift_active_flag", False) and getattr(player, "main_shift_status", "") == SHIFT_STATUS_ACTIVE)
     shift_expired = bool(active_shift and shift_ends_at and now >= shift_ends_at)
+    schedule = _scheduled_shift_context(player, day_number=current_day, now_houston=now)
     main_shift_hours_today = _safe_float(
         getattr(pds, "main_shift_hours_today", None),
         _safe_float(getattr(player, "main_job_hours_today", 0), 0.0),
@@ -312,21 +546,32 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         and int(getattr(player, "last_worked_day", 0) or 0) == current_day
         and main_shift_hours_today > 0
     )
-    no_shift_scheduled = not bool(canonical_main_job)
+    no_shift_scheduled = not bool(schedule["has_main_job"])
     day_settled = int(getattr(player, "last_settled_day", 0) or 0) == current_day
     remaining_side_cap = max(0.0, float(RIDESHARE_DAILY_CAP) - side_income_hours_today)
-    rideshare_unlocked = bool(not active_shift and (completed_shift_confirmed or no_shift_scheduled))
+    rideshare_unlocked = bool(
+        not active_shift
+        and (
+            bool(schedule["is_weekend"])
+            or no_shift_scheduled
+            or bool(schedule["reached_shift_end"])
+        )
+    )
     rideshare_available = bool(
         rideshare_unlocked
         and not day_settled
         and remaining_side_cap >= 1.0
         and int(getattr(player, "hours_available", 0) or 0) >= 1
     )
+    did_work_today = _did_work_for_day(player, pds, current_day=current_day, active_shift=active_shift)
+    missed_shift_today = bool(getattr(pds, "missed_shift", False)) if pds is not None else False
 
     return {
         "player_id": str(player.id),
         "current_houston_time": now.isoformat(),
         "current_game_day": current_day,
+        "day_of_week": str(schedule["day_of_week"]),
+        "is_weekend": bool(schedule["is_weekend"]),
         "day_settled": day_settled,
         "shift_status": str(getattr(player, "main_shift_status", SHIFT_STATUS_IDLE) or SHIFT_STATUS_IDLE),
         "main_shift_active_flag": active_shift,
@@ -340,15 +585,28 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         "shift_expired": shift_expired,
         "shift_found": active_shift,
         "shift_completed_today": completed_shift_confirmed,
+        "shift_required_today": bool(schedule["shift_required_today"]),
         "no_shift_scheduled": no_shift_scheduled,
+        "scheduled_shift_start": schedule["scheduled_shift_start"],
+        "scheduled_shift_end": schedule["scheduled_shift_end"],
+        "scheduled_shift_start_label": schedule["scheduled_shift_start_label"],
+        "scheduled_shift_end_label": schedule["scheduled_shift_end_label"],
+        "scheduled_shift_window_label": schedule["scheduled_shift_window_label"],
         "hours_available": int(getattr(player, "hours_available", 0) or 0),
         "main_shift_hours_today": round(main_shift_hours_today, 4),
         "side_income_hours_today": round(side_income_hours_today, 4),
         "recovery_hours_today": round(recovery_hours_today, 4),
         "total_time_used_today": round(total_time_used_today, 4),
-        "did_work_today": bool(getattr(pds, "did_work", False)) if pds is not None else completed_shift_confirmed,
+        "did_work_today": did_work_today,
         "salary_earned_today": round(_safe_float(getattr(pds, "salary_earned", 0) if pds is not None else 0, 0.0), 4),
         "missed_penalty_today": round(_safe_float(getattr(pds, "missed_penalty", 0) if pds is not None else 0, 0.0), 4),
+        "missed_shift_today": missed_shift_today,
+        "missed_shift_health_delta": MISSED_SHIFT_HEALTH_DELTA if missed_shift_today else 0,
+        "missed_shift_stress_delta": MISSED_SHIFT_STRESS_DELTA if missed_shift_today else 0,
+        "survival_penalty_today": bool(getattr(pds, "survival_penalty_applied", False)) if pds is not None else False,
+        "survival_health_delta": -5 if bool(getattr(pds, "survival_penalty_applied", False)) else 0,
+        "survival_stress_delta": 4 if bool(getattr(pds, "survival_penalty_applied", False)) else 0,
+        "meals_recorded_today": _safe_int(getattr(pds, "meals_recorded", 0) if pds is not None else 0, 0),
         "last_completed_shift": {
             "earned_cash_xgp": round(_safe_float(getattr(player, "main_shift_last_cash_xgp", 0), 0.0), 4),
             "xp_gained": int(getattr(player, "main_shift_last_xp_gained", 0) or 0),
@@ -357,6 +615,7 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         },
         "rideshare_unlocked": rideshare_unlocked,
         "rideshare_available": rideshare_available,
+        "rideshare_unlock_time_label": schedule["scheduled_shift_end_label"],
         "remaining_side_income_hours_today": round(remaining_side_cap, 4),
     }
 
@@ -375,11 +634,15 @@ def start_main_shift(
     now = _as_houston(now_houston) or get_houston_now()
 
     resolve_expired_shift_if_needed(db, player=player, now_houston=now)
+    current_work_state = build_work_state_payload(db, player, now_houston=now)
+    if bool(current_work_state.get("missed_shift_today")):
+        raise ValueError(
+            "Today's required shift window has already ended. Ride share is the available work option now."
+        )
 
     if bool(getattr(player, "main_shift_active_flag", False)) and str(getattr(player, "main_shift_status", "")) == SHIFT_STATUS_ACTIVE:
-        state = build_work_state_payload(db, player, now_houston=now)
         raise ValueError(
-            f"Main shift is already active and ends at {state.get('shift_ends_at') or 'the scheduled Houston end time'}."
+            f"Main shift is already active and ends at {current_work_state.get('shift_ends_at') or 'the scheduled Houston end time'}."
         )
 
     canonical_player_job = _canonical_main_job(getattr(player, "main_job", None))
@@ -651,6 +914,12 @@ def finalize_active_main_shift(
         shift_type=getattr(player, "main_shift_shift_type", None),
         grant_work_xp=xp_gained,
     )
+    sync_shift_day_rules_if_needed(
+        db,
+        player=player,
+        day_number=current_day,
+        now_houston=now,
+    )
 
     db.commit()
     db.refresh(player)
@@ -736,5 +1005,15 @@ def resolve_expired_shift_if_needed(
             trigger="auto_resolve_expired_shift",
             require_expired=True,
         )
+
+    sync_result = sync_shift_day_rules_if_needed(
+        db,
+        player=player,
+        day_number=current_day,
+        now_houston=now,
+    )
+    if bool(sync_result.get("applied")):
+        db.commit()
+        db.refresh(player)
 
     return build_work_state_payload(db, player, now_houston=now)

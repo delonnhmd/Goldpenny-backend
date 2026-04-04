@@ -130,8 +130,12 @@ function formatSecondsRemaining(totalSeconds: number): string {
   return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
 }
 
-function shiftWindowLabel(): string {
-  return '9:00 AM - 5:00 PM (Houston)';
+function shiftWindowLabel(workState?: {
+  is_weekend?: boolean | null;
+  scheduled_shift_window_label?: string | null;
+} | null): string {
+  if (workState?.is_weekend) return 'Weekend - no required shift';
+  return workState?.scheduled_shift_window_label || 'No scheduled window';
 }
 
 type RideshareMode = 'morning_peak' | 'midday' | 'evening_peak' | 'night';
@@ -283,6 +287,8 @@ export default function DashboardScreen() {
     : 0;
   const shiftRemainingLabel = formatSecondsRemaining(shiftRemainingSeconds);
   const shiftEndLabel = workState?.shift_ends_at ? formatHoustonNow(new Date(workState.shift_ends_at)) : '5:00 PM';
+  const scheduledShiftWindowLabel = shiftWindowLabel(workState);
+  const scheduledShiftEndLabel = workState?.scheduled_shift_end_label || shiftEndLabel;
   const lastCompletedShift = workState?.last_completed_shift || null;
 
   useEffect(() => {
@@ -329,13 +335,14 @@ export default function DashboardScreen() {
 
   const gamePhaseLabel = useMemo(() => {
     if (loop.dailySession.sessionStatus === 'ended') return 'End of day';
+    if (workState?.is_weekend) return 'Weekend';
     if (autoClockingOut) return 'Auto-finalizing';
     if (backendShiftActive) return 'On shift';
     if (backendShiftCompleted) return 'Shift completed';
     if (houstonHour < 9) return 'Before shift';
     if (houstonHour >= 17) return 'After shift';
     return 'Before shift';
-  }, [autoClockingOut, backendShiftActive, backendShiftCompleted, houstonHour, loop.dailySession.sessionStatus]);
+  }, [autoClockingOut, backendShiftActive, backendShiftCompleted, houstonHour, loop.dailySession.sessionStatus, workState?.is_weekend]);
 
   const dayLabel = loop.dailySession.currentDay || loop.dailyProgression.currentGameDay || 1;
   const rideshareMode = getRideshareMode(houstonHour);
@@ -375,19 +382,23 @@ export default function DashboardScreen() {
   const rideshareStatusLabel = useMemo(() => {
     if (loop.dailySession.sessionStatus !== 'active') return 'Day ended';
     if (backendShiftActive || autoClockingOut) return `Unavailable during work shift (available after ${shiftEndLabel})`;
-    if (!workState?.rideshare_unlocked) return 'Complete and backend-confirm your main shift first';
+    if (workState?.is_weekend) return 'Available all day (weekend)';
+    if (workState?.no_shift_scheduled) return 'Available all day (no required shift)';
+    if (!workState?.rideshare_unlocked) return `Available after ${scheduledShiftEndLabel} (shift end)`;
     if (!sideIncomeAction) return 'Ride share not unlocked yet';
     if (!sideIncomeGuard.allowed) return sanitizeRideShareReason(sideIncomeGuard.reason);
-    return `Available now (${formatRideshareMode(rideshareMode)})`;
+    return 'Available now';
   }, [
     autoClockingOut,
     backendShiftActive,
     loop.dailySession.sessionStatus,
-    rideshareMode,
+    scheduledShiftEndLabel,
     shiftEndLabel,
     sideIncomeAction,
     sideIncomeGuard.allowed,
     sideIncomeGuard.reason,
+    workState?.is_weekend,
+    workState?.no_shift_scheduled,
     workState?.rideshare_unlocked,
   ]);
 
@@ -950,7 +961,7 @@ export default function DashboardScreen() {
               value: gamePhaseLabel,
               tone: backendShiftActive || autoClockingOut ? 'warning' : backendShiftCompleted ? 'positive' : 'info',
             },
-            { label: 'Shift window', value: shiftWindowLabel() },
+            { label: 'Shift window', value: scheduledShiftWindowLabel },
             { label: 'Timer mode', value: SHIFT_SHORT_MODE ? 'Accelerated testing mode' : 'Real-time mode' },
           ]}
         />
@@ -986,7 +997,7 @@ export default function DashboardScreen() {
                 ? `Ends at ${shiftEndLabel} CT`
                 : backendShiftCompleted
                   ? 'Backend confirmed completion'
-                  : `Window: ${shiftWindowLabel()}`
+                  : `Window: ${scheduledShiftWindowLabel}`
             }
           />
           <GameplayStatCard
@@ -1034,7 +1045,7 @@ export default function DashboardScreen() {
         ) : backendShiftCompleted && lastCompletedShift ? (
           <GameplayWarningBanner
             title="Shift completed"
-            message={`Earned ${formatMoney(lastCompletedShift.earned_cash_xgp)} | XP +${Math.round(lastCompletedShift.xp_gained)} | Ride share ${workState?.rideshare_available ? 'available now' : 'locked by remaining rules'}.`}
+            message={`Earned ${formatMoney(lastCompletedShift.earned_cash_xgp)} | XP +${Math.round(lastCompletedShift.xp_gained)} | Ride share ${rideshareStatusLabel.toLowerCase()}.`}
             tone="info"
           />
         ) : clockInBlocker ? (

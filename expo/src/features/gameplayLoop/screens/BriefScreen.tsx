@@ -38,10 +38,13 @@ export default function BriefScreen() {
   const transactions = dailyActivity?.transactions ?? [];
   const workState = loop.dashboard?.work_state ?? loop.actionHub?.work_state ?? null;
   const salaryEarned = workState?.salary_earned_today ?? 0;
-  const missedPenalty = workState?.missed_penalty_today ?? 0;
+  const shiftWindow = workState?.scheduled_shift_window_label ?? 'Scheduled shift';
+  const weekend = Boolean(workState?.is_weekend);
   const noShiftScheduled = Boolean(workState?.no_shift_scheduled);
   const workedToday = Boolean(workState?.did_work_today) || salaryEarned > 0;
-  const missedToday = !workedToday && !noShiftScheduled && missedPenalty > 0;
+  const missedToday = Boolean(workState?.missed_shift_today);
+  const missedShiftHealthDelta = workState?.missed_shift_health_delta ?? -5;
+  const missedShiftStressDelta = workState?.missed_shift_stress_delta ?? 6;
 
   const primaryLabel = hasSummary || summaryMissingAfterSettlement
     ? 'Start Next Day'
@@ -131,14 +134,28 @@ export default function BriefScreen() {
           <GameplayCompactMetricRows
             items={[
               { label: 'Status', value: 'Worked', tone: 'positive' },
-              { label: 'Salary', value: `+${formatMoney(salaryEarned)}`, tone: 'positive' },
+              { label: 'Window', value: shiftWindow, tone: 'neutral' },
+              { label: 'Earned', value: `+${formatMoney(salaryEarned)}`, tone: 'positive' },
+            ]}
+          />
+        ) : weekend ? (
+          <GameplayCompactMetricRows
+            items={[
+              { label: 'Status', value: 'Weekend', tone: 'positive' },
+              { label: 'Shift', value: 'No required shift', tone: 'neutral' },
+              { label: 'Ride Share', value: 'Available all day', tone: 'positive' },
             ]}
           />
         ) : missedToday ? (
           <GameplayCompactMetricRows
             items={[
-              { label: 'Status', value: 'Missed work', tone: 'danger' },
-              { label: 'Penalty', value: `-${formatMoney(missedPenalty)}`, tone: 'danger' },
+              { label: 'Status', value: 'Missed shift', tone: 'danger' },
+              { label: 'Salary', value: 'No salary earned', tone: 'warning' },
+              {
+                label: 'Health / Stress',
+                value: `${formatDelta(missedShiftHealthDelta)} / ${formatDelta(missedShiftStressDelta)}`,
+                tone: 'danger',
+              },
             ]}
           />
         ) : noShiftScheduled ? (
@@ -155,10 +172,11 @@ export default function BriefScreen() {
         ) : (
           <GameplayCompactMetricRows
             items={[
-              { label: 'Status', value: 'Shift not completed yet', tone: 'warning' },
+              { label: 'Status', value: 'Weekday shift pending', tone: 'warning' },
+              { label: 'Window', value: shiftWindow, tone: 'neutral' },
               {
                 label: 'Ride Share',
-                value: workState?.rideshare_available ? 'Unlocked' : 'Locked until shift completion',
+                value: workState?.rideshare_available ? 'Available now' : `Available after ${workState?.rideshare_unlock_time_label ?? 'shift end'}`,
                 tone: 'warning',
               },
             ]}
@@ -166,11 +184,15 @@ export default function BriefScreen() {
         )}
         {missedToday ? (
           <Text style={styles.statusCaption}>
-            Missing a scheduled workday now creates a visible cash penalty and added stress.
+            Missing a weekday shift now shows the lost pay outcome directly and logs the health and stress hit.
           </Text>
         ) : workedToday ? (
           <Text style={styles.statusCaption}>
-            Shift completion now records salary directly, so your day summary shows exactly what work paid.
+            Salary now appears directly in the ledger, so the brief shows exactly what the shift paid.
+          </Text>
+        ) : weekend ? (
+          <Text style={styles.statusCaption}>
+            Weekend rules remove the required main shift and keep ride share open for the full day.
           </Text>
         ) : null}
       </GameplaySummaryCard>

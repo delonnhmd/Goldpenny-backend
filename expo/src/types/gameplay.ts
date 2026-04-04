@@ -54,6 +54,8 @@ export interface WorkStateSnapshot {
   player_id: string;
   current_houston_time: string;
   current_game_day: number;
+  day_of_week?: string;
+  is_weekend?: boolean;
   day_settled: boolean;
   shift_status: 'idle' | 'active' | 'completed' | string;
   main_shift_active_flag: boolean;
@@ -67,7 +69,13 @@ export interface WorkStateSnapshot {
   shift_expired: boolean;
   shift_found: boolean;
   shift_completed_today?: boolean;
+  shift_required_today?: boolean;
   no_shift_scheduled?: boolean;
+  scheduled_shift_start?: string | null;
+  scheduled_shift_end?: string | null;
+  scheduled_shift_start_label?: string | null;
+  scheduled_shift_end_label?: string | null;
+  scheduled_shift_window_label?: string | null;
   hours_available: number;
   main_shift_hours_today: number;
   side_income_hours_today: number;
@@ -76,9 +84,17 @@ export interface WorkStateSnapshot {
   did_work_today?: boolean;
   salary_earned_today?: number;
   missed_penalty_today?: number;
+  missed_shift_today?: boolean;
+  missed_shift_health_delta?: number;
+  missed_shift_stress_delta?: number;
+  survival_penalty_today?: boolean;
+  survival_health_delta?: number;
+  survival_stress_delta?: number;
+  meals_recorded_today?: number;
   last_completed_shift: CompletedShiftSnapshot;
   rideshare_unlocked: boolean;
   rideshare_available: boolean;
+  rideshare_unlock_time_label?: string | null;
   remaining_side_income_hours_today: number;
 }
 

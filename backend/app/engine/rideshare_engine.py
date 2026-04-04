@@ -163,12 +163,18 @@ def process_rideshare_action(
         if bool(work_state.get("main_shift_active_flag")):
             raise ValueError(
                 "Ride share is unavailable during an active main shift. "
-                "Wait for backend-confirmed shift completion first."
+                "Wait until the shift is over."
             )
         if not bool(work_state.get("rideshare_unlocked")):
+            unlock_label = str(work_state.get("rideshare_unlock_time_label") or "shift end").strip()
+            if bool(work_state.get("is_weekend")):
+                detail = "Ride share is available all day on weekends."
+            elif bool(work_state.get("no_shift_scheduled")):
+                detail = "Ride share is available all day when you do not have a main job."
+            else:
+                detail = f"Ride share becomes available after {unlock_label}."
             raise ValueError(
-                "Ride share unlocks only after your shift is completed for today "
-                "or when you do not have a scheduled main shift."
+                detail
             )
 
         if player.last_worked_day != current_day:

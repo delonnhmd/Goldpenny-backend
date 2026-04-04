@@ -1,9 +1,11 @@
 import os
 import unittest
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
+from unittest.mock import patch
 
+import pytz
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -125,10 +127,23 @@ class ShiftStateServiceTests(unittest.TestCase):
         )
         self.db.refresh(self.player)
 
-    def test_actions_fetch_auto_resolves_expired_main_shift(self) -> None:
-        self._start_expired_shift()
+    def _houston_datetime(self, year: int, month: int, day: int, hour: int, minute: int = 0) -> datetime:
+        return pytz.timezone("America/Chicago").localize(datetime(year, month, day, hour, minute))
 
-        payload = get_gameplay_actions(str(self.player.id), db=self.db)
+    def test_actions_fetch_auto_resolves_expired_main_shift(self) -> None:
+        shift_start = self._houston_datetime(2026, 1, 1, 12, 0)
+        after_shift = self._houston_datetime(2026, 1, 1, 19, 0)
+        start_main_shift(
+            self.db,
+            player=self.player,
+            job_name="banker",
+            shift_type="standard_shift",
+            hours_worked=6,
+            now_houston=shift_start,
+        )
+
+        with patch("app.services.shift_state_service.get_houston_now", return_value=after_shift):
+            payload = get_gameplay_actions(str(self.player.id), db=self.db)
         self.db.refresh(self.player)
 
         available_keys = {str(item.get("action_key")) for item in payload.get("available_actions", [])}
@@ -163,9 +178,18 @@ class ShiftStateServiceTests(unittest.TestCase):
         self.assertGreater(float(salary_rows[0]["amount"]), 0.0)
 
     def test_expired_shift_finalize_is_idempotent(self) -> None:
-        self._start_expired_shift()
+        shift_start = self._houston_datetime(2026, 1, 1, 12, 0)
+        after_shift = self._houston_datetime(2026, 1, 1, 19, 0)
+        start_main_shift(
+            self.db,
+            player=self.player,
+            job_name="banker",
+            shift_type="standard_shift",
+            hours_worked=6,
+            now_houston=shift_start,
+        )
 
-        first = resolve_expired_shift_if_needed(self.db, player=self.player)
+        first = resolve_expired_shift_if_needed(self.db, player=self.player, now_houston=after_shift)
         self.db.refresh(self.player)
         cash_after_first = Decimal(str(self.player.cash))
         job_actions_after_first = self.db.query(JobAction).count()
@@ -174,7 +198,7 @@ class ShiftStateServiceTests(unittest.TestCase):
         tx_logs_after_first = self.db.query(PlayerTransactionLog).count()
         gameplay_tx_after_first = self.db.query(GameplayTransaction).count()
 
-        second = resolve_expired_shift_if_needed(self.db, player=self.player)
+        second = resolve_expired_shift_if_needed(self.db, player=self.player, now_houston=after_shift)
         self.db.refresh(self.player)
 
         self.assertEqual(str(first.get("shift_status")), SHIFT_STATUS_COMPLETED)
@@ -187,12 +211,21 @@ class ShiftStateServiceTests(unittest.TestCase):
         self.assertEqual(self.db.query(GameplayTransaction).count(), gameplay_tx_after_first)
 
     def test_main_shift_hours_do_not_consume_side_income_cap(self) -> None:
-        self._start_expired_shift()
-        resolve_expired_shift_if_needed(self.db, player=self.player)
-
-        first = process_rideshare_action(self.db, self.player, trips=5)
-        second = process_rideshare_action(self.db, self.player, trips=1)
-        work_state = build_work_state_payload(self.db, self.player)
+        shift_start = self._houston_datetime(2026, 1, 1, 12, 0)
+        after_shift = self._houston_datetime(2026, 1, 1, 19, 0)
+        start_main_shift(
+            self.db,
+            player=self.player,
+            job_name="banker",
+            shift_type="standard_shift",
+            hours_worked=6,
+            now_houston=shift_start,
+        )
+        with patch("app.services.shift_state_service.get_houston_now", return_value=after_shift):
+            resolve_expired_shift_if_needed(self.db, player=self.player, now_houston=after_shift)
+            first = process_rideshare_action(self.db, self.player, trips=5)
+            second = process_rideshare_action(self.db, self.player, trips=1)
+            work_state = build_work_state_payload(self.db, self.player, now_houston=after_shift)
         daily_state = (
             self.db.query(PlayerDailyState)
             .filter(
@@ -212,7 +245,8 @@ class ShiftStateServiceTests(unittest.TestCase):
         self.assertFalse(bool(work_state.get("rideshare_available")))
 
         with self.assertRaises(ValueError):
-            process_rideshare_action(self.db, self.player, trips=1)
+            with patch("app.services.shift_state_service.get_houston_now", return_value=after_shift):
+                process_rideshare_action(self.db, self.player, trips=1)
 
     def test_rideshare_unlocks_when_no_shift_is_scheduled(self) -> None:
         self.player.main_job = None
@@ -235,8 +269,81 @@ class ShiftStateServiceTests(unittest.TestCase):
         self.assertTrue(bool(work_state.get("no_shift_scheduled")))
         self.assertTrue(bool(work_state.get("rideshare_available")))
         self.assertEqual(result["trips"], 1)
-        self.assertEqual(len(ledger_rows), 1)
-        self.assertGreater(float(ledger_rows[0].amount), 0.0)
+        self.assertGreaterEqual(len(ledger_rows), 2)
+        self.assertTrue(any(float(row.amount) == 0.0 for row in ledger_rows))
+        self.assertTrue(any(float(row.amount) > 0.0 for row in ledger_rows))
+
+    def test_rideshare_stays_locked_until_scheduled_shift_end_after_work(self) -> None:
+        shift_start = self._houston_datetime(2026, 1, 1, 9, 0)
+        before_unlock = self._houston_datetime(2026, 1, 1, 15, 30)
+        after_unlock = self._houston_datetime(2026, 1, 1, 19, 0)
+
+        start_main_shift(
+            self.db,
+            player=self.player,
+            job_name="banker",
+            shift_type="standard_shift",
+            hours_worked=6,
+            now_houston=shift_start,
+        )
+
+        locked_state = resolve_expired_shift_if_needed(self.db, player=self.player, now_houston=before_unlock)
+        unlocked_state = resolve_expired_shift_if_needed(self.db, player=self.player, now_houston=after_unlock)
+
+        self.assertTrue(bool(locked_state.get("shift_completed_today")))
+        self.assertFalse(bool(locked_state.get("rideshare_unlocked")))
+        self.assertFalse(bool(locked_state.get("rideshare_available")))
+        self.assertTrue(bool(unlocked_state.get("rideshare_unlocked")))
+        self.assertTrue(bool(unlocked_state.get("rideshare_available")))
+
+    def test_weekday_missed_shift_logs_penalty_and_unlock_event(self) -> None:
+        after_shift = self._houston_datetime(2026, 1, 1, 19, 5)
+
+        work_state = resolve_expired_shift_if_needed(self.db, player=self.player, now_houston=after_shift)
+        self.db.refresh(self.player)
+
+        rows = (
+            self.db.query(GameplayTransaction)
+            .filter(
+                GameplayTransaction.player_id == self.player.id,
+                GameplayTransaction.day == 1,
+            )
+            .all()
+        )
+        categories = {str(row.category) for row in rows}
+        descriptions = {str(row.description) for row in rows}
+        pds = (
+            self.db.query(PlayerDailyState)
+            .filter(
+                PlayerDailyState.player_id == self.player.id,
+                PlayerDailyState.day_number == 1,
+            )
+            .first()
+        )
+
+        self.assertIsNotNone(pds)
+        self.assertTrue(bool(work_state.get("missed_shift_today")))
+        self.assertTrue(bool(work_state.get("rideshare_available")))
+        self.assertEqual(self.player.health, 87)
+        self.assertEqual(self.player.stress, 18)
+        self.assertTrue(bool(getattr(pds, "missed_shift", False)))
+        self.assertTrue({"missed_work", "health_penalty", "ride_share"}.issubset(categories))
+        self.assertIn("Rideshare unlocked at 6:00 PM", descriptions)
+
+    def test_weekend_rules_skip_required_shift_and_unlock_rideshare_all_day(self) -> None:
+        game_state = self.db.query(GameState).first()
+        assert game_state is not None
+        game_state.current_day = 3
+        self.db.commit()
+
+        weekend_morning = self._houston_datetime(2026, 1, 3, 10, 0)
+        work_state = resolve_expired_shift_if_needed(self.db, player=self.player, now_houston=weekend_morning)
+        self.db.refresh(self.player)
+
+        self.assertTrue(bool(work_state.get("is_weekend")))
+        self.assertFalse(bool(work_state.get("missed_shift_today")))
+        self.assertTrue(bool(work_state.get("rideshare_unlocked")))
+        self.assertTrue(bool(work_state.get("rideshare_available")))
 
 
 if __name__ == "__main__":

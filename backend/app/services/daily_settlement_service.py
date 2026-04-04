@@ -40,19 +40,19 @@ from app.services.consumption_behavior_service import compute_player_daily_consu
 from app.services.gameplay_transaction_service import record_gameplay_transaction
 from app.services.debt_credit_service import apply_daily_debt_and_credit
 from app.services.housing_region_service import compute_housing_effects_for_day
-from app.services.job_key_service import normalize_main_job_key
 from app.services.job_market_service import apply_employment_progression
 from app.services.net_worth_service import compute_player_net_worth_snapshot
 from app.engine.retention_engine import build_retention_summary
 from app.models.player_progression_state import PlayerProgressionState
 from app.services.player_transaction_log_service import record_player_transaction
+from app.services.shift_state_service import get_houston_now, sync_shift_day_rules_if_needed
 
 MONEY_Q = Decimal("0.01")
 Q4 = Decimal("0.0001")
 HOURS_RESET = 24
 WEEKLY_GAS_EXPENSE_XGP = Decimal("30.00")
-STANDARD_SHIFT_HOURS = Decimal("6.00")
-MISSED_WORK_STRESS_DELTA = 6
+SURVIVAL_HEALTH_DELTA = -5
+SURVIVAL_STRESS_DELTA = 4
 
 
 logger = logging.getLogger("goldpenny.daily_settlement")
@@ -295,6 +295,50 @@ def _count_gameplay_transactions_for_category(
         .scalar()
         or 0
     )
+
+
+def _apply_survival_penalty_if_needed(
+    db: Session,
+    *,
+    player: Player,
+    pds: PlayerDailyState,
+    settled_day: int,
+) -> bool:
+    meals_recorded = int(getattr(pds, "meals_recorded", 0) or 0)
+    did_work = bool(getattr(pds, "did_work", False))
+    missed_shift_today = bool(getattr(pds, "missed_shift", False))
+    worked_hours = int(getattr(pds, "worked_hours", 0) or 0)
+    main_shift_hours = _q4(_d(getattr(pds, "main_shift_hours_today", 0)))
+    side_income_hours = _q4(_d(getattr(pds, "side_income_hours", 0)))
+    business_hours = _q4(_d(getattr(pds, "business_hours", 0)))
+    already_applied = bool(getattr(pds, "survival_penalty_applied", False))
+    no_activity_today = bool(
+        meals_recorded <= 0
+        and not did_work
+        and not missed_shift_today
+        and worked_hours <= 0
+        and main_shift_hours <= Decimal("0.00")
+        and side_income_hours <= Decimal("0.00")
+        and business_hours <= Decimal("0.00")
+    )
+    if already_applied or not no_activity_today:
+        return False
+
+    player.health = _clamp_int(int(player.health or 0) + SURVIVAL_HEALTH_DELTA, 0, 100)
+    player.stress = _clamp_int(int(player.stress or 0) + SURVIVAL_STRESS_DELTA, 0, 100)
+    pds.survival_penalty_applied = True
+    pds.health_end = int(player.health or 0)
+    pds.stress_end = int(player.stress or 0)
+    record_gameplay_transaction(
+        db,
+        player=player,
+        day=settled_day,
+        transaction_type="expense",
+        category="health_penalty",
+        amount=0,
+        description=f"No meals or activity - Health {SURVIVAL_HEALTH_DELTA}, Stress +{SURVIVAL_STRESS_DELTA}",
+    )
+    return True
 
 
 def _build_settlement_breakdown(
@@ -577,15 +621,19 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
             or worked_hours > 0
             or recorded_job_income > Decimal("0.00")
         )
-        no_shift_scheduled = not bool(normalize_main_job_key(getattr(player, "main_job", None), allow_aliases=True))
-        work_penalty_base = Decimal("0.00")
-        if employed and not no_shift_scheduled:
-            work_penalty_base = _money(
-                (monthly_pay / Decimal("30") / Decimal("8"))
-                * STANDARD_SHIFT_HOURS
-                * life_productivity_before
-                * job_income_capture_factor
-            )
+        cash_before = _money(_d(player.cash_xgp))
+        stress_before = int(player.stress or 0)
+        health_before = int(player.health or 100)
+        hours_before = int(player.hours_available or HOURS_RESET)
+        shift_day_sync = sync_shift_day_rules_if_needed(
+            db,
+            player=player,
+            day_number=settled_day,
+            now_houston=get_houston_now(),
+        )
+        if bool(shift_day_sync.get("missed_shift_today")):
+            pds = _get_or_create_player_daily_state(db, player, settled_day)
+            did_work = bool(getattr(pds, "did_work", False))
 
         side_income_net = _money(_d(getattr(pds, "side_income_net_xgp", 0)))
         side_income_hours = _q4(_d(getattr(pds, "side_income_hours", 0)))
@@ -596,11 +644,6 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
         stock_sale_income, stock_fee = _safe_player_day_stock_totals(db, player.id, settled_day)
         if stock_sale_income <= Decimal("0.00") and stock_realized_pnl > Decimal("0.00"):
             stock_sale_income = stock_realized_pnl
-
-        cash_before = _money(_d(player.cash_xgp))
-        stress_before = int(player.stress or 0)
-        health_before = int(player.health or 100)
-        hours_before = int(player.hours_available or HOURS_RESET)
 
         consumption_result = compute_player_daily_consumption(
             db=db,
@@ -663,10 +706,6 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
         )
         medical_cost_xgp = _money(_d(life_result.get("medical_cost_xgp", 0)))
         missed_work_penalty_xgp = _money(_d(life_result.get("missed_work_penalty_xgp", 0)))
-        missed_work_stress_delta = 0
-        if employed and not did_work and not no_shift_scheduled:
-            missed_work_penalty_xgp = _money(max(missed_work_penalty_xgp, work_penalty_base))
-            missed_work_stress_delta = MISSED_WORK_STRESS_DELTA
         total_hours_used = _q4(_d(getattr(pds, "total_hours_used", 0)))
         overtime_hours = _q4(_d(getattr(pds, "overtime_hours", 0)))
         sleep_hours = _q4(_d(getattr(pds, "sleep_hours", 0)))
@@ -959,6 +998,13 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
             borrowing_risk_summary = {}
             borrowing_pressure_summary = {}
 
+        _apply_survival_penalty_if_needed(
+            db,
+            player=player,
+            pds=pds,
+            settled_day=settled_day,
+        )
+
         # Step 36 credit consequences are applied after distress and become final credit for the day.
         distress_credit_before = int(financial_survival_credit_before)
         distress_credit_after = int(financial_survival_credit_after)
@@ -1030,7 +1076,6 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
                         _d(_base_stress_after)
                         + shock_stress_delta
                         + financial_survival_stress_impact_delta
-                        + Decimal(str(missed_work_stress_delta))
                     )
                 )
             ),
@@ -1128,11 +1173,7 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
                 transaction_type="expense",
                 category="stress_penalty",
                 amount=missed_work_penalty_xgp,
-                description=(
-                    "Missed scheduled shift penalty"
-                    if employed and not did_work and not no_shift_scheduled
-                    else "Stress penalty"
-                ),
+                description="Burnout or medical recovery penalty",
             )
 
         settlement_txn = record_player_transaction(

@@ -132,10 +132,13 @@ def _run_schema_migrations() -> None:
         "ALTER TABLE player_daily_states ADD COLUMN convenience_units NUMERIC(12,4) NOT NULL DEFAULT 0",
         "ALTER TABLE player_daily_states ADD COLUMN total_spent_xgp NUMERIC(14,4) NOT NULL DEFAULT 0",
         "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS did_work BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS missed_shift BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS shift_start TIMESTAMPTZ",
         "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS shift_end TIMESTAMPTZ",
         "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS salary_earned NUMERIC(14,4) NOT NULL DEFAULT 0",
         "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS missed_penalty NUMERIC(14,4) NOT NULL DEFAULT 0",
+        "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS meals_recorded INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS survival_penalty_applied BOOLEAN NOT NULL DEFAULT FALSE",
         # Step 5 (macro economy): sensitivity columns on goods_baskets.
         # These drive the deterministic basket price formula in macro_engine.py.
         "ALTER TABLE goods_baskets ADD COLUMN inflation_sensitivity NUMERIC(6,4) NOT NULL DEFAULT 0.6",

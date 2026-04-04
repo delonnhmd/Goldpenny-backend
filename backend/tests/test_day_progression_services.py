@@ -1,8 +1,11 @@
 import os
 import unittest
 import uuid
+from datetime import datetime
 from decimal import Decimal
+from unittest.mock import patch
 
+import pytz
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -181,6 +184,9 @@ class DayProgressionServiceTests(unittest.TestCase):
         self.db.close()
         self.engine.dispose()
 
+    def _houston_datetime(self, year: int, month: int, day: int, hour: int, minute: int = 0) -> datetime:
+        return pytz.timezone("America/Chicago").localize(datetime(year, month, day, hour, minute))
+
     def test_stock_next_day_generation_creates_10_rows(self) -> None:
         result = generate_next_stock_day(self.db)
         self.assertEqual(result["previous_market_day"], 1)
@@ -256,11 +262,13 @@ class DayProgressionServiceTests(unittest.TestCase):
         cash_after = float(self.player.cash_xgp)
         self.assertNotEqual(cash_before, cash_after)
 
-    def test_settlement_records_daily_ledger_and_missed_work_penalty(self) -> None:
+    def test_settlement_records_daily_ledger_and_weekday_missed_shift_effects(self) -> None:
         self.player.main_job = "banker"
         self.db.commit()
 
-        result = settle_player_day(self.db, str(self.player.id))
+        after_shift = self._houston_datetime(2026, 1, 1, 19, 0)
+        with patch("app.services.daily_settlement_service.get_houston_now", return_value=after_shift):
+            result = settle_player_day(self.db, str(self.player.id))
         rows = (
             self.db.query(GameplayTransaction)
             .filter(
@@ -270,6 +278,7 @@ class DayProgressionServiceTests(unittest.TestCase):
             .all()
         )
         categories = {str(row.category) for row in rows}
+        descriptions = {str(row.description) for row in rows}
         pds = (
             self.db.query(PlayerDailyState)
             .filter(
@@ -279,14 +288,53 @@ class DayProgressionServiceTests(unittest.TestCase):
             .first()
         )
 
-        self.assertGreater(float(result.get("missed_work_penalty_xgp", 0.0)), 0.0)
+        self.assertEqual(float(result.get("missed_work_penalty_xgp", 0.0)), 0.0)
         self.assertIsNotNone(pds)
         self.assertFalse(bool(pds.did_work))
-        self.assertGreater(float(pds.missed_penalty or 0), 0.0)
+        self.assertTrue(bool(getattr(pds, "missed_shift", False)))
+        self.assertEqual(float(pds.missed_penalty or 0), 0.0)
         self.assertEqual(float(pds.salary_earned or 0), 0.0)
-        self.assertTrue({"food", "rent", "stress_penalty"}.issubset(categories))
+        self.assertTrue({"food", "rent", "missed_work", "health_penalty", "ride_share"}.issubset(categories))
+        self.assertIn("Missed shift (Banker 10:00 AM-6:00 PM) - no salary earned", descriptions)
+        self.assertIn("Health -5, Stress +6", descriptions)
         if float(result.get("weekly_gas_expense_xgp", 0.0)) > 0.0 or float(result.get("commute_fuel_cost_xgp", 0.0)) > 0.0:
             self.assertIn("gas", categories)
+
+    def test_settlement_applies_survival_penalty_when_day_has_no_activity(self) -> None:
+        employment = self.db.query(PlayerEmploymentState).first()
+        if employment is not None:
+            employment.employed_flag = False
+            employment.current_job_code = None
+            employment.monthly_pay_xgp = Decimal("0.00")
+        self.player.main_job = None
+        self.db.commit()
+
+        result = settle_player_day(self.db, str(self.player.id))
+        pds = (
+            self.db.query(PlayerDailyState)
+            .filter(
+                PlayerDailyState.player_id == self.player.id,
+                PlayerDailyState.day_number == 1,
+            )
+            .first()
+        )
+        penalty_rows = (
+            self.db.query(GameplayTransaction)
+            .filter(
+                GameplayTransaction.player_id == self.player.id,
+                GameplayTransaction.day == 1,
+                GameplayTransaction.category == "health_penalty",
+            )
+            .all()
+        )
+
+        self.assertIsNotNone(pds)
+        self.assertTrue(bool(getattr(pds, "survival_penalty_applied", False)))
+        self.assertLess(int(result.get("health_after", self.player.health)), 95)
+        self.assertGreater(int(result.get("stress_after", self.player.stress)), 20)
+        self.assertTrue(
+            any("No meals or activity - Health -5, Stress +4" == str(row.description) for row in penalty_rows)
+        )
 
     def test_run_player_next_day_returns_coherent_summary(self) -> None:
         first = settle_player_day(self.db, str(self.player.id))
