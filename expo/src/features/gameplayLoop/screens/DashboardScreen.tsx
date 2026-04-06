@@ -288,8 +288,19 @@ export default function DashboardScreen() {
   const shiftRemainingLabel = formatSecondsRemaining(shiftRemainingSeconds);
   const shiftEndLabel = workState?.shift_ends_at ? formatHoustonNow(new Date(workState.shift_ends_at)) : '5:00 PM';
   const scheduledShiftWindowLabel = shiftWindowLabel(workState);
-  const scheduledShiftEndLabel = workState?.scheduled_shift_end_label || shiftEndLabel;
   const lastCompletedShift = workState?.last_completed_shift || null;
+  const salaryEarnedToday = Number(workState?.salary_earned_today || 0);
+  const salaryEarnedYesterday = Number(workState?.salary_earned_yesterday || 0);
+  const workPayModelLabel = String(workState?.pay_model_label || 'Paid daily after shift completion');
+  const workIncomeVisibilityLabel = backendShiftActive
+    ? 'Shift active — salary pending until completion.'
+    : workState?.missed_shift_today
+      ? 'Missed shift — no salary earned today.'
+      : workState?.is_weekend
+        ? 'Weekend — no required main shift.'
+        : salaryEarnedToday > 0
+          ? `Worked today — salary +${formatMoney(salaryEarnedToday)}.`
+          : 'No salary earned today.';
 
   useEffect(() => {
     setAutoClockingOut(false);
@@ -357,6 +368,10 @@ export default function DashboardScreen() {
   const rideshareHoursRemainingToday = rideshareState?.hours_remaining_today ?? Math.max(0, Number(workState?.hours_available || 0));
   const rideshareEarnedToday = useMemo(
     () => {
+      const backendEarned = Number(workState?.rideshare_earned_today ?? Number.NaN);
+      if (Number.isFinite(backendEarned) && backendEarned >= 0) {
+        return backendEarned;
+      }
       const transactionEarned = (loop.dailyActivity?.transactions || [])
         .filter((entry) => String(entry.category || '').toLowerCase() === 'ride_share' && Number(entry.amount) > 0)
         .reduce((sum, entry) => sum + Number(entry.amount || 0), 0);
@@ -372,7 +387,7 @@ export default function DashboardScreen() {
           return sum + (Number.isFinite(earnedRaw) ? earnedRaw : 0);
         }, 0);
     },
-    [loop.dailyActivity?.transactions, loop.dailySession.actionsTakenToday],
+    [loop.dailyActivity?.transactions, loop.dailySession.actionsTakenToday, workState?.rideshare_earned_today],
   );
 
   const rideshareStatusLabel = useMemo(() => {
@@ -983,10 +998,22 @@ export default function DashboardScreen() {
       <GameplaySummaryCard eyebrow="Work" title="Income &amp; Shifts">
         <View style={styles.metricRow}>
           <GameplayStatCard
-            label="Today's pay"
-            value={loop.jobIncome.dailyIncomeLabel}
-            tone={loop.jobIncome.incomeAmount != null && loop.jobIncome.incomeAmount >= 0 ? 'positive' : 'warning'}
+            label="Salary today"
+            value={salaryEarnedToday > 0 ? `+${formatMoney(salaryEarnedToday)}` : 'No salary yet'}
+            tone={salaryEarnedToday > 0 ? 'positive' : backendShiftActive ? 'warning' : 'neutral'}
+            note={workIncomeVisibilityLabel}
+          />
+          <GameplayStatCard
+            label="Salary yesterday"
+            value={salaryEarnedYesterday > 0 ? `+${formatMoney(salaryEarnedYesterday)}` : '--'}
+            tone={salaryEarnedYesterday > 0 ? 'positive' : 'neutral'}
             note={employerLabel || (loop.jobIncome.currentJob ? loop.jobIncome.currentJob.replace(/_/g, ' ') : 'No job selected')}
+          />
+          <GameplayStatCard
+            label="Pay model"
+            value="Paid daily"
+            tone="info"
+            note={workPayModelLabel}
           />
           <GameplayStatCard
             label="Job level"
@@ -1067,6 +1094,9 @@ export default function DashboardScreen() {
             Clock in, then let the backend finalize the shift when Houston time reaches the scheduled end.
           </Text>
         )}
+        <Text style={styles.helperText}>
+          Payroll model: {workPayModelLabel}. Salary transactions are posted to Daily Activity and transaction history.
+        </Text>
       </GameplaySummaryCard>
 
       {showStarterJobChooser ? (

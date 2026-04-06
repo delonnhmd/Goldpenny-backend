@@ -13,7 +13,6 @@ import pytz
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.engine.daily_engine import get_or_create_game_state
 from app.engine.macro_engine import get_or_create_macro_state_for_day
 from app.models.contribution_event import ContributionEvent
 from app.models.player import Player
@@ -156,9 +155,10 @@ def process_rideshare_action(
 ) -> dict:
     """Process rideshare as trip-based execution with Houston-time mode buckets."""
     try:
-        game_state = get_or_create_game_state(db)
-        current_day = int(game_state.current_day)
         work_state = resolve_expired_shift_if_needed(db, player=player)
+        current_day = int(work_state.get("current_game_day") or 1)
+        previous_day = int(getattr(player, "last_worked_day", 0) or 0)
+        daily_reset_applied = False
         rideshare_state = (
             (work_state.get("rideshare_state") if isinstance(work_state.get("rideshare_state"), dict) else None)
             or {}
@@ -168,6 +168,8 @@ def process_rideshare_action(
             extra={
                 "player_id": str(player.id),
                 "shift_active": bool(work_state.get("main_shift_active_flag")),
+                "previous_in_game_day": previous_day,
+                "current_in_game_day": current_day,
                 "trips_today": int(rideshare_state.get("trips_today") or 0),
                 "max_trips": int(rideshare_state.get("max_trips") or MAX_RIDESHARE_HOURS_PER_DAY),
                 "can_rideshare": bool(rideshare_state.get("can_rideshare")),
@@ -192,6 +194,7 @@ def process_rideshare_action(
             player.side_job_hours_today = 0
             player.total_hours_worked_today = 0
             player.work_actions_today = 0
+            daily_reset_applied = True
 
         pds = _get_or_create_player_daily_state_in_txn(db, player, current_day)
         requested_trips = _resolve_requested_trips(trips, hours_worked)
@@ -390,6 +393,7 @@ def process_rideshare_action(
                 "rideshare_reason": str(rideshare_state.get("reason") or ""),
                 "trips_today_before": int(rideshare_state.get("trips_today") or 0),
                 "max_trips": int(rideshare_state.get("max_trips") or MAX_RIDESHARE_HOURS_PER_DAY),
+                "daily_reset_applied": bool(daily_reset_applied),
                 "side_income_hours_today": round(float(getattr(pds, "side_income_hours", 0) or 0), 4),
                 "main_shift_hours_today": round(float(getattr(pds, "main_shift_hours_today", 0) or 0), 4),
             },

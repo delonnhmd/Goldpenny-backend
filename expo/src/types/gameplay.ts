@@ -90,10 +90,16 @@ export interface WorkStateSnapshot {
   hours_available: number;
   main_shift_hours_today: number;
   side_income_hours_today: number;
+  rideshare_time_today?: number;
+  rideshare_earned_today?: number;
   recovery_hours_today: number;
   total_time_used_today: number;
   did_work_today?: boolean;
   salary_earned_today?: number;
+  salary_earned_yesterday?: number;
+  pay_model?: 'daily_after_shift_completion' | string;
+  pay_model_label?: string;
+  salary_pending_until_completion?: boolean;
   missed_penalty_today?: number;
   missed_shift_today?: boolean;
   missed_shift_health_delta?: number;

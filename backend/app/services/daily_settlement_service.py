@@ -1116,7 +1116,7 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
                 transaction_type="income",
                 category="salary",
                 amount=job_income,
-                description="Main shift salary",
+                description=f"Main job salary for Day {int(settled_day)}",
             )
         if side_income_net > Decimal("0.00") and _count_gameplay_transactions_for_category(
             db,

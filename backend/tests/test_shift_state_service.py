@@ -256,6 +256,7 @@ class ShiftStateServiceTests(unittest.TestCase):
 
         work_state = build_work_state_payload(self.db, self.player)
         result = process_rideshare_action(self.db, self.player, trips=1)
+        post_action_state = build_work_state_payload(self.db, self.player)
         ledger_rows = (
             self.db.query(GameplayTransaction)
             .filter(
@@ -271,6 +272,7 @@ class ShiftStateServiceTests(unittest.TestCase):
         self.assertIsNotNone(work_state.get("rideshare_state"))
         self.assertTrue(bool(work_state.get("rideshare_state", {}).get("can_rideshare")))
         self.assertEqual(str(work_state.get("rideshare_state", {}).get("status")), "available")
+        self.assertGreater(float(post_action_state.get("rideshare_earned_today") or 0), 0.0)
         self.assertEqual(result["trips"], 1)
         self.assertGreaterEqual(len(ledger_rows), 2)
         self.assertTrue(any(float(row.amount) == 0.0 for row in ledger_rows))
@@ -314,6 +316,67 @@ class ShiftStateServiceTests(unittest.TestCase):
         self.assertEqual(int(rideshare_state.get("remaining_trips") or 0), 6)
         self.assertEqual(str(rideshare_state.get("status") or ""), "available")
         self.assertTrue(bool(rideshare_state.get("can_rideshare")))
+
+    def test_player_progress_day_prevents_stale_rideshare_cap_from_global_day_lag(self) -> None:
+        self.player.main_job = None
+        self.db.commit()
+        self.db.refresh(self.player)
+
+        process_rideshare_action(self.db, self.player, trips=5)
+        process_rideshare_action(self.db, self.player, trips=1)
+
+        day_one_state = (
+            self.db.query(PlayerDailyState)
+            .filter(
+                PlayerDailyState.player_id == self.player.id,
+                PlayerDailyState.day_number == 1,
+            )
+            .first()
+        )
+        assert day_one_state is not None
+        day_one_state.did_settlement = True
+        self.player.last_settled_day = 1
+        self.db.commit()
+
+        game_state = self.db.query(GameState).first()
+        assert game_state is not None
+        game_state.current_day = 1
+        self.db.commit()
+
+        work_state = build_work_state_payload(self.db, self.player)
+        rideshare_state = work_state.get("rideshare_state") or {}
+
+        self.assertEqual(int(work_state.get("current_game_day") or 0), 2)
+        self.assertEqual(int(rideshare_state.get("trips_today") or 0), 0)
+        self.assertEqual(int(rideshare_state.get("remaining_trips") or 0), 6)
+        self.assertTrue(bool(rideshare_state.get("can_rideshare")))
+        self.assertEqual(float(work_state.get("rideshare_earned_today") or 0.0), 0.0)
+
+    def test_salary_transaction_description_is_day_explicit(self) -> None:
+        shift_start = self._houston_datetime(2026, 1, 1, 12, 0)
+        after_shift = self._houston_datetime(2026, 1, 1, 19, 0)
+        start_main_shift(
+            self.db,
+            player=self.player,
+            job_name="banker",
+            shift_type="standard_shift",
+            hours_worked=6,
+            now_houston=shift_start,
+        )
+        resolve_expired_shift_if_needed(self.db, player=self.player, now_houston=after_shift)
+
+        salary_txn = (
+            self.db.query(GameplayTransaction)
+            .filter(
+                GameplayTransaction.player_id == self.player.id,
+                GameplayTransaction.day == 1,
+                GameplayTransaction.category == "salary",
+            )
+            .order_by(GameplayTransaction.timestamp.asc())
+            .first()
+        )
+        assert salary_txn is not None
+        self.assertIn("Main job salary for Day 1", str(salary_txn.description))
 
     def test_rideshare_stays_locked_until_scheduled_shift_end_after_work(self) -> None:
         shift_start = self._houston_datetime(2026, 1, 1, 9, 0)

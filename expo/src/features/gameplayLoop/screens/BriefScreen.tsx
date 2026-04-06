@@ -38,11 +38,13 @@ export default function BriefScreen() {
   const transactions = dailyActivity?.transactions ?? [];
   const workState = loop.dashboard?.work_state ?? loop.actionHub?.work_state ?? null;
   const salaryEarned = workState?.salary_earned_today ?? 0;
+  const salaryEarnedYesterday = workState?.salary_earned_yesterday ?? 0;
   const shiftWindow = workState?.scheduled_shift_window_label ?? 'Scheduled shift';
   const weekend = Boolean(workState?.is_weekend);
   const noShiftScheduled = Boolean(workState?.no_shift_scheduled);
   const workedToday = Boolean(workState?.did_work_today) || salaryEarned > 0;
   const missedToday = Boolean(workState?.missed_shift_today);
+  const payModelLabel = String(workState?.pay_model_label || 'Paid daily after shift completion');
   const missedShiftHealthDelta = workState?.missed_shift_health_delta ?? -5;
   const missedShiftStressDelta = workState?.missed_shift_stress_delta ?? 6;
 
@@ -182,6 +184,16 @@ export default function BriefScreen() {
             ]}
           />
         )}
+        <GameplayCompactMetricRows
+          items={[
+            { label: 'Pay model', value: payModelLabel, tone: 'info' },
+            {
+              label: 'Yesterday salary',
+              value: salaryEarnedYesterday > 0 ? `+${formatMoney(salaryEarnedYesterday)}` : '--',
+              tone: salaryEarnedYesterday > 0 ? 'positive' : 'neutral',
+            },
+          ]}
+        />
         {missedToday ? (
           <Text style={styles.statusCaption}>
             Missing a weekday shift now shows the lost pay outcome directly and logs the health and stress hit.

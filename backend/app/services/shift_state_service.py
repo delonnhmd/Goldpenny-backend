@@ -11,6 +11,7 @@ from typing import Any
 from uuid import UUID
 
 import pytz
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.engine.balance_config import (
@@ -26,6 +27,7 @@ from app.models.job_action import JobAction
 from app.models.job_definition import MAIN_JOBS, resolve_job_definition
 from app.models.player import Player
 from app.models.player_daily_state import PlayerDailyState
+from app.models.side_income_action import SideIncomeAction
 from app.models.xgp_transaction import XGPTransaction
 from app.services.gameplay_transaction_service import record_gameplay_transaction
 from app.services.job_key_service import normalize_main_job_key, supported_main_job_keys_text
@@ -89,6 +91,29 @@ def _safe_float(value: Any, fallback: float = 0.0) -> float:
 
 def _current_game_day(db: Session) -> int:
     return int(get_or_create_game_state(db).current_day)
+
+
+def _current_game_day_for_player(db: Session, player: Player) -> int:
+    """Resolve in-game day for player-facing work/rideshare state.
+
+    We prioritize whichever is ahead between:
+    - global GameState day (legacy/global systems)
+    - player's personal progression day (latest PlayerDailyState / last_settled_day)
+    """
+    global_day = _current_game_day(db)
+    player_progress_day = max(1, int(getattr(player, "last_settled_day", 0) or 0) + 1)
+    latest_pds = (
+        db.query(PlayerDailyState)
+        .filter(PlayerDailyState.player_id == player.id)
+        .order_by(PlayerDailyState.day_number.desc(), PlayerDailyState.created_at.desc())
+        .first()
+    )
+    if latest_pds is not None:
+        pds_day = int(getattr(latest_pds, "day_number", player_progress_day) or player_progress_day)
+        if bool(getattr(latest_pds, "did_settlement", False)):
+            pds_day += 1
+        player_progress_day = max(player_progress_day, pds_day)
+    return max(global_day, player_progress_day)
 
 
 def _day_to_date(day_number: int) -> date:
@@ -224,8 +249,9 @@ def sync_shift_day_rules_if_needed(
     now_houston: datetime | None = None,
 ) -> dict[str, Any]:
     resolved_now = _as_houston(now_houston) or get_houston_now()
-    current_day = max(1, int(day_number or _current_game_day(db)))
-    if current_day == _current_game_day(db):
+    inferred_day = _current_game_day_for_player(db, player)
+    current_day = max(1, int(day_number or inferred_day))
+    if current_day == inferred_day:
         _maybe_reset_daily_counters(player, current_day)
 
     pds = _get_or_create_player_daily_state_in_txn(db, player, day_number=current_day)
@@ -587,7 +613,7 @@ def _clamp_int(value: int, lo: int, hi: int) -> int:
 
 def build_work_state_payload(db: Session, player: Player, *, now_houston: datetime | None = None) -> dict[str, Any]:
     now = _as_houston(now_houston) or get_houston_now()
-    current_day = _current_game_day(db)
+    current_day = _current_game_day_for_player(db, player)
     _maybe_reset_daily_counters(player, current_day)
     pds = (
         db.query(PlayerDailyState)
@@ -612,9 +638,45 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         getattr(pds, "main_shift_hours_today", None),
         _safe_float(getattr(player, "main_job_hours_today", 0), 0.0),
     )
-    side_income_hours_today = _safe_float(getattr(pds, "side_income_hours", 0), 0.0)
+    side_income_hours_today_from_actions = _safe_float(
+        (
+            db.query(func.coalesce(func.sum(SideIncomeAction.hours_worked), 0))
+            .filter(
+                SideIncomeAction.player_id == player.id,
+                SideIncomeAction.day_number == current_day,
+            )
+            .scalar()
+        ),
+        0.0,
+    )
+    side_income_hours_today = max(0.0, side_income_hours_today_from_actions)
+    rideshare_earned_today = _safe_float(
+        (
+            db.query(func.coalesce(func.sum(GameplayTransaction.amount), 0))
+            .filter(
+                GameplayTransaction.player_id == player.id,
+                GameplayTransaction.day == int(current_day),
+                GameplayTransaction.type == "income",
+                GameplayTransaction.category == "ride_share",
+            )
+            .scalar()
+        ),
+        0.0,
+    )
     recovery_hours_today = _safe_float(getattr(pds, "recovery_hours_today", getattr(pds, "recovery_hours", 0)) if pds is not None else 0, 0.0)
     total_time_used_today = _safe_float(getattr(pds, "total_time_used_today", getattr(pds, "total_hours_used", 0)) if pds is not None else 0, 0.0)
+    salary_earned_today = _safe_float(getattr(pds, "salary_earned", 0) if pds is not None else 0, 0.0)
+    salary_earned_yesterday = _safe_float(
+        (
+            db.query(PlayerDailyState.salary_earned)
+            .filter(
+                PlayerDailyState.player_id == player.id,
+                PlayerDailyState.day_number == max(1, current_day - 1),
+            )
+            .scalar()
+        ),
+        0.0,
+    ) if current_day > 1 else 0.0
 
     completed_shift_confirmed = bool(
         not active_shift
@@ -677,10 +739,16 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         "hours_available": int(getattr(player, "hours_available", 0) or 0),
         "main_shift_hours_today": round(main_shift_hours_today, 4),
         "side_income_hours_today": round(side_income_hours_today, 4),
+        "rideshare_time_today": round(side_income_hours_today, 4),
+        "rideshare_earned_today": round(rideshare_earned_today, 4),
         "recovery_hours_today": round(recovery_hours_today, 4),
         "total_time_used_today": round(total_time_used_today, 4),
         "did_work_today": did_work_today,
-        "salary_earned_today": round(_safe_float(getattr(pds, "salary_earned", 0) if pds is not None else 0, 0.0), 4),
+        "salary_earned_today": round(salary_earned_today, 4),
+        "salary_earned_yesterday": round(salary_earned_yesterday, 4),
+        "pay_model": "daily_after_shift_completion",
+        "pay_model_label": "Paid daily after shift completion",
+        "salary_pending_until_completion": bool(active_shift),
         "missed_penalty_today": round(_safe_float(getattr(pds, "missed_penalty", 0) if pds is not None else 0, 0.0), 4),
         "missed_shift_today": missed_shift_today,
         "missed_shift_health_delta": MISSED_SHIFT_HEALTH_DELTA if missed_shift_today else 0,
@@ -712,7 +780,7 @@ def start_main_shift(
     hours_worked: int,
     now_houston: datetime | None = None,
 ) -> dict[str, Any]:
-    current_day = _current_game_day(db)
+    current_day = _current_game_day_for_player(db, player)
     _maybe_reset_daily_counters(player, current_day)
     now = _as_houston(now_houston) or get_houston_now()
 
@@ -829,7 +897,7 @@ def finalize_active_main_shift(
     require_expired: bool = False,
 ) -> dict[str, Any]:
     now = _as_houston(now_houston) or get_houston_now()
-    current_day = _current_game_day(db)
+    current_day = _current_game_day_for_player(db, player)
     reset_applied = _maybe_reset_daily_counters(player, current_day)
 
     active = bool(getattr(player, "main_shift_active_flag", False)) and str(getattr(player, "main_shift_status", "")) == SHIFT_STATUS_ACTIVE
@@ -944,8 +1012,8 @@ def finalize_active_main_shift(
         category="salary",
         amount=_q4(earned_cash),
         description=(
-            f"{str(getattr(job_def, 'title', None) or getattr(job_def, 'display_name', None) or job_name.replace('_', ' ').title())} "
-            "shift salary"
+            f"Main job salary for Day {int(current_day)} "
+            f"({str(getattr(job_def, 'title', None) or getattr(job_def, 'display_name', None) or job_name.replace('_', ' ').title())})"
         ),
     )
 
@@ -1044,7 +1112,7 @@ def resolve_expired_shift_if_needed(
             raise ValueError("Player not found for expired-shift resolution.")
 
     now = _as_houston(now_houston) or get_houston_now()
-    current_day = _current_game_day(db)
+    current_day = _current_game_day_for_player(db, player)
     reset_applied = _maybe_reset_daily_counters(player, current_day)
     started_at = _as_houston(getattr(player, "main_shift_started_at", None))
     ends_at = _as_houston(getattr(player, "main_shift_ends_at", None))
@@ -1061,7 +1129,10 @@ def resolve_expired_shift_if_needed(
         "shift.resolve_expired_shift_if_needed evaluated.",
         extra={
             "player_id": str(player.id),
+            "previous_in_game_day": int(getattr(player, "last_worked_day", 0) or 0),
+            "current_in_game_day": int(current_day),
             "daily_reset_applied": bool(reset_applied),
+            "rideshare_counters_reset": bool(reset_applied),
             "active_shift_found": active_shift,
             "shift_started_at": started_at.isoformat() if started_at else None,
             "shift_ends_at": ends_at.isoformat() if ends_at else None,
@@ -1074,6 +1145,7 @@ def resolve_expired_shift_if_needed(
             "rideshare_can_run": bool(((preview_state or {}).get("rideshare_state") or {}).get("can_rideshare")),
             "rideshare_reason": str(((preview_state or {}).get("rideshare_state") or {}).get("reason") or ""),
             "rideshare_trips_today": int(((preview_state or {}).get("rideshare_state") or {}).get("trips_today") or 0),
+            "rideshare_trips_today_after_reset": int(((preview_state or {}).get("rideshare_state") or {}).get("trips_today") or 0),
             "rideshare_max_trips": int(((preview_state or {}).get("rideshare_state") or {}).get("max_trips") or int(RIDESHARE_DAILY_CAP)),
             "side_income_hours_today": _safe_float(
                 getattr(
