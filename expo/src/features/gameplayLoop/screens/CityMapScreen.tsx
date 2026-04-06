@@ -196,9 +196,12 @@ export default function CityMapScreen() {
     await new Promise<void>((resolve) => {
       Animated.timing(routeAnim, {
         toValue: 1,
-        duration: 420,
+        duration: 360,
         useNativeDriver: true,
       }).start(() => resolve());
+    });
+    await new Promise<void>((resolve) => {
+      setTimeout(() => resolve(), 240);
     });
 
     const ok = await loop.executeAction({

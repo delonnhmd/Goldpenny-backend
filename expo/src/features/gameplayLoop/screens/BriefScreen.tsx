@@ -3,6 +3,8 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import DailyBriefCard from '@/components/gameplay/DailyBriefCard';
 import EndOfDaySummaryCard from '@/components/gameplay/EndOfDaySummaryCard';
+import AnimatedMoneyValue from '@/components/motion/AnimatedMoneyValue';
+import SlideFadeInOnChange from '@/components/motion/SlideFadeInOnChange';
 import { OnboardingHighlight } from '@/components/onboarding';
 import EmptyStateView from '@/components/ui/EmptyStateView';
 import { theme } from '@/design/theme';
@@ -44,6 +46,7 @@ export default function BriefScreen() {
   const noShiftScheduled = Boolean(workState?.no_shift_scheduled);
   const workedToday = Boolean(workState?.did_work_today) || salaryEarned > 0;
   const missedToday = Boolean(workState?.missed_shift_today);
+  const dayLabel = workState?.current_game_day ?? dailyActivity?.day ?? 1;
   const payModelLabel = String(workState?.pay_model_label || 'Paid daily after shift completion');
   const missedShiftHealthDelta = workState?.missed_shift_health_delta ?? -5;
   const missedShiftStressDelta = workState?.missed_shift_stress_delta ?? 6;
@@ -85,10 +88,22 @@ export default function BriefScreen() {
     >
       {loop.dashboard ? (
         <OnboardingHighlight target="brief-daily-economy">
-          <DailyBriefCard dashboard={loop.dashboard} />
+          <SlideFadeInOnChange
+            watchValue={`brief_headline_${workState?.current_game_day || dayLabel}_${loop.dashboard.headline || ''}`}
+            delayMs={0}
+          >
+            <DailyBriefCard
+              dashboard={loop.dashboard}
+              dayKey={workState?.current_game_day || dailyActivity?.day || 1}
+            />
+          </SlideFadeInOnChange>
         </OnboardingHighlight>
       ) : null}
 
+      <SlideFadeInOnChange
+        watchValue={`brief_activity_${workState?.current_game_day || dailyActivity?.day || 1}_${transactions.length}_${Math.round((dailyActivity?.net ?? netFlow) * 100)}`}
+        delayMs={80}
+      >
       <GameplaySummaryCard eyebrow="Today" title="Daily Activity">
         <GameplayCompactMetricRows
           items={[
@@ -96,16 +111,42 @@ export default function BriefScreen() {
               label: 'Income',
               value: formatMoney(dailyActivity?.total_income ?? 0),
               tone: 'positive',
+              valueNode: (
+                <AnimatedMoneyValue
+                  value={dailyActivity?.total_income ?? 0}
+                  tone="positive"
+                  threshold={0.1}
+                  durationMs={700}
+                />
+              ),
             },
             {
               label: 'Expense',
               value: formatMoney(dailyActivity?.total_expense ?? 0),
               tone: 'danger',
+              valueNode: (
+                <AnimatedMoneyValue
+                  value={dailyActivity?.total_expense ?? 0}
+                  tone="danger"
+                  threshold={0.1}
+                  durationMs={700}
+                  invertDeltaTone
+                />
+              ),
             },
             {
               label: 'Net',
               value: `${(dailyActivity?.net ?? 0) > 0 ? '+' : ''}${formatMoney(dailyActivity?.net ?? netFlow)}`,
               tone: toneFromSignedValue(dailyActivity?.net ?? netFlow),
+              valueNode: (
+                <AnimatedMoneyValue
+                  value={dailyActivity?.net ?? netFlow}
+                  tone={toneFromSignedValue(dailyActivity?.net ?? netFlow) === 'positive' ? 'positive' : toneFromSignedValue(dailyActivity?.net ?? netFlow) === 'danger' ? 'danger' : 'neutral'}
+                  threshold={0.1}
+                  durationMs={750}
+                  showSign
+                />
+              ),
             },
           ]}
         />
@@ -130,7 +171,12 @@ export default function BriefScreen() {
           </Text>
         )}
       </GameplaySummaryCard>
+      </SlideFadeInOnChange>
 
+      <SlideFadeInOnChange
+        watchValue={`brief_work_${workState?.current_game_day || 1}_${workedToday ? 'worked' : missedToday ? 'missed' : weekend ? 'weekend' : 'pending'}_${Math.round(salaryEarned * 100)}`}
+        delayMs={120}
+      >
       <GameplaySummaryCard eyebrow="Work" title="Work Status">
         {workedToday ? (
           <GameplayCompactMetricRows
@@ -208,9 +254,14 @@ export default function BriefScreen() {
           </Text>
         ) : null}
       </GameplaySummaryCard>
+      </SlideFadeInOnChange>
 
       {sessionEnded ? (
         <OnboardingHighlight target="summary-day-results">
+          <SlideFadeInOnChange
+            watchValue={`brief_settlement_state_${workState?.current_game_day || 1}_${loop.dailySession.sessionStatus}_${loop.dailySession.actionsTakenToday.length}`}
+            delayMs={160}
+          >
           <GameplaySummaryCard
             eyebrow="Day closeout"
             title="Settlement Status"
@@ -233,6 +284,7 @@ export default function BriefScreen() {
               />
             </View>
           </GameplaySummaryCard>
+          </SlideFadeInOnChange>
         </OnboardingHighlight>
       ) : null}
 

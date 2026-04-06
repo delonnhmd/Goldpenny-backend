@@ -38,6 +38,8 @@ const styles = StyleSheet.create({
   },
   pressed: {
     backgroundColor: '#eff6ff',
+    transform: [{ scale: 0.97 }],
+    opacity: 0.9,
   },
   text: {
     color: theme.color.info,

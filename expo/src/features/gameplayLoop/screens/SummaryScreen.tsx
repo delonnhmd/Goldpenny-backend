@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import EndOfDaySummaryCard from '@/components/gameplay/EndOfDaySummaryCard';
+import SlideFadeInOnChange from '@/components/motion/SlideFadeInOnChange';
 import { OnboardingHighlight } from '@/components/onboarding';
 import EmptyStateView from '@/components/ui/EmptyStateView';
 import { theme } from '@/design/theme';
@@ -94,6 +95,10 @@ export default function SummaryScreen() {
       )}
     >
       <OnboardingHighlight target="summary-day-results">
+        <SlideFadeInOnChange
+          watchValue={`summary_status_${summary?.day_number || loop.dailySession.currentDay || 1}_${loop.dailySession.sessionStatus}_${loop.dailySession.actionsTakenToday.length}`}
+          delayMs={20}
+        >
         <GameplaySummaryCard
           eyebrow="Settlement controls"
           title="Closeout Status"
@@ -122,25 +127,39 @@ export default function SummaryScreen() {
             />
           </View>
         </GameplaySummaryCard>
+        </SlideFadeInOnChange>
       </OnboardingHighlight>
+
+      {!hasSummary && loop.endingDay ? (
+        <GameplayWarningBanner
+          title="Processing settlement"
+          message="Applying day transactions and preparing your recap..."
+          tone="info"
+        />
+      ) : null}
 
       {summary ? (
         <>
-          <GameplaySummaryCard
-            eyebrow="Emotional payoff"
-            title={payoffTitle}
-            subtitle="What changed today and what tomorrow needs."
+          <SlideFadeInOnChange
+            watchValue={`summary_payoff_${summary.day_number || summary.as_of_date}_${Math.round(summary.net_change_xgp * 100)}`}
+            delayMs={80}
           >
-            <GameplayCompactMetricRows
-              items={[
-                { label: 'Net', value: formatMoney(summary.net_change_xgp), tone: netTone },
-                { label: 'Earned', value: formatMoney(summary.total_earned_xgp), tone: 'positive' },
-                { label: 'Spent', value: formatMoney(summary.total_spent_xgp), tone: 'danger' },
-                { label: 'Stress delta', value: formatDelta(summary.stress_delta), tone: summary.stress_delta > 0 ? 'danger' : 'positive' },
-                { label: 'Health delta', value: formatDelta(summary.health_delta), tone: summary.health_delta >= 0 ? 'positive' : 'warning' },
-              ]}
-            />
-          </GameplaySummaryCard>
+            <GameplaySummaryCard
+              eyebrow="Emotional payoff"
+              title={payoffTitle}
+              subtitle="What changed today and what tomorrow needs."
+            >
+              <GameplayCompactMetricRows
+                items={[
+                  { label: 'Net', value: formatMoney(summary.net_change_xgp), tone: netTone },
+                  { label: 'Earned', value: formatMoney(summary.total_earned_xgp), tone: 'positive' },
+                  { label: 'Spent', value: formatMoney(summary.total_spent_xgp), tone: 'danger' },
+                  { label: 'Stress delta', value: formatDelta(summary.stress_delta), tone: summary.stress_delta > 0 ? 'danger' : 'positive' },
+                  { label: 'Health delta', value: formatDelta(summary.health_delta), tone: summary.health_delta >= 0 ? 'positive' : 'warning' },
+                ]}
+              />
+            </GameplaySummaryCard>
+          </SlideFadeInOnChange>
 
           {!simplified ? (
             <GameplayOpportunityCallout
@@ -157,7 +176,15 @@ export default function SummaryScreen() {
           ) : null}
 
           <OnboardingHighlight target="summary-day-results">
-            <EndOfDaySummaryCard summary={summary} />
+            <SlideFadeInOnChange
+              watchValue={`summary_detail_${summary.day_number || summary.as_of_date}`}
+              delayMs={140}
+            >
+              <EndOfDaySummaryCard
+                summary={summary}
+                transactions={loop.dailyActivity?.transactions || []}
+              />
+            </SlideFadeInOnChange>
           </OnboardingHighlight>
         </>
       ) : summaryMissingAfterSettlement ? (

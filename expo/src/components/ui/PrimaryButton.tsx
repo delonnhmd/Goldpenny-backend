@@ -57,8 +57,10 @@ const styles = StyleSheet.create({
     opacity: 0.82,
   },
   pressed: {
-    opacity: 0.94,
-    transform: [{ scale: 0.975 }],
+    opacity: 0.92,
+    transform: [{ scale: 0.96 }],
+    shadowOpacity: 0.03,
+    elevation: 0,
   },
   text: {
     color: '#ffffff',

@@ -139,22 +139,28 @@ export function GameplayTrendChip({
 export function GameplayCompactMetricRows({
   items,
 }: {
-  items: Array<{ label: string; value: string; tone?: GameplayTone }>;
+  items: Array<{ label: string; value: string; tone?: GameplayTone; valueNode?: React.ReactNode }>;
 }) {
   return (
     <View style={styles.metricRows}>
       {items.map((item, index) => (
         <View key={`${item.label}_${index}`} style={styles.metricRow}>
           <Text style={styles.metricLabel}>{item.label}</Text>
-          <Text
-            style={[
-              styles.metricValue,
-              item.tone ? { color: paletteFor(item.tone).text } : null,
-            ]}
-            numberOfLines={2}
-          >
-            {item.value}
-          </Text>
+          {item.valueNode ? (
+            <View style={styles.metricValueNode}>
+              {item.valueNode}
+            </View>
+          ) : (
+            <Text
+              style={[
+                styles.metricValue,
+                item.tone ? { color: paletteFor(item.tone).text } : null,
+              ]}
+              numberOfLines={2}
+            >
+              {item.value}
+            </Text>
+          )}
         </View>
       ))}
     </View>
@@ -347,6 +353,11 @@ const styles = StyleSheet.create({
     maxWidth: '60%',
     textAlign: 'right',
   },
+  metricValueNode: {
+    maxWidth: '60%',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
   banner: {
     borderWidth: 1,
     borderRadius: theme.radius.lg,
@@ -395,4 +406,3 @@ const styles = StyleSheet.create({
     minWidth: 144,
   },
 });
-

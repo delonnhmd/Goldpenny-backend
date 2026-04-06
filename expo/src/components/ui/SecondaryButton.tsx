@@ -55,7 +55,8 @@ const styles = StyleSheet.create({
   },
   pressed: {
     backgroundColor: '#f8fafc',
-    transform: [{ scale: 0.975 }],
+    transform: [{ scale: 0.96 }],
+    opacity: 0.9,
   },
   text: {
     color: theme.color.textPrimary,

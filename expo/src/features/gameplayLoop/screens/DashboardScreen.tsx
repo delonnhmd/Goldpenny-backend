@@ -1,7 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import ActionHubPanel from '@/components/gameplay/ActionHubPanel';
+import AnimatedMoneyValue from '@/components/motion/AnimatedMoneyValue';
+import PulseAlertView from '@/components/motion/PulseAlertView';
+import SlideFadeInOnChange from '@/components/motion/SlideFadeInOnChange';
 import { OnboardingHighlight } from '@/components/onboarding';
 import EmptyStateView from '@/components/ui/EmptyStateView';
 import PrimaryButton from '@/components/ui/PrimaryButton';
@@ -253,6 +256,7 @@ export default function DashboardScreen() {
   const netCashFlow = loop.economyState.netCashFlow ?? 0;
   const pressureLabel = loop.expenseDebt.debtPressure.charAt(0).toUpperCase()
     + loop.expenseDebt.debtPressure.slice(1);
+  const criticalDebtPressure = String(loop.expenseDebt.debtPressure || '').toLowerCase() === 'critical';
   const cash = stats?.cash_xgp ?? 0;
   const stress = stats?.stress ?? 0;
   const health = stats?.health ?? 100;
@@ -263,11 +267,21 @@ export default function DashboardScreen() {
   const [autoClockingOut, setAutoClockingOut] = useState(false);
   const [timelineNotes, setTimelineNotes] = useState<TimelineNote[]>([]);
   const [busyRecoveryId, setBusyRecoveryId] = useState<RecoveryPresetId | null>(null);
+  const [rideshareResultCard, setRideshareResultCard] = useState<{
+    actionId: string;
+    trips: number;
+    earned: number;
+    stressDelta: number;
+    healthDelta: number;
+    mode: string;
+  } | null>(null);
   const previousWorkStateRef = useRef<{
     completedAt: string | null;
     shiftEndsAt: string | null;
     active: boolean;
   } | null>(null);
+  const rideshareResultAnim = useRef(new Animated.Value(0)).current;
+  const lastRideshareActionIdRef = useRef<string | null>(null);
   const autoFinalizeAttemptRef = useRef<{
     shiftEndsAt: string;
     attemptedAtMs: number;
@@ -279,6 +293,65 @@ export default function DashboardScreen() {
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    const latest = [...loop.dailySession.actionsTakenToday]
+      .reverse()
+      .find((entry) => (
+        canonicalDashboardActionKey(String(entry.action_key || '')) === 'side_income'
+        && entry.success
+      ));
+    if (!latest || latest.id === lastRideshareActionIdRef.current) return;
+    lastRideshareActionIdRef.current = latest.id;
+    const earned = Number(
+      latest.raw_result?.earned
+      ?? latest.raw_result?.net_income_xgp
+      ?? latest.impact_snapshot?.cash_delta_xgp
+      ?? 0,
+    );
+    const stressDelta = Number(
+      latest.raw_result?.stress_change
+      ?? latest.raw_result?.stress_delta
+      ?? latest.impact_snapshot?.stress_delta
+      ?? 0,
+    );
+    const healthDelta = Number(
+      latest.raw_result?.health_change
+      ?? latest.raw_result?.health_delta
+      ?? latest.impact_snapshot?.health_delta
+      ?? 0,
+    );
+    const trips = Number(latest.raw_result?.trips_completed ?? latest.raw_result?.trips ?? 1) || 1;
+    const mode = String(latest.raw_result?.mode_used || latest.raw_result?.mode || '');
+    setRideshareResultCard({
+      actionId: latest.id,
+      trips,
+      earned,
+      stressDelta,
+      healthDelta,
+      mode,
+    });
+
+    rideshareResultAnim.stopAnimation();
+    rideshareResultAnim.setValue(0);
+    Animated.sequence([
+      Animated.timing(rideshareResultAnim, {
+        toValue: 1,
+        duration: 180,
+        useNativeDriver: false,
+      }),
+      Animated.timing(rideshareResultAnim, {
+        toValue: 0,
+        duration: 800,
+        useNativeDriver: false,
+      }),
+    ]).start();
+  }, [loop.dailySession.actionsTakenToday, rideshareResultAnim]);
+
+  const rideshareResultGlow = rideshareResultAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, 0.24],
+  });
 
   // Work / Job selection
   const allActionItems = useMemo(() => {
@@ -1044,44 +1117,75 @@ export default function DashboardScreen() {
     >
       {/* Stats */}
       {stats ? (
-        <OnboardingHighlight target="dashboard-core-stats">
-          <GameplaySummaryCard eyebrow="Status" title="Money, Health &amp; Stress">
-            <GameplayCompactMetricRows
-              items={[
-                {
-                  label: 'Cash',
-                  value: formatMoney(cash),
-                  tone: cashTone,
-                },
-                {
-                  label: 'Net flow today',
-                  value: signedCurrency(netCashFlow),
-                  tone: netCashFlow >= 0 ? 'positive' : 'danger',
-                },
-                {
-                  label: 'Debt',
-                  value: formatMoney(stats.debt_xgp),
-                  tone: stats.debt_xgp > cash ? 'danger' : 'neutral',
-                },
-                {
-                  label: 'Health',
-                  value: `${Math.round(health)} / 100`,
-                  tone: health < 40 ? 'danger' : health < 65 ? 'warning' : 'positive',
-                },
-                {
-                  label: 'Stress',
-                  value: String(Math.round(stress)),
-                  tone: stress >= 75 ? 'danger' : stress >= 55 ? 'warning' : 'neutral',
-                },
-                {
-                  label: 'Debt pressure',
-                  value: pressureLabel,
-                  tone: loop.expenseDebt.debtWarning ? 'danger' : 'neutral',
-                },
-              ]}
-            />
-          </GameplaySummaryCard>
-        </OnboardingHighlight>
+        <SlideFadeInOnChange
+          watchValue={`stats_${dayLabel}_${Math.round(cash * 100)}_${Math.round(debt * 100)}_${Math.round(netCashFlow * 100)}`}
+          delayMs={20}
+        >
+          <OnboardingHighlight target="dashboard-core-stats">
+            <GameplaySummaryCard eyebrow="Status" title="Money, Health &amp; Stress">
+              <GameplayCompactMetricRows
+                items={[
+                  {
+                    label: 'Cash',
+                    value: formatMoney(cash),
+                    tone: cashTone,
+                    valueNode: (
+                      <AnimatedMoneyValue
+                        value={cash}
+                        tone={cash > 0 ? 'positive' : cash < 0 ? 'danger' : 'neutral'}
+                        durationMs={850}
+                        threshold={0.2}
+                      />
+                    ),
+                  },
+                  {
+                    label: 'Net flow today',
+                    value: signedCurrency(netCashFlow),
+                    tone: netCashFlow > 0 ? 'positive' : netCashFlow < 0 ? 'danger' : 'neutral',
+                    valueNode: (
+                      <AnimatedMoneyValue
+                        value={netCashFlow}
+                        tone={netCashFlow > 0 ? 'positive' : netCashFlow < 0 ? 'danger' : 'neutral'}
+                        durationMs={700}
+                        threshold={0.1}
+                        showSign
+                      />
+                    ),
+                  },
+                  {
+                    label: 'Debt',
+                    value: formatMoney(stats.debt_xgp),
+                    tone: stats.debt_xgp > cash ? 'danger' : 'neutral',
+                    valueNode: (
+                      <AnimatedMoneyValue
+                        value={stats.debt_xgp}
+                        tone={stats.debt_xgp > cash ? 'danger' : 'neutral'}
+                        durationMs={900}
+                        threshold={0.2}
+                        invertDeltaTone
+                      />
+                    ),
+                  },
+                  {
+                    label: 'Health',
+                    value: `${Math.round(health)} / 100`,
+                    tone: health < 40 ? 'danger' : health < 65 ? 'warning' : 'positive',
+                  },
+                  {
+                    label: 'Stress',
+                    value: String(Math.round(stress)),
+                    tone: stress >= 75 ? 'danger' : stress >= 55 ? 'warning' : 'neutral',
+                  },
+                  {
+                    label: 'Debt pressure',
+                    value: pressureLabel,
+                    tone: loop.expenseDebt.debtWarning ? 'danger' : 'neutral',
+                  },
+                ]}
+              />
+            </GameplaySummaryCard>
+          </OnboardingHighlight>
+        </SlideFadeInOnChange>
       ) : (
         <GameplayWarningBanner
           title="No stats loaded"
@@ -1090,34 +1194,55 @@ export default function DashboardScreen() {
         />
       )}
 
+      {criticalDebtPressure ? (
+        <PulseAlertView active tone="danger" strength="strong" intervalMs={2400}>
+          <GameplayWarningBanner
+            title="Debt pressure critical"
+            message="Debt is in the critical zone. Prioritize income and debt repayment before optional spending."
+            tone="danger"
+          />
+        </PulseAlertView>
+      ) : null}
+
       {needsDinnerReminder ? (
-        <GameplayWarningBanner
-          title="You still need dinner tonight."
-          message={dinnerReminderMessage}
-          tone="warning"
-        />
+        <PulseAlertView active tone="warning" strength="soft" intervalMs={2200}>
+          <GameplayWarningBanner
+            title="You still need dinner tonight."
+            message={dinnerReminderMessage}
+            tone="warning"
+          />
+        </PulseAlertView>
       ) : null}
 
       {/* Game time */}
-      <GameplaySummaryCard eyebrow="Game Time" title="Houston Clock">
-        <GameplayCompactMetricRows
-          items={[
-            { label: 'Current day', value: `Day ${dayLabel}` },
-            { label: 'Current time', value: `${formatHoustonNow(houstonNow)} CT` },
-            { label: 'Date', value: formatHoustonDate(houstonNow) },
-            {
-              label: 'Phase / status',
-              value: gamePhaseLabel,
-              tone: backendShiftActive || autoClockingOut ? 'warning' : backendShiftCompleted ? 'positive' : 'info',
-            },
-            { label: 'Shift window', value: scheduledShiftWindowLabel },
-            { label: 'Timer mode', value: SHIFT_SHORT_MODE ? 'Accelerated testing mode' : 'Real-time mode' },
-          ]}
-        />
-      </GameplaySummaryCard>
+      <SlideFadeInOnChange
+        watchValue={`clock_${dayLabel}_${backendShiftActive ? 'active' : backendShiftCompleted ? 'done' : 'idle'}_${houstonHour}`}
+        delayMs={40}
+      >
+        <GameplaySummaryCard eyebrow="Game Time" title="Houston Clock">
+          <GameplayCompactMetricRows
+            items={[
+              { label: 'Current day', value: `Day ${dayLabel}` },
+              { label: 'Current time', value: `${formatHoustonNow(houstonNow)} CT` },
+              { label: 'Date', value: formatHoustonDate(houstonNow) },
+              {
+                label: 'Phase / status',
+                value: gamePhaseLabel,
+                tone: backendShiftActive || autoClockingOut ? 'warning' : backendShiftCompleted ? 'positive' : 'info',
+              },
+              { label: 'Shift window', value: scheduledShiftWindowLabel },
+              { label: 'Timer mode', value: SHIFT_SHORT_MODE ? 'Accelerated testing mode' : 'Real-time mode' },
+            ]}
+          />
+        </GameplaySummaryCard>
+      </SlideFadeInOnChange>
 
       {/* Work shift */}
-      <GameplaySummaryCard eyebrow="Work" title="Income &amp; Shifts">
+      <SlideFadeInOnChange
+        watchValue={`work_${dayLabel}_${backendShiftActive ? 'active' : backendShiftCompleted ? 'done' : workState?.missed_shift_today ? 'missed' : 'idle'}_${Math.round(salaryEarnedToday * 100)}`}
+        delayMs={60}
+      >
+        <GameplaySummaryCard eyebrow="Work" title="Income &amp; Shifts">
         <View style={styles.metricRow}>
           <GameplayStatCard
             label="Salary today"
@@ -1219,121 +1344,206 @@ export default function DashboardScreen() {
         <Text style={styles.helperText}>
           Payroll model: {workPayModelLabel}. Salary transactions are posted to Daily Activity and transaction history.
         </Text>
+        {workState?.missed_shift_today ? (
+          <PulseAlertView active tone="warning" strength="soft" intervalMs={2300}>
+            <GameplayWarningBanner
+              title="Missed shift warning"
+              message={`No salary earned. Health ${signedWhole(workState?.missed_shift_health_delta ?? -5)}, Stress +${Math.max(0, Number(workState?.missed_shift_stress_delta ?? 6))}.`}
+              tone="warning"
+            />
+          </PulseAlertView>
+        ) : null}
       </GameplaySummaryCard>
+      </SlideFadeInOnChange>
 
       {showStarterJobChooser ? (
-        <GameplaySummaryCard
-          eyebrow={hasStarterJobSelected ? 'Switch Job' : 'Day 1 - Choose Your Job'}
-          title={hasStarterJobSelected ? `Current: ${currentJobKey.replace(/_/g, ' ')}` : 'Pick a Role to Start Earning'}
+        <SlideFadeInOnChange
+          watchValue={`jobchooser_${dayLabel}_${currentJobKey}_${selectingStarterJob ? 'busy' : 'idle'}`}
+          delayMs={70}
         >
-          <View style={styles.jobOptionsGrid}>
-            {starterJobOptions.map((job) => {
-              const isCurrent = currentJobKey === job.job_key;
+          <GameplaySummaryCard
+            eyebrow={hasStarterJobSelected ? 'Switch Job' : 'Day 1 - Choose Your Job'}
+            title={hasStarterJobSelected ? `Current: ${currentJobKey.replace(/_/g, ' ')}` : 'Pick a Role to Start Earning'}
+          >
+            <View style={styles.jobOptionsGrid}>
+              {starterJobOptions.map((job) => {
+                const isCurrent = currentJobKey === job.job_key;
+                return (
+                  <View key={job.job_key} style={[styles.jobOptionCard, isCurrent ? styles.jobOptionCardActive : null]}>
+                    <Text style={styles.jobTitle}>{job.title}</Text>
+                    <Text style={styles.jobPay}>~{Math.round(job.monthly_pay_xgp)} xgp/mo</Text>
+                    <Pressable
+                      accessibilityRole="button"
+                      style={({ pressed }) => [
+                        styles.jobSelectButton,
+                        isCurrent ? styles.jobSelectButtonCurrent : null,
+                        selectingStarterJob ? styles.jobSelectButtonDisabled : null,
+                        pressed && !isCurrent && !selectingStarterJob ? styles.jobSelectButtonPressed : null,
+                      ]}
+                      disabled={selectingStarterJob || isCurrent}
+                      onPress={() => selectStarterJob(job)}
+                    >
+                      <Text style={[styles.jobSelectButtonLabel, isCurrent ? styles.jobSelectButtonLabelCurrent : null]}>
+                        {isCurrent ? 'Current Job' : selectingStarterJob ? 'Applying...' : 'Select'}
+                      </Text>
+                    </Pressable>
+                  </View>
+                );
+              })}
+            </View>
+          </GameplaySummaryCard>
+        </SlideFadeInOnChange>
+      ) : null}
+
+      {/* Ride share */}
+      <SlideFadeInOnChange
+        watchValue={`rideshare_${dayLabel}_${Math.round(rideshareTripsToday)}_${Math.round(rideshareEarnedToday * 100)}_${rideshareState?.status || ''}`}
+        delayMs={80}
+      >
+        <GameplaySummaryCard eyebrow="Side Income" title="Post-Shift Ride Share">
+          <GameplayCompactMetricRows
+            items={[
+              {
+                label: 'Status',
+                value: rideshareStatusLabel,
+                tone: rideshareAvailable ? 'positive' : backendShiftActive || autoClockingOut ? 'warning' : 'neutral',
+              },
+              {
+                label: 'Current location',
+                value: currentLocationRegion ? `${currentLocationLabel} (${currentLocationRegion})` : currentLocationLabel,
+              },
+              { label: 'Houston time', value: `${formatHoustonNow(houstonNow)} CT` },
+              { label: 'Mode', value: formatRideshareMode(rideshareMode) },
+              {
+                label: 'Location demand',
+                value: `${rideshareDemandBonusPct >= 0 ? '+' : ''}${rideshareDemandBonusPct.toFixed(0)}%`,
+                tone: rideshareDemandBonusPct > 0 ? 'positive' : rideshareDemandBonusPct < 0 ? 'warning' : 'neutral',
+              },
+              {
+                label: 'Trips today',
+                value: `${Math.round(rideshareTripsToday)} / ${rideshareDailyCap}`,
+              },
+              { label: 'Trips remaining', value: String(Math.max(0, rideshareRemainingTrips)) },
+              {
+                label: 'Ride share earned today',
+                value: formatMoney(rideshareEarnedToday),
+                tone: rideshareEarnedToday > 0 ? 'positive' : 'neutral',
+                valueNode: (
+                  <AnimatedMoneyValue
+                    value={rideshareEarnedToday}
+                    tone={rideshareEarnedToday > 0 ? 'positive' : 'neutral'}
+                    durationMs={820}
+                    threshold={0.1}
+                  />
+                ),
+              },
+              { label: 'Time per trip', value: `${Math.max(1, Number(rideshareState?.time_cost_per_trip_units || 1))} time unit (20-45 mins simulated)` },
+            ]}
+          />
+
+          {runningSideIncome ? (
+            <GameplayWarningBanner
+              title="Rideshare running"
+              message="Processing trip bundle and updating cash, stress, health, and time."
+              tone="info"
+            />
+          ) : null}
+
+          {rideshareResultCard ? (
+            <Animated.View
+              style={[
+                styles.rideshareResultCard,
+                {
+                  backgroundColor: rideshareResultGlow.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['rgba(16,185,129,0.06)', 'rgba(16,185,129,0.24)'],
+                  }),
+                  borderColor: rideshareResultGlow.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['#6ee7b7', '#16a34a'],
+                  }),
+                },
+              ]}
+            >
+              <Text style={styles.rideshareResultTitle}>
+                Ride share result ({rideshareResultCard.trips} {rideshareResultCard.trips === 1 ? 'trip' : 'trips'})
+              </Text>
+              <Text style={styles.rideshareResultMeta}>
+                Mode: {rideshareResultCard.mode || formatRideshareMode(rideshareMode)}
+              </Text>
+              <View style={styles.rideshareResultRow}>
+                <Text style={styles.rideshareResultLabel}>Cash:</Text>
+                <AnimatedMoneyValue
+                  value={Math.max(0, rideshareResultCard.earned)}
+                  tone="positive"
+                  showSign
+                  threshold={0.01}
+                  durationMs={700}
+                  formatter={(next) => {
+                    const abs = formatMoney(Math.abs(next));
+                    return `+${abs}`;
+                  }}
+                  style={styles.rideshareResultValue}
+                />
+              </View>
+              <Text style={styles.rideshareResultMeta}>
+                Stress {signedWhole(rideshareResultCard.stressDelta)} | Health {signedWhole(rideshareResultCard.healthDelta)}
+              </Text>
+            </Animated.View>
+          ) : null}
+
+          <View style={styles.recoveryList}>
+            {RIDESHARE_TRIP_OPTIONS.map((tripOption) => {
+              const preview = getRideshareTripPreview(
+                rideshareMode,
+                tripOption,
+                {
+                  payMinPerTrip: Number.isFinite(ridesharePayMinPerTrip) ? ridesharePayMinPerTrip : undefined,
+                  payMaxPerTrip: Number.isFinite(ridesharePayMaxPerTrip) ? ridesharePayMaxPerTrip : undefined,
+                  stressModifier: rideshareStressModifier,
+                },
+              );
+              const buttonDisabledReason = rideshareDisableReasonsByTrip[tripOption as 1 | 3 | 5];
               return (
-                <View key={job.job_key} style={[styles.jobOptionCard, isCurrent ? styles.jobOptionCardActive : null]}>
-                  <Text style={styles.jobTitle}>{job.title}</Text>
-                  <Text style={styles.jobPay}>~{Math.round(job.monthly_pay_xgp)} xgp/mo</Text>
-                  <Pressable
-                    accessibilityRole="button"
-                    style={[
-                      styles.jobSelectButton,
-                      isCurrent ? styles.jobSelectButtonCurrent : null,
-                      selectingStarterJob ? styles.jobSelectButtonDisabled : null,
-                    ]}
-                    disabled={selectingStarterJob || isCurrent}
-                    onPress={() => selectStarterJob(job)}
-                  >
-                    <Text style={[styles.jobSelectButtonLabel, isCurrent ? styles.jobSelectButtonLabelCurrent : null]}>
-                      {isCurrent ? 'Current Job' : selectingStarterJob ? 'Applying...' : 'Select'}
+                <View key={`rideshare_${tripOption}`} style={styles.recoveryRow}>
+                  <View style={styles.recoveryInfo}>
+                    <Text style={styles.recoveryTitle}>{tripOption} {tripOption === 1 ? 'Trip' : 'Trips'}</Text>
+                    <Text style={styles.recoveryMeta}>
+                      Expected pay {formatMoney(preview.payMin)}-{formatMoney(preview.payMax)} | Stress {signedWhole(preview.stress)} | Health {signedWhole(preview.health)}
                     </Text>
-                  </Pressable>
+                  </View>
+                  <View style={styles.recoveryActionWrap}>
+                    <SecondaryButton
+                      label={runningSideIncome ? 'Running...' : `Run ${tripOption}`}
+                      onPress={() => void runRideShareTrip(tripOption)}
+                      disabled={Boolean(buttonDisabledReason)}
+                    />
+                  </View>
                 </View>
               );
             })}
           </View>
         </GameplaySummaryCard>
-      ) : null}
-
-      {/* Ride share */}
-      <GameplaySummaryCard eyebrow="Side Income" title="Post-Shift Ride Share">
-        <GameplayCompactMetricRows
-          items={[
-            {
-              label: 'Status',
-              value: rideshareStatusLabel,
-              tone: rideshareAvailable ? 'positive' : backendShiftActive || autoClockingOut ? 'warning' : 'neutral',
-            },
-            {
-              label: 'Current location',
-              value: currentLocationRegion ? `${currentLocationLabel} (${currentLocationRegion})` : currentLocationLabel,
-            },
-            { label: 'Houston time', value: `${formatHoustonNow(houstonNow)} CT` },
-            { label: 'Mode', value: formatRideshareMode(rideshareMode) },
-            {
-              label: 'Location demand',
-              value: `${rideshareDemandBonusPct >= 0 ? '+' : ''}${rideshareDemandBonusPct.toFixed(0)}%`,
-              tone: rideshareDemandBonusPct > 0 ? 'positive' : rideshareDemandBonusPct < 0 ? 'warning' : 'neutral',
-            },
-            {
-              label: 'Trips today',
-              value: `${Math.round(rideshareTripsToday)} / ${rideshareDailyCap}`,
-            },
-            { label: 'Trips remaining', value: String(Math.max(0, rideshareRemainingTrips)) },
-            {
-              label: 'Ride share earned today',
-              value: formatMoney(rideshareEarnedToday),
-              tone: rideshareEarnedToday > 0 ? 'positive' : 'neutral',
-            },
-            { label: 'Time per trip', value: `${Math.max(1, Number(rideshareState?.time_cost_per_trip_units || 1))} time unit (20-45 mins simulated)` },
-          ]}
-        />
-
-        <View style={styles.recoveryList}>
-          {RIDESHARE_TRIP_OPTIONS.map((tripOption) => {
-            const preview = getRideshareTripPreview(
-              rideshareMode,
-              tripOption,
-              {
-                payMinPerTrip: Number.isFinite(ridesharePayMinPerTrip) ? ridesharePayMinPerTrip : undefined,
-                payMaxPerTrip: Number.isFinite(ridesharePayMaxPerTrip) ? ridesharePayMaxPerTrip : undefined,
-                stressModifier: rideshareStressModifier,
-              },
-            );
-            const buttonDisabledReason = rideshareDisableReasonsByTrip[tripOption as 1 | 3 | 5];
-            return (
-              <View key={`rideshare_${tripOption}`} style={styles.recoveryRow}>
-                <View style={styles.recoveryInfo}>
-                  <Text style={styles.recoveryTitle}>{tripOption} {tripOption === 1 ? 'Trip' : 'Trips'}</Text>
-                  <Text style={styles.recoveryMeta}>
-                    Expected pay {formatMoney(preview.payMin)}-{formatMoney(preview.payMax)} | Stress {signedWhole(preview.stress)} | Health {signedWhole(preview.health)}
-                  </Text>
-                </View>
-                <View style={styles.recoveryActionWrap}>
-                  <SecondaryButton
-                    label={runningSideIncome ? 'Running...' : `Run ${tripOption}`}
-                    onPress={() => void runRideShareTrip(tripOption)}
-                    disabled={Boolean(buttonDisabledReason)}
-                  />
-                </View>
-              </View>
-            );
-          })}
-        </View>
-      </GameplaySummaryCard>
+      </SlideFadeInOnChange>
 
       {/* Action hub */}
       {actionHubForDisplay ? (
-        <OnboardingHighlight target="work-first-action">
-          <ActionHubPanel
-            hub={actionHubForDisplay}
-            onExecuteAction={(action) => void loop.executeAction(action)}
-            getExecutionGuard={(action) => loop.dailySession.canExecuteAction(action)}
-            remainingTimeUnits={loop.dailySession.remainingTimeUnits}
-            totalTimeUnits={loop.dailySession.totalTimeUnits}
-            sessionStatus={loop.dailySession.sessionStatus}
-            progressRatio={loop.dailySession.progress}
-          />
-        </OnboardingHighlight>
+        <SlideFadeInOnChange
+          watchValue={`actionhub_${dayLabel}_${loop.dailySession.actionsTakenToday.length}_${loop.dailySession.remainingTimeUnits}`}
+          delayMs={100}
+        >
+          <OnboardingHighlight target="work-first-action">
+            <ActionHubPanel
+              hub={actionHubForDisplay}
+              onExecuteAction={(action) => void loop.executeAction(action)}
+              getExecutionGuard={(action) => loop.dailySession.canExecuteAction(action)}
+              remainingTimeUnits={loop.dailySession.remainingTimeUnits}
+              totalTimeUnits={loop.dailySession.totalTimeUnits}
+              sessionStatus={loop.dailySession.sessionStatus}
+              progressRatio={loop.dailySession.progress}
+            />
+          </OnboardingHighlight>
+        </SlideFadeInOnChange>
       ) : (
         <EmptyStateView
           title="No actions loaded"
@@ -1342,6 +1552,10 @@ export default function DashboardScreen() {
       )}
 
       {/* Recovery */}
+      <SlideFadeInOnChange
+        watchValue={`recovery_${dayLabel}_${backendShiftActive ? 'locked' : 'open'}_${busyRecoveryId || 'idle'}`}
+        delayMs={120}
+      >
       <GameplaySummaryCard eyebrow="Recovery" title="Recovery Actions">
         {(backendShiftActive || autoClockingOut) ? (
           <GameplayWarningBanner
@@ -1374,8 +1588,13 @@ export default function DashboardScreen() {
           })}
         </View>
       </GameplaySummaryCard>
+      </SlideFadeInOnChange>
 
       {/* Activity history */}
+      <SlideFadeInOnChange
+        watchValue={`activity_${dayLabel}_${todaysActivity.length}`}
+        delayMs={140}
+      >
       <GameplaySummaryCard eyebrow="Today" title="Activity History">
         {todaysActivity.length > 0 ? (
           <View style={styles.activityList}>
@@ -1393,8 +1612,13 @@ export default function DashboardScreen() {
           <Text style={styles.activityEmpty}>No activity yet today. Start with clock-in, meals, recovery, or a ride share trip.</Text>
         )}
       </GameplaySummaryCard>
+      </SlideFadeInOnChange>
 
       {/* Meals */}
+      <SlideFadeInOnChange
+        watchValue={`food_${dayLabel}_${dinnerResolvedToday ? 'done' : 'pending'}_${busyMeal || 'idle'}`}
+        delayMs={160}
+      >
       <GameplaySummaryCard eyebrow="Life" title="Food &amp; Meals">
         {cash < 6 ? (
           <GameplayWarningBanner
@@ -1441,8 +1665,13 @@ export default function DashboardScreen() {
           </View>
         </View>
       </GameplaySummaryCard>
+      </SlideFadeInOnChange>
 
       {/* Finance */}
+      <SlideFadeInOnChange
+        watchValue={`finance_${dayLabel}_${Math.round(debt * 100)}_${Math.round(cash * 100)}_${busyFinance ? 'busy' : 'idle'}`}
+        delayMs={180}
+      >
       <GameplaySummaryCard eyebrow="Finance" title="Quick Loan &amp; Debt Payment">
         {debt > 200 ? (
           <GameplayWarningBanner
@@ -1517,6 +1746,7 @@ export default function DashboardScreen() {
           </View>
         </View>
       </GameplaySummaryCard>
+      </SlideFadeInOnChange>
 
       {/* Warnings */}
       {cash < 50 ? (
@@ -1578,6 +1808,38 @@ const styles = StyleSheet.create({
   },
   recoveryActionWrap: {
     marginTop: theme.spacing.xxs,
+  },
+  rideshareResultCard: {
+    borderWidth: 1,
+    borderRadius: theme.radius.lg,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.sm,
+    gap: theme.spacing.xxs,
+    marginTop: theme.spacing.xs,
+  },
+  rideshareResultTitle: {
+    ...theme.typography.bodySm,
+    color: '#065f46',
+    fontWeight: '800',
+  },
+  rideshareResultMeta: {
+    ...theme.typography.caption,
+    color: '#065f46',
+  },
+  rideshareResultRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  rideshareResultLabel: {
+    ...theme.typography.caption,
+    color: '#065f46',
+    fontWeight: '700',
+  },
+  rideshareResultValue: {
+    ...theme.typography.bodySm,
+    fontWeight: '800',
+    color: '#166534',
   },
   activityList: {
     gap: theme.spacing.sm,
@@ -1719,6 +1981,10 @@ const styles = StyleSheet.create({
   },
   jobSelectButtonDisabled: {
     opacity: 0.7,
+  },
+  jobSelectButtonPressed: {
+    opacity: 0.94,
+    transform: [{ scale: 0.96 }],
   },
   jobSelectButtonLabel: {
     color: '#ffffff',
