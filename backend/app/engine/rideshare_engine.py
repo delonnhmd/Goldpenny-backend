@@ -21,6 +21,11 @@ from app.models.side_income_action import SideIncomeAction
 from app.models.xgp_transaction import XGPTransaction
 from app.services.gameplay_transaction_service import record_gameplay_transaction
 from app.services.player_transaction_log_service import record_player_transaction
+from app.services.city_map_service import (
+    ensure_player_location,
+    get_location_label,
+    get_rideshare_location_profile,
+)
 from app.services.shift_state_service import resolve_expired_shift_if_needed
 
 RIDESHARE_TYPE = "ride_share"
@@ -215,6 +220,17 @@ def process_rideshare_action(
         now_houston = datetime.now(HOUSTON_TZ)
         houston_hour = int(now_houston.hour)
         mode_used = get_rideshare_mode(houston_hour)
+        current_location_key = ensure_player_location(player)
+        current_location_label = get_location_label(current_location_key)
+        location_profile = get_rideshare_location_profile(current_location_key, mode_used)
+        if not bool(location_profile.get("allowed")):
+            reason = str(location_profile.get("reason_if_blocked") or "").strip()
+            if not reason:
+                reason = "Ride share is unavailable at this location."
+            raise ValueError(reason)
+        demand_multiplier = Decimal(str(location_profile.get("multiplier", 1.0)))
+        location_stress_modifier = int(location_profile.get("stress_delta_modifier") or 0)
+        location_health_modifier = int(location_profile.get("health_delta_modifier") or 0)
 
         sequence_index = int(
             db.query(func.count(SideIncomeAction.id))
@@ -235,9 +251,12 @@ def process_rideshare_action(
             seed = f"{player.id}:{current_day}:{sequence_index}:{mode_used}:{trip_idx}"
             trip_rng = _seeded_rng(seed)
             outcome = calculate_trip_outcome(mode_used, trip_rng)
-            total_pay += Decimal(str(outcome["pay"]))
-            total_stress_change += int(outcome["stress"])
-            total_health_change += int(outcome["health"])
+            adjusted_pay = (Decimal(str(outcome["pay"])) * demand_multiplier).quantize(Decimal("0.01"))
+            adjusted_stress = max(1, int(outcome["stress"]) + location_stress_modifier)
+            adjusted_health = int(outcome["health"]) + location_health_modifier
+            total_pay += adjusted_pay
+            total_stress_change += adjusted_stress
+            total_health_change += adjusted_health
             total_trip_duration_hours += _trip_duration_hours(trip_rng)
 
         time_used_units = int(trips_completed)  # one time-unit per completed trip
@@ -275,7 +294,7 @@ def process_rideshare_action(
             hours_before=hours_before,
             hours_after=hours_after,
             oil_index_used=oil_index,
-            demand_multiplier=1.0,
+            demand_multiplier=float(demand_multiplier),
             gross_per_hour_xgp=0.0,
             gas_price_per_unit_xgp=0.0,
             wear_cost_per_hour_xgp=0.0,
@@ -295,7 +314,7 @@ def process_rideshare_action(
             balance_after=balance_after,
             reference_type="side_income_action",
             reference_id=str(action.id),
-            description=f"Ride share trips ({trips_completed}) - {mode_used}",
+            description=f"Ride share trips ({trips_completed}) - {mode_used} @ {current_location_label}",
         )
         db.add(income_txn)
 
@@ -315,6 +334,9 @@ def process_rideshare_action(
                 "type": "rideshare",
                 "trips": trips_completed,
                 "mode": mode_used,
+                "location_key": current_location_key,
+                "location_label": current_location_label,
+                "demand_multiplier": float(demand_multiplier),
                 "timestamp": now_houston.isoformat(),
                 "time_used_units": time_used_units,
                 "time_used_hours": round(total_trip_duration_hours, 4),
@@ -327,7 +349,7 @@ def process_rideshare_action(
             transaction_type="income",
             category="ride_share",
             amount=round(total_earned, 4),
-            description=f"Ride Share payout ({trips_completed} trips, {mode_used})",
+            description=f"Ride Share payout ({trips_completed} trips, {mode_used}, {current_location_label})",
         )
 
         contribution = ContributionEvent(
@@ -341,6 +363,9 @@ def process_rideshare_action(
                     "trips": trips_completed,
                     "requested_trips": requested_trips,
                     "mode": mode_used,
+                    "location_key": current_location_key,
+                    "location_label": current_location_label,
+                    "demand_multiplier": float(demand_multiplier),
                     "timestamp": now_houston.isoformat(),
                     "time_used_units": time_used_units,
                     "time_used_hours": round(total_trip_duration_hours, 4),
@@ -394,6 +419,9 @@ def process_rideshare_action(
                 "trips_today_before": int(rideshare_state.get("trips_today") or 0),
                 "max_trips": int(rideshare_state.get("max_trips") or MAX_RIDESHARE_HOURS_PER_DAY),
                 "daily_reset_applied": bool(daily_reset_applied),
+                "current_location_key": current_location_key,
+                "current_location_label": current_location_label,
+                "demand_multiplier": float(demand_multiplier),
                 "side_income_hours_today": round(float(getattr(pds, "side_income_hours", 0) or 0), 4),
                 "main_shift_hours_today": round(float(getattr(pds, "main_shift_hours_today", 0) or 0), 4),
             },
@@ -418,13 +446,17 @@ def process_rideshare_action(
             "maintenance_cost_xgp": 0.0,
             "net_income_xgp": round(total_earned, 2),
             "oil_index_used": oil_index,
-            "demand_multiplier": 1.0,
+            "demand_multiplier": float(demand_multiplier),
             "gas_price_xgp": 0.0,
             "wear_cost_per_hour_xgp": 0.0,
             "maintenance_triggered": False,
             "maintenance_probability": 0.0,
             "reliability_before": round(float(getattr(player, "rideshare_reliability", 0.95) or 0.95), 4),
             "reliability_after": round(float(getattr(player, "rideshare_reliability", 0.95) or 0.95), 4),
+            "location_key": current_location_key,
+            "location_label": current_location_label,
+            "location_stress_modifier": int(location_stress_modifier),
+            "location_health_modifier": int(location_health_modifier),
             "stress_change": int(total_stress_change),
             "health_change": int(total_health_change),
             "hours_before": int(hours_before),

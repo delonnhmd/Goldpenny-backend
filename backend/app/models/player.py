@@ -100,6 +100,7 @@ class Player(Base):
 
     # ── Geography ─────────────────────────────────────────────────────────────
     region = Column(String(40), nullable=False, default="suburban")  # suburban | downtown
+    current_location_key = Column(String(80), nullable=False, default="home")
 
     # ── Step 7: Housing Region (recurring cost layer) ─────────────────────────
     # Canonical housing region identifier set via POST /housing/assign.

@@ -45,6 +45,7 @@ function normalizeActionKey(key: GameplayActionKey): string {
   if (raw.includes('business') && raw.includes('operate')) return 'operate_business';
   if (raw.includes('inventory') || raw.includes('stock')) return 'buy_inventory';
   if (raw.includes('ride') || raw.includes('delivery') || raw.includes('side_income')) return 'side_income';
+  if (raw.includes('travel') || raw.includes('map_move')) return 'travel';
   if (raw.includes('work') || raw.includes('shift')) return 'work_shift';
   if (raw.includes('study') || raw.includes('train') || raw.includes('cert')) return 'study';
   if (raw.includes('meal') || raw.includes('eat')) return 'eat_meal';

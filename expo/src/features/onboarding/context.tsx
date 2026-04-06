@@ -23,13 +23,14 @@ import {
 export type OnboardingRouteKey =
   | 'brief'
   | 'dashboard'
+  | 'map'
   | 'work'
   | 'market'
   | 'business'
   | 'life'
   | 'summary';
 
-type GuidedRouteKey = Exclude<OnboardingRouteKey, 'business' | 'life'>;
+type GuidedRouteKey = Exclude<OnboardingRouteKey, 'business' | 'life' | 'map'>;
 
 type OnboardingStepRequirement = 'manual_continue' | 'first_work_action' | 'settled_summary';
 
@@ -137,6 +138,7 @@ function stepRoutePath(playerId: string, route: OnboardingRouteKey): string {
 function navLabel(route: OnboardingRouteKey): string {
   if (route === 'brief') return 'Brief';
   if (route === 'dashboard') return 'Dashboard';
+  if (route === 'map') return 'Map';
   if (route === 'work') return 'Work';
   if (route === 'market') return 'Market';
   if (route === 'business') return 'Business';

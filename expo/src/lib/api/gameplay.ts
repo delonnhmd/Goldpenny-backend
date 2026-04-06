@@ -112,6 +112,27 @@ function normalizeExecutionParameters(
     }
   }
 
+  if (canonical === 'travel') {
+    const destinationRaw =
+      params.destination_key ?? params.to_location_key ?? params.location_key ?? params.destination;
+    const destinationKey = toString(destinationRaw, '').trim().toLowerCase();
+    delete normalizedParams.location_key;
+    delete normalizedParams.destination;
+    if (destinationKey) {
+      normalizedParams.destination_key = destinationKey;
+    }
+    if (GAMEPLAY_ROUTE_DIAGNOSTICS_ENABLED) {
+      recordInfo('gameplayApi', 'Normalized travel payload.', {
+        action: 'travel_payload_normalized',
+        context: {
+          destinationRaw: destinationRaw == null ? null : String(destinationRaw),
+          destinationKey,
+          requestPayload: normalizedParams,
+        },
+      });
+    }
+  }
+
   return normalizedParams;
 }
 
@@ -352,6 +373,17 @@ function normalizeRideshareState(raw: unknown): WorkStateSnapshot['rideshare_sta
     remaining_trips: Math.max(0, Math.round(toNumber(obj.remaining_trips, 0))),
     hours_remaining_today: Math.max(0, Math.round(toNumber(obj.hours_remaining_today, 0))),
     mode: toString(obj.mode, 'midday'),
+    time_cost_per_trip_units: Math.max(1, Math.round(toNumber(obj.time_cost_per_trip_units, 1))),
+    current_location_key: toString(obj.current_location_key, ''),
+    current_location_label: toString(obj.current_location_label, ''),
+    current_location_region: toString(obj.current_location_region, ''),
+    location_tier: toString(obj.location_tier, ''),
+    rideshare_allowed_here: Boolean(obj.rideshare_allowed_here),
+    location_label: toString(obj.location_label, ''),
+    demand_bonus_pct: normalizeFiniteNumber(obj.demand_bonus_pct, { fallback: 0 }),
+    stress_delta_modifier: Math.round(toNumber(obj.stress_delta_modifier, 0)),
+    estimated_pay_min_per_trip: normalizeMoneyValue(obj.estimated_pay_min_per_trip, { allowNegative: false, fallback: 0 }),
+    estimated_pay_max_per_trip: normalizeMoneyValue(obj.estimated_pay_max_per_trip, { allowNegative: false, fallback: 0 }),
   };
 }
 
@@ -405,6 +437,73 @@ function normalizeWorkState(raw: unknown, playerId: string): WorkStateSnapshot |
     survival_health_delta: clampDeltaRange(obj.survival_health_delta, { min: -100, max: 100, fallback: 0 }),
     survival_stress_delta: clampDeltaRange(obj.survival_stress_delta, { min: -100, max: 100, fallback: 0 }),
     meals_recorded_today: Math.max(0, Math.round(toNumber(obj.meals_recorded_today, 0))),
+    current_location_key: toString(obj.current_location_key, ''),
+    current_location_label: toString(obj.current_location_label, ''),
+    current_location_region: toString(obj.current_location_region, ''),
+    city_map: obj.city_map && typeof obj.city_map === 'object'
+      ? {
+        current_location_key: toString((obj.city_map as Record<string, unknown>).current_location_key, ''),
+        current_location_label: toString((obj.city_map as Record<string, unknown>).current_location_label, ''),
+        current_location_region: toString((obj.city_map as Record<string, unknown>).current_location_region, ''),
+        current_location_node_type: toString((obj.city_map as Record<string, unknown>).current_location_node_type, ''),
+        nodes: Array.isArray((obj.city_map as Record<string, unknown>).nodes)
+          ? ((obj.city_map as Record<string, unknown>).nodes as unknown[]).map((entry) => {
+            const row = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : {};
+            return {
+              key: toString(row.key, ''),
+              label: toString(row.label, ''),
+              region: toString(row.region, ''),
+              node_type: toString(row.node_type, ''),
+              opportunity_tier: toString(row.opportunity_tier, ''),
+              rideshare_quality: toString(row.rideshare_quality, ''),
+              is_current_location: Boolean(row.is_current_location),
+            };
+          })
+          : [],
+        travel_options: Array.isArray((obj.city_map as Record<string, unknown>).travel_options)
+          ? ((obj.city_map as Record<string, unknown>).travel_options as unknown[]).map((entry) => {
+            const row = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : {};
+            return {
+              from_key: toString(row.from_key, ''),
+              from_label: toString(row.from_label, ''),
+              destination_key: toString(row.destination_key, ''),
+              destination_label: toString(row.destination_label, ''),
+              destination_region: toString(row.destination_region, ''),
+              destination_node_type: toString(row.destination_node_type, ''),
+              destination_opportunity_tier: toString(row.destination_opportunity_tier, ''),
+              time_cost_units: Math.max(0, Math.round(toNumber(row.time_cost_units, 0))),
+              stress_delta: Math.round(toNumber(row.stress_delta, 0)),
+              cash_cost_xgp: normalizeMoneyValue(row.cash_cost_xgp, { allowNegative: false, fallback: 0 }),
+              route_label: toString(row.route_label, ''),
+              rideshare_quality: toString(row.rideshare_quality, ''),
+              rideshare_allowed: Boolean(row.rideshare_allowed),
+              rideshare_demand_bonus_pct: normalizeFiniteNumber(row.rideshare_demand_bonus_pct, { fallback: 0 }),
+            };
+          })
+          : [],
+      }
+      : null,
+    travel_options: Array.isArray(obj.travel_options)
+      ? (obj.travel_options as unknown[]).map((entry) => {
+        const row = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : {};
+        return {
+          from_key: toString(row.from_key, ''),
+          from_label: toString(row.from_label, ''),
+          destination_key: toString(row.destination_key, ''),
+          destination_label: toString(row.destination_label, ''),
+          destination_region: toString(row.destination_region, ''),
+          destination_node_type: toString(row.destination_node_type, ''),
+          destination_opportunity_tier: toString(row.destination_opportunity_tier, ''),
+          time_cost_units: Math.max(0, Math.round(toNumber(row.time_cost_units, 0))),
+          stress_delta: Math.round(toNumber(row.stress_delta, 0)),
+          cash_cost_xgp: normalizeMoneyValue(row.cash_cost_xgp, { allowNegative: false, fallback: 0 }),
+          route_label: toString(row.route_label, ''),
+          rideshare_quality: toString(row.rideshare_quality, ''),
+          rideshare_allowed: Boolean(row.rideshare_allowed),
+          rideshare_demand_bonus_pct: normalizeFiniteNumber(row.rideshare_demand_bonus_pct, { fallback: 0 }),
+        };
+      })
+      : [],
     dinner_resolved_today: Boolean(obj.dinner_resolved_today),
     dinner_mode_today: toString(obj.dinner_mode_today, ''),
     dinner_cost_today: normalizeMoneyValue(obj.dinner_cost_today, { allowNegative: false, fallback: 0 }),
@@ -573,6 +672,7 @@ function canonicalActionKey(actionKey: GameplayActionKey): GameplayActionKey {
   if (raw.includes('business') && raw.includes('operate')) return 'operate_business';
   if (raw.includes('inventory') || raw.includes('stock')) return 'buy_inventory';
   if (raw.includes('ride') || raw.includes('delivery') || raw.includes('side_income')) return 'side_income';
+  if (raw.includes('travel') || raw.includes('map_move')) return 'travel';
   // switch_job must be resolved before work_shift — 'job' appears in both but they are distinct actions.
   if (raw === 'switch_job' || (raw.includes('switch') && raw.includes('job'))) return 'switch_job';
   if (raw.includes('work') || raw.includes('shift')) return 'work_shift';

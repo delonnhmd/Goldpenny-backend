@@ -222,10 +222,11 @@ export default function GameplayLoopScaffold({
     () => ([
       { key: 'brief', label: 'Brief' },
       { key: 'dashboard', label: 'Dashboard' },
+      { key: 'map', label: 'Map' },
       { key: 'market', label: 'Market' },
       { key: 'business', label: 'Business' },
     ]
-      .filter((item) => !(onboardingActive && item.key === 'business'))
+      .filter((item) => !(onboardingActive && (item.key === 'business' || item.key === 'map')))
       .map((item) => ({
         ...item,
         onPress: () => {

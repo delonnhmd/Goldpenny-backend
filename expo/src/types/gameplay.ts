@@ -52,13 +52,51 @@ export interface CompletedShiftSnapshot {
 
 export interface RideshareStateSnapshot {
   can_rideshare: boolean;
-  status: 'available' | 'shift_active' | 'limit_reached' | 'not_enough_time' | string;
+  status: 'available' | 'shift_active' | 'limit_reached' | 'not_enough_time' | 'location_restricted' | string;
   reason: string;
   trips_today: number;
   max_trips: number;
   remaining_trips: number;
   hours_remaining_today: number;
   mode: 'morning_peak' | 'midday' | 'evening_peak' | 'night' | string;
+  time_cost_per_trip_units?: number;
+  current_location_key?: string;
+  current_location_label?: string;
+  current_location_region?: string;
+  location_tier?: string;
+  rideshare_allowed_here?: boolean;
+  location_label?: string;
+  demand_bonus_pct?: number;
+  stress_delta_modifier?: number;
+  estimated_pay_min_per_trip?: number;
+  estimated_pay_max_per_trip?: number;
+}
+
+export interface CityMapNodeSnapshot {
+  key: string;
+  label: string;
+  region: string;
+  node_type: string;
+  opportunity_tier: string;
+  rideshare_quality: string;
+  is_current_location: boolean;
+}
+
+export interface TravelOptionSnapshot {
+  from_key: string;
+  from_label: string;
+  destination_key: string;
+  destination_label: string;
+  destination_region: string;
+  destination_node_type: string;
+  destination_opportunity_tier: string;
+  time_cost_units: number;
+  stress_delta: number;
+  cash_cost_xgp: number;
+  route_label: string;
+  rideshare_quality: string;
+  rideshare_allowed: boolean;
+  rideshare_demand_bonus_pct: number;
 }
 
 export interface WorkStateSnapshot {
@@ -108,6 +146,18 @@ export interface WorkStateSnapshot {
   survival_health_delta?: number;
   survival_stress_delta?: number;
   meals_recorded_today?: number;
+  current_location_key?: string;
+  current_location_label?: string;
+  current_location_region?: string;
+  city_map?: {
+    current_location_key: string;
+    current_location_label: string;
+    current_location_region: string;
+    current_location_node_type: string;
+    nodes: CityMapNodeSnapshot[];
+    travel_options: TravelOptionSnapshot[];
+  } | null;
+  travel_options?: TravelOptionSnapshot[];
   dinner_resolved_today?: boolean;
   dinner_mode_today?: string;
   dinner_cost_today?: number;

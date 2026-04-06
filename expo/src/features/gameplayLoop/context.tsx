@@ -460,7 +460,11 @@ export function GameplayLoopProvider({
   );
 
   const executeAction = useCallback(async (action: DailyActionItem): Promise<boolean> => {
-    const executionGuard = dailySession.canExecuteAction(action);
+    const explicitTimeCost = Number((action.parameters as Record<string, unknown> | undefined)?.time_cost_units);
+    const executionGuard = dailySession.canExecuteAction(
+      action,
+      Number.isFinite(explicitTimeCost) ? explicitTimeCost : undefined,
+    );
     if (!executionGuard.allowed) {
       setFeedback({
         tone: 'error',

@@ -45,6 +45,14 @@ from app.services.daily_settlement_service import (
     get_latest_settlement_summary,
 )
 from app.services.dinner_survival_service import apply_manual_meal_action
+from app.services.city_map_service import (
+    build_city_map_snapshot,
+    ensure_player_location,
+    get_location_label,
+    get_location_region,
+    get_travel_rule,
+    normalize_location_key,
+)
 from app.services.day_progression_service import run_player_next_day
 from app.services.job_market_service import (
     JobMarketError,
@@ -504,6 +512,44 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
         }
     )
 
+    current_location_key = str(work_state.get("current_location_key") or "home")
+    current_location_label = str(work_state.get("current_location_label") or "Home")
+    travel_options = (
+        work_state.get("travel_options")
+        if isinstance(work_state.get("travel_options"), list)
+        else []
+    )
+    suggested_destination = None
+    if travel_options:
+        suggested_destination = str(travel_options[0].get("destination_key") or "")
+    travel_action_payload = {
+        "action_key": "travel",
+        "title": "Travel",
+        "description": f"Move from {current_location_label} to another location. Travel consumes time.",
+        "status": "available",
+        "blockers": [],
+        "tradeoffs": ["Better locations can improve ride share outcomes but cost time."],
+        "warnings": [],
+        "confidence_level": "medium",
+        "parameters": {
+            "from_location_key": current_location_key,
+            "destination_key": suggested_destination,
+            "travel_options": travel_options,
+        },
+    }
+    if bool(work_state.get("day_settled")):
+        travel_action_payload["status"] = "blocked"
+        travel_action_payload["blockers"] = ["Day already settled. Start next day to travel."]
+        blocked_actions.append(travel_action_payload)
+    elif shift_active:
+        travel_action_payload["status"] = "blocked"
+        travel_action_payload["blockers"] = [
+            f"Travel unlocks after the active shift ends at {work_state.get('shift_ends_at') or 'shift completion'}."
+        ]
+        blocked_actions.append(travel_action_payload)
+    else:
+        available_actions.append(travel_action_payload)
+
     if shift_active:
         top_tradeoffs.append("Your main shift is in progress. The backend will unlock post-shift actions after completion.")
     elif is_weekend:
@@ -752,6 +798,24 @@ def post_gameplay_finalize_work_state(player_id: str, db: Session = Depends(get_
     return work_state
 
 
+@router.get("/player/{player_id}/city-map")
+def get_gameplay_city_map(player_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+    player = _resolve_player(db, player_id)
+    work_state = _sync_player_work_state(db, player)
+    current_location_key = ensure_player_location(player)
+    snapshot = build_city_map_snapshot(current_location_key=current_location_key)
+    return {
+        "player_id": str(player.id),
+        "current_day": int(work_state.get("current_game_day") or _current_game_day(db)),
+        "current_location_key": snapshot.get("current_location_key"),
+        "current_location_label": snapshot.get("current_location_label"),
+        "current_location_region": snapshot.get("current_location_region"),
+        "nodes": snapshot.get("nodes", []),
+        "travel_options": snapshot.get("travel_options", []),
+        "work_state": work_state,
+    }
+
+
 @router.get("/player/{player_id}/end-of-day-summary")
 def get_gameplay_end_of_day_summary(player_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     logger.info(
@@ -943,7 +1007,7 @@ def preview_gameplay_action(
         "debug_meta": {"preview_route": "canonical"},
     }
 
-    if key in {"switch_job", "study", "rest", "side_income"} and bool(work_state.get("main_shift_active_flag")):
+    if key in {"switch_job", "study", "rest", "side_income", "travel"} and bool(work_state.get("main_shift_active_flag")):
         base["blockers"] = [
             f"Main shift is active until {work_state.get('shift_ends_at') or 'backend completion'}."
         ]
@@ -995,6 +1059,52 @@ def preview_gameplay_action(
         base["expected_stress_impact"] = {"label": "Stress", "direction": "up", "amount": 5, "text": "+5"}
         base["expected_time_impact"] = {"label": "Time", "direction": "flat", "amount": 0, "text": "No time cost"}
         base["warnings"] = [f"You will owe {due} XGP total. Pay before weekly settlement to avoid credit damage."]
+    elif key == "travel":
+        source_key = ensure_player_location(player)
+        destination_key = normalize_location_key(
+            params.get("destination_key") or params.get("to_location_key") or params.get("location_key")
+        )
+        travel_rule = get_travel_rule(source_key, destination_key)
+        if destination_key == source_key:
+            base["summary"] = "You are already at that location."
+            base["blockers"] = ["Select a different destination."]
+            base["expected_time_impact"] = {"label": "Time", "direction": "flat", "amount": 0, "text": "No time cost"}
+        else:
+            time_cost = int(travel_rule.time_cost_units)
+            stress_delta = int(travel_rule.stress_delta)
+            cash_cost = float(travel_rule.cash_cost_xgp)
+            base["summary"] = (
+                f"Travel from {get_location_label(source_key)} to {get_location_label(destination_key)}."
+            )
+            base["expected_time_impact"] = {
+                "label": "Time",
+                "direction": "down",
+                "amount": -time_cost,
+                "text": f"-{time_cost} time unit{'s' if time_cost != 1 else ''}",
+            }
+            base["expected_stress_impact"] = {
+                "label": "Stress",
+                "direction": "up" if stress_delta > 0 else "flat",
+                "amount": stress_delta,
+                "text": f"{'+' if stress_delta > 0 else ''}{stress_delta}",
+            }
+            base["expected_cash_impact"] = {
+                "label": "Cash",
+                "direction": "down" if cash_cost > 0 else "flat",
+                "amount": -cash_cost if cash_cost > 0 else 0,
+                "text": f"-{cash_cost:.2f} XGP" if cash_cost > 0 else "0 XGP",
+            }
+            if _safe_int(getattr(player, "hours_available", 0), 0) < time_cost:
+                base["blockers"] = [f"Not enough time left today for travel ({time_cost} units needed)."]
+            elif cash_cost > 0 and _safe_float(getattr(player, "cash", 0), 0.0) < cash_cost:
+                base["blockers"] = [f"Not enough cash for travel cost ({cash_cost:.2f} XGP)."]
+            else:
+                base["warnings"] = [
+                    (
+                        f"Route: {travel_rule.route_label}. "
+                        f"Destination region: {get_location_region(destination_key)}."
+                    )
+                ]
     elif key == "debt_payment":
         debt_now = max(0.0, _safe_float(getattr(player, "debt_xgp", 0), 0.0))
         cash_now = max(0.0, _safe_float(getattr(player, "cash", 0), 0.0))
@@ -1247,6 +1357,95 @@ def execute_gameplay_action(
         except Exception as exc:
             db.rollback()
             _raise_gameplay_http_error(exc)
+
+    if action_key == "travel":
+        _assert_no_active_main_shift(work_state, action_key=action_key)
+        if bool(work_state.get("day_settled")):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Day already settled. Start next day to travel.",
+            )
+        from_location_key = ensure_player_location(player)
+        destination_key = normalize_location_key(
+            params.get("destination_key") or params.get("to_location_key") or params.get("location_key")
+        )
+        if destination_key == from_location_key:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="You are already at this location.",
+            )
+
+        travel_rule = get_travel_rule(from_location_key, destination_key)
+        time_cost_units = int(travel_rule.time_cost_units)
+        stress_delta = int(travel_rule.stress_delta)
+        travel_cash_cost = Decimal(str(travel_rule.cash_cost_xgp)).quantize(Decimal("0.01"))
+        hours_before = _safe_int(getattr(player, "hours_available", 0), 0)
+        if hours_before < time_cost_units:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Not enough time left today for travel ({time_cost_units} units needed).",
+            )
+        cash_before = Decimal(str(_safe_float(getattr(player, "cash", 0), 0.0))).quantize(Decimal("0.01"))
+        if travel_cash_cost > Decimal("0.00") and cash_before < travel_cash_cost:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Not enough cash for travel cost ({travel_cash_cost:.2f} XGP).",
+            )
+
+        stress_before = _safe_int(getattr(player, "stress", 0), 0)
+        player.current_location_key = destination_key  # type: ignore[assignment]
+        player.hours_available = max(0, hours_before - time_cost_units)  # type: ignore[assignment]
+        player.stress = max(0, min(100, stress_before + stress_delta))
+        cash_after = cash_before
+        if travel_cash_cost > Decimal("0.00"):
+            cash_after = (cash_before - travel_cash_cost).quantize(Decimal("0.01"))
+            player.cash = cash_after  # type: ignore[assignment]
+            record_gameplay_transaction(
+                db,
+                player=player,
+                day=_current_game_day(db),
+                transaction_type="expense",
+                category="gas",
+                amount=travel_cash_cost,
+                description=(
+                    f"Travel cost: {get_location_label(from_location_key)} -> "
+                    f"{get_location_label(destination_key)}"
+                ),
+            )
+        db.commit()
+        db.refresh(player)
+
+        result_summary = (
+            f"Traveled from {get_location_label(from_location_key)} to {get_location_label(destination_key)} "
+            f"(-{time_cost_units} time unit{'s' if time_cost_units != 1 else ''}"
+            f"{', Stress +' + str(stress_delta) if stress_delta > 0 else ''}"
+            f"{', -' + format(travel_cash_cost, '.2f') + ' XGP' if travel_cash_cost > Decimal('0.00') else ''})."
+        )
+        return {
+            "player_id": str(player.id),
+            "action_key": action_key,
+            "success": True,
+            "message": "Travel completed.",
+            "result_summary": result_summary,
+            "time_cost_units": time_cost_units,
+            "cash_delta_xgp": -float(travel_cash_cost),
+            "stress_delta": _safe_int(getattr(player, "stress", 0), stress_before) - stress_before,
+            "health_delta": 0,
+            "raw_result": {
+                "from_location_key": from_location_key,
+                "from_location_label": get_location_label(from_location_key),
+                "to_location_key": destination_key,
+                "to_location_label": get_location_label(destination_key),
+                "destination_region": get_location_region(destination_key),
+                "travel_time_units": time_cost_units,
+                "travel_stress_delta": stress_delta,
+                "travel_cash_cost_xgp": float(travel_cash_cost),
+                "route_label": travel_rule.route_label,
+                "hours_before": hours_before,
+                "hours_after": _safe_int(getattr(player, "hours_available", 0), 0),
+                "work_state": build_work_state_payload(db, player),
+            },
+        }
 
     if action_key == "side_income":
         _assert_no_active_main_shift(work_state, action_key=action_key)

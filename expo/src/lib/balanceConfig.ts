@@ -18,6 +18,7 @@ export const BALANCE = {
     study: 2,
     debt_payment: 1,
     recovery_action: 1,
+    travel: 1,
     switch_job: 1,
     change_region: 1,
   } as Record<string, number>,
@@ -33,6 +34,7 @@ export const BALANCE = {
     study: 2,
     debt_payment: 1,      // once per day; prevents free debt-loop
     recovery_action: 1,   // one session-level recovery per day
+    travel: 12,
     switch_job: 1,
     change_region: 1,
   } as Record<string, number>,

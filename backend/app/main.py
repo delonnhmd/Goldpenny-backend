@@ -53,6 +53,7 @@ def _run_schema_migrations() -> None:
         "ALTER TABLE stocks ADD COLUMN growth_bias FLOAT NOT NULL DEFAULT 0.0",
         # Step 7: player region for business demand modifiers.
         "ALTER TABLE players ADD COLUMN region VARCHAR(40) NOT NULL DEFAULT 'suburban'",
+        "ALTER TABLE players ADD COLUMN IF NOT EXISTS current_location_key VARCHAR(80) NOT NULL DEFAULT 'home'",
         # Onboarding MVP: basic player profile field.
         "ALTER TABLE players ADD COLUMN bank_savings_xgp NUMERIC(14,4) NOT NULL DEFAULT 0",
         "ALTER TABLE players ADD COLUMN debt_xgp NUMERIC(14,4) NOT NULL DEFAULT 0",

@@ -155,19 +155,44 @@ function formatRideshareMode(mode: RideshareMode): string {
   return 'Midday';
 }
 
-function getRideshareTripPreview(mode: RideshareMode, trips: number): {
+function getRideshareTripPreview(
+  mode: RideshareMode,
+  trips: number,
+  options?: {
+  payMinPerTrip?: number;
+  payMaxPerTrip?: number;
+  stressModifier?: number;
+},
+): {
   payMin: number;
   payMax: number;
   stress: number;
   health: number;
 } {
+  const stressModifier = Number(options?.stressModifier || 0);
+  if (Number.isFinite(options?.payMinPerTrip) && Number.isFinite(options?.payMaxPerTrip)) {
+    let baseStress = 2;
+    let baseHealth = -1;
+    if (mode === 'night') {
+      baseStress = 4;
+      baseHealth = -3;
+    } else if (mode === 'morning_peak' || mode === 'evening_peak') {
+      baseStress = 5;
+    }
+    return {
+      payMin: trips * Number(options?.payMinPerTrip || 0),
+      payMax: trips * Number(options?.payMaxPerTrip || 0),
+      stress: trips * Math.max(1, baseStress + stressModifier),
+      health: trips * baseHealth,
+    };
+  }
   if (mode === 'night') {
-    return { payMin: trips * 22, payMax: trips * 35, stress: trips * 4, health: trips * -3 };
+    return { payMin: trips * 22, payMax: trips * 35, stress: trips * Math.max(1, 4 + stressModifier), health: trips * -3 };
   }
   if (mode === 'morning_peak' || mode === 'evening_peak') {
-    return { payMin: trips * 18, payMax: trips * 28, stress: trips * 5, health: trips * -1 };
+    return { payMin: trips * 18, payMax: trips * 28, stress: trips * Math.max(1, 5 + stressModifier), health: trips * -1 };
   }
-  return { payMin: trips * 12, payMax: trips * 20, stress: trips * 2, health: trips * -1 };
+  return { payMin: trips * 12, payMax: trips * 20, stress: trips * Math.max(1, 2 + stressModifier), health: trips * -1 };
 }
 
 function sanitizeRideShareReason(reason: string | null | undefined): string {
@@ -363,6 +388,20 @@ export default function DashboardScreen() {
 
   const dayLabel = loop.dailySession.currentDay || loop.dailyProgression.currentGameDay || 1;
   const rideshareState = workState?.rideshare_state || null;
+  const currentLocationLabel = String(
+    workState?.current_location_label
+    || rideshareState?.current_location_label
+    || 'Home',
+  );
+  const currentLocationRegion = String(
+    workState?.current_location_region
+    || rideshareState?.current_location_region
+    || '',
+  );
+  const rideshareDemandBonusPct = Number(rideshareState?.demand_bonus_pct || 0);
+  const rideshareStressModifier = Number(rideshareState?.stress_delta_modifier || 0);
+  const ridesharePayMinPerTrip = Number(rideshareState?.estimated_pay_min_per_trip || Number.NaN);
+  const ridesharePayMaxPerTrip = Number(rideshareState?.estimated_pay_max_per_trip || Number.NaN);
   const rideshareMode = (
     rideshareState?.mode
       ? String(rideshareState.mode)
@@ -1224,8 +1263,17 @@ export default function DashboardScreen() {
               value: rideshareStatusLabel,
               tone: rideshareAvailable ? 'positive' : backendShiftActive || autoClockingOut ? 'warning' : 'neutral',
             },
+            {
+              label: 'Current location',
+              value: currentLocationRegion ? `${currentLocationLabel} (${currentLocationRegion})` : currentLocationLabel,
+            },
             { label: 'Houston time', value: `${formatHoustonNow(houstonNow)} CT` },
             { label: 'Mode', value: formatRideshareMode(rideshareMode) },
+            {
+              label: 'Location demand',
+              value: `${rideshareDemandBonusPct >= 0 ? '+' : ''}${rideshareDemandBonusPct.toFixed(0)}%`,
+              tone: rideshareDemandBonusPct > 0 ? 'positive' : rideshareDemandBonusPct < 0 ? 'warning' : 'neutral',
+            },
             {
               label: 'Trips today',
               value: `${Math.round(rideshareTripsToday)} / ${rideshareDailyCap}`,
@@ -1236,13 +1284,21 @@ export default function DashboardScreen() {
               value: formatMoney(rideshareEarnedToday),
               tone: rideshareEarnedToday > 0 ? 'positive' : 'neutral',
             },
-            { label: 'Time per trip', value: '1 time unit (20-45 mins simulated)' },
+            { label: 'Time per trip', value: `${Math.max(1, Number(rideshareState?.time_cost_per_trip_units || 1))} time unit (20-45 mins simulated)` },
           ]}
         />
 
         <View style={styles.recoveryList}>
           {RIDESHARE_TRIP_OPTIONS.map((tripOption) => {
-            const preview = getRideshareTripPreview(rideshareMode, tripOption);
+            const preview = getRideshareTripPreview(
+              rideshareMode,
+              tripOption,
+              {
+                payMinPerTrip: Number.isFinite(ridesharePayMinPerTrip) ? ridesharePayMinPerTrip : undefined,
+                payMaxPerTrip: Number.isFinite(ridesharePayMaxPerTrip) ? ridesharePayMaxPerTrip : undefined,
+                stressModifier: rideshareStressModifier,
+              },
+            );
             const buttonDisabledReason = rideshareDisableReasonsByTrip[tripOption as 1 | 3 | 5];
             return (
               <View key={`rideshare_${tripOption}`} style={styles.recoveryRow}>

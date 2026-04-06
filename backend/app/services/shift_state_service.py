@@ -34,6 +34,14 @@ from app.services.dinner_survival_service import (
     ensure_day_dinner_resolved,
     run_offline_survival_catchup,
 )
+from app.services.city_map_service import (
+    build_city_map_snapshot,
+    ensure_player_location,
+    get_location_label,
+    get_location_region,
+    get_rideshare_location_profile,
+    estimate_rideshare_pay_range,
+)
 from app.services.gameplay_transaction_service import record_gameplay_transaction
 from app.services.job_key_service import normalize_main_job_key, supported_main_job_keys_text
 from app.services.job_progress_service import normalize_shift_type, upsert_employment_foundation, work_xp_for_hours
@@ -414,6 +422,7 @@ def _build_rideshare_state(
     scheduled_shift_end_label: str | None,
     side_income_hours_today: float,
     hours_available: int,
+    current_location_key: str,
     now_houston: datetime,
 ) -> dict[str, Any]:
     max_trips = int(RIDESHARE_DAILY_CAP)
@@ -422,6 +431,12 @@ def _build_rideshare_state(
     remaining_by_cap = max(0, max_trips - trips_today)
     remaining_trips = max(0, min(remaining_by_cap, hours_remaining_today))
     mode = _rideshare_mode_for_houston_hour(int(now_houston.hour))
+    location_profile = get_rideshare_location_profile(current_location_key, mode)
+    pay_min, pay_max = estimate_rideshare_pay_range(
+        mode=mode,
+        location_key=current_location_key,
+        trips=1,
+    )
 
     status = "available"
     reason = "Ride Share is available now."
@@ -431,6 +446,12 @@ def _build_rideshare_state(
     elif active_shift:
         status = "shift_active"
         reason = "Ride Share is unavailable during an active shift."
+    elif not bool(location_profile.get("allowed")):
+        status = "location_restricted"
+        reason = str(
+            location_profile.get("reason_if_blocked")
+            or "Ride share is unavailable at this location."
+        )
     elif not rideshare_unlocked:
         status = "shift_active"
         reason = f"Available after {scheduled_shift_end_label or 'shift end'} (shift end)."
@@ -444,6 +465,10 @@ def _build_rideshare_state(
         reason = "Available all day (weekend)."
     elif no_shift_scheduled:
         reason = "Available all day (no required shift)."
+    else:
+        demand_note = str(location_profile.get("label") or "").strip()
+        if demand_note:
+            reason = f"Ride Share is available now. {demand_note}."
 
     return {
         "can_rideshare": status == "available",
@@ -454,6 +479,17 @@ def _build_rideshare_state(
         "remaining_trips": remaining_trips,
         "hours_remaining_today": hours_remaining_today,
         "mode": mode,
+        "time_cost_per_trip_units": 1,
+        "current_location_key": str(location_profile.get("location_key") or current_location_key),
+        "current_location_label": str(location_profile.get("location_label") or get_location_label(current_location_key)),
+        "current_location_region": str(location_profile.get("region") or get_location_region(current_location_key)),
+        "location_tier": str(location_profile.get("tier") or "moderate"),
+        "rideshare_allowed_here": bool(location_profile.get("allowed")),
+        "location_label": str(location_profile.get("label") or ""),
+        "demand_bonus_pct": _safe_float(location_profile.get("demand_bonus_pct"), 0.0),
+        "stress_delta_modifier": _safe_int(location_profile.get("stress_delta_modifier"), 0),
+        "estimated_pay_min_per_trip": round(pay_min, 2),
+        "estimated_pay_max_per_trip": round(pay_max, 2),
     }
 
 
@@ -691,6 +727,10 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
     )
     no_shift_scheduled = not bool(schedule["has_main_job"])
     day_settled = int(getattr(player, "last_settled_day", 0) or 0) == current_day
+    current_location_key = ensure_player_location(player)
+    current_location_label = get_location_label(current_location_key)
+    current_location_region = get_location_region(current_location_key)
+    city_map_snapshot = build_city_map_snapshot(current_location_key=current_location_key)
     if day_settled and (pds is not None) and not bool(getattr(pds, "dinner_resolved", False)):
         ensure_day_dinner_resolved(
             db,
@@ -739,6 +779,7 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         scheduled_shift_end_label=schedule["scheduled_shift_end_label"],
         side_income_hours_today=side_income_hours_today,
         hours_available=int(getattr(player, "hours_available", 0) or 0),
+        current_location_key=current_location_key,
         now_houston=now,
     )
     rideshare_available = bool(rideshare_state.get("can_rideshare"))
@@ -793,6 +834,11 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         "survival_health_delta": -5 if bool(getattr(pds, "survival_penalty_applied", False)) else 0,
         "survival_stress_delta": 4 if bool(getattr(pds, "survival_penalty_applied", False)) else 0,
         "meals_recorded_today": _safe_int(getattr(pds, "meals_recorded", 0) if pds is not None else 0, 0),
+        "current_location_key": current_location_key,
+        "current_location_label": current_location_label,
+        "current_location_region": current_location_region,
+        "city_map": city_map_snapshot,
+        "travel_options": city_map_snapshot.get("travel_options", []),
         "dinner_resolved_today": dinner_resolved_today,
         "dinner_mode_today": dinner_mode_today,
         "dinner_cost_today": round(dinner_cost_today, 4),
@@ -1190,6 +1236,9 @@ def resolve_expired_shift_if_needed(
             "rideshare_trips_today": int(((preview_state or {}).get("rideshare_state") or {}).get("trips_today") or 0),
             "rideshare_trips_today_after_reset": int(((preview_state or {}).get("rideshare_state") or {}).get("trips_today") or 0),
             "rideshare_max_trips": int(((preview_state or {}).get("rideshare_state") or {}).get("max_trips") or int(RIDESHARE_DAILY_CAP)),
+            "current_location_key": str((preview_state or {}).get("current_location_key") or ""),
+            "current_location_label": str((preview_state or {}).get("current_location_label") or ""),
+            "travel_options_count": len(((preview_state or {}).get("travel_options") or [])),
             "side_income_hours_today": _safe_float(
                 getattr(
                     (
