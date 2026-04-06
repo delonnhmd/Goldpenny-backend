@@ -70,6 +70,12 @@ class PlayerDailyState(Base):
     missed_penalty = Column(Numeric(14, 4), nullable=False, default=0)
     meals_recorded = Column(Integer, nullable=False, default=0)
     survival_penalty_applied = Column(Boolean, nullable=False, default=False)
+    dinner_resolved = Column(Boolean, nullable=False, default=False)
+    dinner_mode = Column(Text, nullable=True)
+    dinner_cost = Column(Numeric(14, 4), nullable=False, default=0)
+    food_debt_added = Column(Numeric(14, 4), nullable=False, default=0)
+    night_eat_reminder_shown = Column(Boolean, nullable=False, default=False)
+    dinner_resolved_at = Column(DateTime(timezone=True), nullable=True)
     # Core daily tracking metrics.
     worked_hours = Column(Integer, nullable=False, default=0)
     gross_income_xgp = Column(Numeric(14, 4), nullable=False, default=0)

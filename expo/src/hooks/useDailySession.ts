@@ -30,6 +30,7 @@ const MIN_ACTION_TIME_COST_UNITS = BALANCE.SAFETY.MIN_TIME_COST_UNITS;
 const MAX_ACTION_TIME_COST_UNITS = BALANCE.SAFETY.MAX_TIME_COST_UNITS;
 const DEFAULT_ACTION_TIME_COST: Record<string, number> = BALANCE.ACTION_TIME_COST;
 const DEFAULT_ACTION_CAPS: Record<string, number> = BALANCE.ACTION_CAPS;
+const ZERO_TIME_ACTION_KEYS = new Set(['eat_meal', 'quick_loan', 'debt_payment', 'select_housing']);
 
 const MAX_PERSISTED_ACTION_COUNT = 99;
 
@@ -46,7 +47,10 @@ function normalizeActionKey(key: GameplayActionKey): string {
   if (raw.includes('ride') || raw.includes('delivery') || raw.includes('side_income')) return 'side_income';
   if (raw.includes('work') || raw.includes('shift')) return 'work_shift';
   if (raw.includes('study') || raw.includes('train') || raw.includes('cert')) return 'study';
+  if (raw.includes('meal') || raw.includes('eat')) return 'eat_meal';
+  if (raw.includes('quick') && raw.includes('loan')) return 'quick_loan';
   if (raw.includes('debt') || raw.includes('payment')) return 'debt_payment';
+  if (raw === 'select_housing' || raw.includes('select_housing')) return 'select_housing';
   if (raw.includes('housing') || raw.includes('region') || raw.includes('move')) return 'change_region';
   if (raw.includes('rest') || raw.includes('recover') || raw.includes('sleep')) return 'rest';
   return raw.slice(0, 64);
@@ -208,10 +212,14 @@ export function useDailySession(playerId: string) {
 
   const estimateTimeCost = useCallback(
     (actionKey: GameplayActionKey, explicitCost?: number): number => {
+      const normalized = normalizeActionKey(actionKey);
+      if (ZERO_TIME_ACTION_KEYS.has(normalized)) {
+        return 0;
+      }
       if (Number.isFinite(explicitCost)) {
+        if (Number(explicitCost) <= 0) return 0;
         return Math.max(MIN_ACTION_TIME_COST_UNITS, Math.min(MAX_ACTION_TIME_COST_UNITS, Number(explicitCost)));
       }
-      const normalized = normalizeActionKey(actionKey);
       const mapped = DEFAULT_ACTION_TIME_COST[normalized] ?? 2;
       return Math.max(MIN_ACTION_TIME_COST_UNITS, Math.min(MAX_ACTION_TIME_COST_UNITS, mapped));
     },

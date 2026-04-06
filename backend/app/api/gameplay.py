@@ -33,7 +33,6 @@ from app.engine.economy_presentation_service import build_economy_presentation_s
 from app.engine.rideshare_engine import process_rideshare_action
 from app.models.game_state import GameState
 from app.models.player import Player
-from app.models.player_daily_state import PlayerDailyState
 from app.services.daily_brief_service import (
     DailyBriefError,
     DailyBriefNotFoundError,
@@ -45,6 +44,7 @@ from app.services.daily_settlement_service import (
     SettlementValidationError,
     get_latest_settlement_summary,
 )
+from app.services.dinner_survival_service import apply_manual_meal_action
 from app.services.day_progression_service import run_player_next_day
 from app.services.job_market_service import (
     JobMarketError,
@@ -73,7 +73,10 @@ from app.services.shift_state_service import (
     resolve_expired_shift_if_needed,
     start_main_shift,
 )
-from app.services.gameplay_transaction_service import list_gameplay_transactions_for_day
+from app.services.gameplay_transaction_service import (
+    list_gameplay_transactions_for_day,
+    record_gameplay_transaction,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -992,6 +995,32 @@ def preview_gameplay_action(
         base["expected_stress_impact"] = {"label": "Stress", "direction": "up", "amount": 5, "text": "+5"}
         base["expected_time_impact"] = {"label": "Time", "direction": "flat", "amount": 0, "text": "No time cost"}
         base["warnings"] = [f"You will owe {due} XGP total. Pay before weekly settlement to avoid credit damage."]
+    elif key == "debt_payment":
+        debt_now = max(0.0, _safe_float(getattr(player, "debt_xgp", 0), 0.0))
+        cash_now = max(0.0, _safe_float(getattr(player, "cash", 0), 0.0))
+        max_payable = round(min(cash_now, debt_now), 2)
+        requested_amount = _safe_float(params.get("payment_amount"), max_payable if max_payable > 0 else 10.0)
+        suggested_amount = round(max(0.01, min(max_payable, requested_amount)), 2) if max_payable > 0 else 0.0
+        base["summary"] = "Pay debt directly to reduce pressure and improve cash clarity."
+        base["expected_cash_impact"] = {
+            "label": "Cash",
+            "direction": "down",
+            "amount": -suggested_amount,
+            "text": f"-{suggested_amount:.2f} XGP",
+        }
+        base["expected_distress_impact"] = {
+            "label": "Distress",
+            "direction": "down",
+            "amount": suggested_amount,
+            "text": f"Debt -{suggested_amount:.2f} XGP",
+        }
+        base["expected_time_impact"] = {"label": "Time", "direction": "flat", "amount": 0, "text": "No time cost"}
+        if max_payable <= 0:
+            base["blockers"] = ["No payable debt amount right now. Add cash or wait for a debt balance."]
+        else:
+            base["warnings"] = [
+                f"Current cash {cash_now:.2f} XGP | debt {debt_now:.2f} XGP | max payable now {max_payable:.2f} XGP."
+            ]
     elif key == "select_housing":
         housing_type = str(params.get("housing_type") or "suburban").lower()
         HOUSING_INFO = {
@@ -1319,68 +1348,51 @@ def execute_gameplay_action(
     # ── Step 74: eat_meal ─────────────────────────────────────────────────────
     if action_key == "eat_meal":
         meal_type = str(params.get("meal_type") or "meal").strip().lower()
-        MEAL_COSTS: dict[str, int] = {"breakfast": 6, "lunch": 6, "dinner": 6}
-        meal_cost = Decimal(str(MEAL_COSTS.get(meal_type, 6)))
         current_day = _current_game_day(db)
-        cash_before = Decimal(str(_safe_float(getattr(player, "cash", 0))))
-        if cash_before < meal_cost:
+        latest_work_state = _sync_player_work_state(db, player)
+        if bool(latest_work_state.get("day_settled")):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Not enough XGP for a {meal_type}. Need {meal_cost} XGP.",
+                detail="Day finalized. Dinner outcome already recorded.",
             )
-        stress_before = _safe_int(player.stress, 0)
-        health_before = _safe_int(player.health, 100)
-        player.cash = cash_before - meal_cost  # type: ignore[assignment]
-        player.health = min(100, health_before + 5)
-        player.stress = max(0, stress_before - 3)
-        pds = (
-            db.query(PlayerDailyState)
-            .filter(
-                PlayerDailyState.player_id == player.id,
-                PlayerDailyState.day_number == current_day,
+        if meal_type == "dinner" and bool(latest_work_state.get("dinner_resolved_today")):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Dinner already resolved today.",
             )
-            .first()
-        )
-        if pds is None:
-            pds = PlayerDailyState(
-                player_id=player.id,
+        try:
+            result = apply_manual_meal_action(
+                db,
+                player=player,
                 day_number=current_day,
-                hours_available_start=int(player.hours_available or 0),
-                hours_available_end=int(player.hours_available or 0),
-                worked_main_job=False,
-                did_settlement=False,
-                stress_start=stress_before,
-                stress_end=_safe_int(player.stress, stress_before),
-                health_start=health_before,
-                health_end=_safe_int(player.health, health_before),
-                cash_start=cash_before,
-                cash_end=Decimal(str(player.cash or cash_before)),
+                meal_type=meal_type,
             )
-            db.add(pds)
-            db.flush()
-        pds.meals_recorded = int(getattr(pds, "meals_recorded", 0) or 0) + 1
-        pds.stress_end = _safe_int(player.stress, stress_before)
-        pds.health_end = _safe_int(player.health, health_before)
-        pds.cash_end = Decimal(str(player.cash or cash_before))
-        db.commit()
+            db.commit()
+        except ValueError as exc:
+            db.rollback()
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+        except Exception as exc:
+            db.rollback()
+            _raise_gameplay_http_error(exc)
+
+        debt_added = _safe_float(result.get("debt_added_xgp"), 0.0)
+        debt_note = f", +{debt_added:.2f} debt" if debt_added > 0 else ""
         return {
             "player_id": str(player.id),
             "action_key": action_key,
             "success": True,
             "message": f"{meal_type.capitalize()} eaten.",
-            "result_summary": f"You ate {meal_type} (-{meal_cost} XGP, +5 health, -3 stress).",
+            "result_summary": (
+                f"You ate {meal_type} (-{_safe_float(result.get('meal_cost_xgp'), 6.0):.2f} XGP"
+                f"{debt_note}, +5 health, -3 stress)."
+            ),
             "time_cost_units": 0,
-            "cash_delta_xgp": -float(meal_cost),
-            "stress_delta": player.stress - stress_before,
-            "health_delta": player.health - health_before,
+            "cash_delta_xgp": -_safe_float(result.get("cash_used_xgp"), 0.0),
+            "stress_delta": _safe_int(result.get("stress_delta"), 0),
+            "health_delta": _safe_int(result.get("health_delta"), 0),
             "raw_result": {
-                "meal_type": meal_type,
-                "meal_cost_xgp": float(meal_cost),
-                "cash_after": float(player.cash),  # type: ignore[arg-type]
-                "health_before": health_before,
-                "health_after": _safe_int(player.health, health_before),
-                "stress_before": stress_before,
-                "stress_after": _safe_int(player.stress, stress_before),
+                **result,
+                "work_state": build_work_state_payload(db, player),
             },
         }
 
@@ -1418,6 +1430,75 @@ def execute_gameplay_action(
         }
 
     # ── Step 74: select_housing ───────────────────────────────────────────────
+    if action_key == "debt_payment":
+        raw_amount = params.get("payment_amount")
+        if raw_amount is None:
+            raw_amount = params.get("amount")
+        try:
+            requested_amount = Decimal(str(raw_amount or 0)).quantize(Decimal("0.01"))
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="payment_amount must be a valid number.",
+            )
+
+        if requested_amount <= Decimal("0.00"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="payment_amount must be greater than 0.",
+            )
+
+        cash_before = Decimal(str(_safe_float(getattr(player, "cash", 0)))).quantize(Decimal("0.01"))
+        debt_before = Decimal(str(_safe_float(getattr(player, "debt_xgp", 0)))).quantize(Decimal("0.01"))
+        if debt_before <= Decimal("0.00"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="No current debt to pay.",
+            )
+        if requested_amount > cash_before:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Not enough cash for this debt payment.",
+            )
+        if requested_amount > debt_before:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Amount exceeds current debt.",
+            )
+
+        player.cash = (cash_before - requested_amount).quantize(Decimal("0.01"))  # type: ignore[assignment]
+        player.debt_xgp = (debt_before - requested_amount).quantize(Decimal("0.01"))  # type: ignore[assignment]
+        record_gameplay_transaction(
+            db,
+            player=player,
+            day=_current_game_day(db),
+            transaction_type="expense",
+            category="debt_payment",
+            amount=requested_amount,
+            description="Debt payment",
+        )
+        db.commit()
+
+        return {
+            "player_id": str(player.id),
+            "action_key": action_key,
+            "success": True,
+            "message": f"Paid {requested_amount:.2f} XGP toward debt.",
+            "result_summary": f"Debt payment: -{requested_amount:.2f} XGP cash, debt reduced by {requested_amount:.2f} XGP.",
+            "time_cost_units": 0,
+            "cash_delta_xgp": -float(requested_amount),
+            "stress_delta": 0,
+            "health_delta": 0,
+            "raw_result": {
+                "payment_amount_xgp": float(requested_amount),
+                "cash_before": float(cash_before),
+                "cash_after": _safe_float(getattr(player, "cash", 0), 0.0),
+                "debt_before": float(debt_before),
+                "debt_after": _safe_float(getattr(player, "debt_xgp", 0), 0.0),
+                "work_state": build_work_state_payload(db, player),
+            },
+        }
+
     if action_key == "select_housing":
         housing_type = str(params.get("housing_type") or "suburban").strip().lower()
         if housing_type not in ("suburban", "downtown"):

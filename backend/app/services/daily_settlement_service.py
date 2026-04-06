@@ -37,6 +37,7 @@ from app.engine.life_balance_service import apply_life_consequences_for_player
 from app.engine.personal_shock_service import apply_personal_life_event
 from app.services.business_daily_operations_service import run_player_businesses_for_day
 from app.services.consumption_behavior_service import compute_player_daily_consumption
+from app.services.dinner_survival_service import ensure_day_dinner_resolved
 from app.services.gameplay_transaction_service import record_gameplay_transaction
 from app.services.debt_credit_service import apply_daily_debt_and_credit
 from app.services.housing_region_service import compute_housing_effects_for_day
@@ -520,6 +521,14 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
             raise SettlementValidationError(f"Player day {settled_day} already settled.")
 
         pds = _get_or_create_player_daily_state(db, player, settled_day)
+        ensure_day_dinner_resolved(
+            db,
+            player=player,
+            day_number=settled_day,
+            source="end_of_day_settlement",
+            now_houston=get_houston_now(),
+            allow_debt_extension=True,
+        )
         day_start_cash = _money(_d(getattr(pds, "cash_start", player.cash_xgp)))
         pds_settled_before = bool(pds.did_settlement)
         if pds_settled_before:

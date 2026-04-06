@@ -29,6 +29,11 @@ from app.models.player import Player
 from app.models.player_daily_state import PlayerDailyState
 from app.models.side_income_action import SideIncomeAction
 from app.models.xgp_transaction import XGPTransaction
+from app.services.dinner_survival_service import (
+    compute_night_dinner_reminder,
+    ensure_day_dinner_resolved,
+    run_offline_survival_catchup,
+)
 from app.services.gameplay_transaction_service import record_gameplay_transaction
 from app.services.job_key_service import normalize_main_job_key, supported_main_job_keys_text
 from app.services.job_progress_service import normalize_shift_type, upsert_employment_foundation, work_xp_for_hours
@@ -686,6 +691,37 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
     )
     no_shift_scheduled = not bool(schedule["has_main_job"])
     day_settled = int(getattr(player, "last_settled_day", 0) or 0) == current_day
+    if day_settled and (pds is not None) and not bool(getattr(pds, "dinner_resolved", False)):
+        ensure_day_dinner_resolved(
+            db,
+            player=player,
+            day_number=current_day,
+            source="day_settled_guard",
+            now_houston=now,
+            allow_debt_extension=True,
+        )
+        pds = (
+            db.query(PlayerDailyState)
+            .filter(
+                PlayerDailyState.player_id == player.id,
+                PlayerDailyState.day_number == current_day,
+            )
+            .first()
+        )
+
+    dinner_resolved_today = bool(getattr(pds, "dinner_resolved", False)) if pds is not None else False
+    dinner_mode_today = str(getattr(pds, "dinner_mode", "") or "") if pds is not None else ""
+    dinner_cost_today = _safe_float(getattr(pds, "dinner_cost", 0) if pds is not None else 0, 0.0)
+    food_debt_added_today = _safe_float(getattr(pds, "food_debt_added", 0) if pds is not None else 0, 0.0)
+    needs_dinner_reminder, dinner_reminder_message = compute_night_dinner_reminder(
+        day_settled=day_settled,
+        active_shift=active_shift,
+        dinner_resolved=dinner_resolved_today,
+        now_houston=now,
+    )
+    if needs_dinner_reminder and pds is not None:
+        pds.night_eat_reminder_shown = True
+
     rideshare_unlocked = bool(
         not active_shift
         and (
@@ -757,6 +793,13 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         "survival_health_delta": -5 if bool(getattr(pds, "survival_penalty_applied", False)) else 0,
         "survival_stress_delta": 4 if bool(getattr(pds, "survival_penalty_applied", False)) else 0,
         "meals_recorded_today": _safe_int(getattr(pds, "meals_recorded", 0) if pds is not None else 0, 0),
+        "dinner_resolved_today": dinner_resolved_today,
+        "dinner_mode_today": dinner_mode_today,
+        "dinner_cost_today": round(dinner_cost_today, 4),
+        "food_debt_added_today": round(food_debt_added_today, 4),
+        "needs_dinner_reminder": needs_dinner_reminder,
+        "dinner_reminder_message": dinner_reminder_message,
+        "night_eat_reminder_shown": bool(getattr(pds, "night_eat_reminder_shown", False)) if pds is not None else False,
         "last_completed_shift": {
             "earned_cash_xgp": round(_safe_float(getattr(player, "main_shift_last_cash_xgp", 0), 0.0), 4),
             "xp_gained": int(getattr(player, "main_shift_last_xp_gained", 0) or 0),
@@ -1167,13 +1210,28 @@ def resolve_expired_shift_if_needed(
     )
 
     if expired:
-        return finalize_active_main_shift(
+        finalized_state = finalize_active_main_shift(
             db,
             player=player,
             now_houston=now,
             trigger="auto_resolve_expired_shift",
             require_expired=True,
         )
+        catchup_result = run_offline_survival_catchup(
+            db,
+            player=player,
+            current_day=int(finalized_state.get("current_game_day") or _current_game_day_for_player(db, player)),
+            now_houston=now,
+        )
+        if (
+            int(catchup_result.get("applied_days") or 0) > 0
+            or bool(catchup_result.get("sync_date_updated"))
+        ):
+            db.commit()
+            db.refresh(player)
+            finalized_state = build_work_state_payload(db, player, now_houston=now)
+        finalized_state["offline_survival_catchup"] = catchup_result
+        return finalized_state
 
     sync_result = sync_shift_day_rules_if_needed(
         db,
@@ -1181,8 +1239,20 @@ def resolve_expired_shift_if_needed(
         day_number=current_day,
         now_houston=now,
     )
-    if bool(sync_result.get("applied")):
+    catchup_result = run_offline_survival_catchup(
+        db,
+        player=player,
+        current_day=current_day,
+        now_houston=now,
+    )
+    if (
+        bool(sync_result.get("applied"))
+        or int(catchup_result.get("applied_days") or 0) > 0
+        or bool(catchup_result.get("sync_date_updated"))
+    ):
         db.commit()
         db.refresh(player)
 
-    return build_work_state_payload(db, player, now_houston=now)
+    work_state = build_work_state_payload(db, player, now_houston=now)
+    work_state["offline_survival_catchup"] = catchup_result
+    return work_state

@@ -33,6 +33,7 @@ export default function LifeScreen() {
   const stress = stats?.stress ?? 0;
   const health = stats?.health ?? 100;
   const debt = loop.expenseDebt?.debtAmount ?? stats?.debt_xgp ?? 0;
+  const cashTone: 'positive' | 'neutral' | 'danger' = cash > 0 ? 'positive' : cash < 0 ? 'danger' : 'neutral';
   const currentHousing = (stats?.region_key ?? 'suburban') as 'suburban' | 'downtown';
 
   const [loanAmount, setLoanAmount] = useState<100 | 200 | 300 | 500>(100);
@@ -43,22 +44,31 @@ export default function LifeScreen() {
   async function handleEat(mealType: 'breakfast' | 'lunch' | 'dinner') {
     if (busy) return;
     setBusyAction(`eat_${mealType}`);
-    await loop.eatMeal(mealType);
-    setBusyAction(null);
+    try {
+      await loop.eatMeal(mealType);
+    } finally {
+      setBusyAction(null);
+    }
   }
 
   async function handleLoan() {
     if (busy) return;
     setBusyAction('loan');
-    await loop.takeLoan(loanAmount);
-    setBusyAction(null);
+    try {
+      await loop.takeLoan(loanAmount);
+    } finally {
+      setBusyAction(null);
+    }
   }
 
   async function handleHousing(housingType: 'suburban' | 'downtown') {
     if (busy || housingType === currentHousing) return;
     setBusyAction(`housing_${housingType}`);
-    await loop.selectHousing(housingType);
-    setBusyAction(null);
+    try {
+      await loop.selectHousing(housingType);
+    } finally {
+      setBusyAction(null);
+    }
   }
 
   const loanRepay = Math.round(loanAmount * 1.15);
@@ -84,7 +94,7 @@ export default function LifeScreen() {
             items={[
               { label: 'Health', value: `${Math.round(health)}`, tone: health >= 65 ? 'positive' : 'warning' },
               { label: 'Stress', value: `${Math.round(stress)}`, tone: stress >= 65 ? 'danger' : 'warning' },
-              { label: 'Cash', value: formatMoney(cash), tone: cash >= 50 ? 'positive' : 'danger' },
+              { label: 'Cash', value: formatMoney(cash), tone: cashTone },
               { label: 'Debt', value: formatMoney(debt), tone: debt > 0 ? 'warning' : 'positive' },
             ]}
           />
@@ -99,9 +109,9 @@ export default function LifeScreen() {
       >
         {cash < 6 ? (
           <GameplayWarningBanner
-            title="Not enough cash"
-            message="You need at least 6 XGP to buy a meal."
-            tone="danger"
+            title="Low cash for meals"
+            message="Breakfast/Lunch require cash. Dinner can still be covered by survival debt if needed."
+            tone="warning"
           />
         ) : null}
         <View style={styles.buttonRow}>
@@ -123,7 +133,7 @@ export default function LifeScreen() {
             <SecondaryButton
               label={busyAction === 'eat_dinner' ? 'Eating...' : 'Dinner  (−6 XGP)'}
               onPress={() => void handleEat('dinner')}
-              disabled={busy || cash < 6}
+              disabled={busy}
             />
           </View>
         </View>

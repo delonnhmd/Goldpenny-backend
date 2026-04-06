@@ -405,12 +405,32 @@ function normalizeWorkState(raw: unknown, playerId: string): WorkStateSnapshot |
     survival_health_delta: clampDeltaRange(obj.survival_health_delta, { min: -100, max: 100, fallback: 0 }),
     survival_stress_delta: clampDeltaRange(obj.survival_stress_delta, { min: -100, max: 100, fallback: 0 }),
     meals_recorded_today: Math.max(0, Math.round(toNumber(obj.meals_recorded_today, 0))),
+    dinner_resolved_today: Boolean(obj.dinner_resolved_today),
+    dinner_mode_today: toString(obj.dinner_mode_today, ''),
+    dinner_cost_today: normalizeMoneyValue(obj.dinner_cost_today, { allowNegative: false, fallback: 0 }),
+    food_debt_added_today: normalizeMoneyValue(obj.food_debt_added_today, { allowNegative: false, fallback: 0 }),
+    needs_dinner_reminder: Boolean(obj.needs_dinner_reminder),
+    dinner_reminder_message: obj.dinner_reminder_message == null ? null : toString(obj.dinner_reminder_message, ''),
+    night_eat_reminder_shown: Boolean(obj.night_eat_reminder_shown),
     last_completed_shift: normalizeCompletedShift(obj.last_completed_shift),
     rideshare_state: normalizeRideshareState(obj.rideshare_state),
     rideshare_unlocked: Boolean(obj.rideshare_unlocked),
     rideshare_available: Boolean(obj.rideshare_available),
     rideshare_unlock_time_label: obj.rideshare_unlock_time_label == null ? null : toString(obj.rideshare_unlock_time_label, ''),
     remaining_side_income_hours_today: normalizeFiniteNumber(obj.remaining_side_income_hours_today, { fallback: 0 }),
+    offline_survival_catchup:
+      obj.offline_survival_catchup && typeof obj.offline_survival_catchup === 'object'
+        ? {
+          applied_days: Math.max(0, Math.round(toNumber((obj.offline_survival_catchup as Record<string, unknown>).applied_days, 0))),
+          missed_days: Math.max(0, Math.round(toNumber((obj.offline_survival_catchup as Record<string, unknown>).missed_days, 0))),
+          truncated_days: Math.max(0, Math.round(toNumber((obj.offline_survival_catchup as Record<string, unknown>).truncated_days, 0))),
+          current_day_after: Math.max(0, Math.round(toNumber((obj.offline_survival_catchup as Record<string, unknown>).current_day_after, 0))),
+          sync_date_updated: Boolean((obj.offline_survival_catchup as Record<string, unknown>).sync_date_updated),
+          processed_days: Array.isArray((obj.offline_survival_catchup as Record<string, unknown>).processed_days)
+            ? (((obj.offline_survival_catchup as Record<string, unknown>).processed_days as unknown[]) as Array<Record<string, unknown>>)
+            : [],
+        }
+        : null,
   };
 }
 

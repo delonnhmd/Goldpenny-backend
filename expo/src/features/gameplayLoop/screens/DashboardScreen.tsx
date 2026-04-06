@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import ActionHubPanel from '@/components/gameplay/ActionHubPanel';
 import { OnboardingHighlight } from '@/components/onboarding';
@@ -232,6 +232,7 @@ export default function DashboardScreen() {
   const stress = stats?.stress ?? 0;
   const health = stats?.health ?? 100;
   const debt = loop.expenseDebt?.debtAmount ?? stats?.debt_xgp ?? 0;
+  const cashTone: 'positive' | 'neutral' | 'danger' = cash > 0 ? 'positive' : cash < 0 ? 'danger' : 'neutral';
 
   const [houstonNow, setHoustonNow] = useState(() => new Date());
   const [autoClockingOut, setAutoClockingOut] = useState(false);
@@ -273,6 +274,11 @@ export default function DashboardScreen() {
     [allActionItems],
   );
   const workState = loop.dashboard?.work_state || loop.actionHub?.work_state || null;
+  const needsDinnerReminder = Boolean(workState?.needs_dinner_reminder);
+  const dinnerReminderMessage = String(
+    workState?.dinner_reminder_message || 'Dinner not completed. Eat now to avoid health loss.',
+  );
+  const dinnerResolvedToday = Boolean(workState?.dinner_resolved_today);
   const backendShiftActive = Boolean(workState?.main_shift_active_flag);
   const backendShiftCompleted = Boolean(
     workState
@@ -888,21 +894,90 @@ export default function DashboardScreen() {
     if (busyLife) return;
 
     setBusyMeal(`eat_${mealType}`);
-    await loop.eatMeal(mealType);
-    setBusyMeal(null);
+    try {
+      await loop.eatMeal(mealType);
+    } finally {
+      setBusyMeal(null);
+    }
   }
 
   // Finance / Loans
   const [loanAmount, setLoanAmount] = useState<100 | 200 | 300 | 500>(100);
   const [busyLoan, setBusyLoan] = useState(false);
-  const busyFinance = loop.executingAction || busyLoan;
+  const [debtPaymentAmount, setDebtPaymentAmount] = useState<string>('25');
+  const [busyDebtPayment, setBusyDebtPayment] = useState(false);
+  const busyFinance = loop.executingAction || busyLoan || busyDebtPayment;
   const loanRepay = Math.round(loanAmount * 1.15);
+  const maxDebtPayable = useMemo(() => {
+    const capped = Math.min(Math.max(0, cash), Math.max(0, debt));
+    return Math.round(capped * 100) / 100;
+  }, [cash, debt]);
+  const parsedDebtPayment = useMemo(() => {
+    const parsed = Number(String(debtPaymentAmount || '').trim());
+    if (!Number.isFinite(parsed)) return 0;
+    return Math.round(Math.max(0, parsed) * 100) / 100;
+  }, [debtPaymentAmount]);
 
   async function handleLoan() {
     if (busyFinance) return;
     setBusyLoan(true);
-    await loop.takeLoan(loanAmount);
-    setBusyLoan(false);
+    try {
+      await loop.takeLoan(loanAmount);
+    } finally {
+      setBusyLoan(false);
+    }
+  }
+
+  async function handleDebtPayment(explicitAmount?: number) {
+    if (busyFinance) return;
+    const amount = Number.isFinite(explicitAmount) ? Number(explicitAmount) : parsedDebtPayment;
+    if (!Number.isFinite(amount) || amount <= 0) {
+      loop.setFeedback({
+        tone: 'error',
+        message: 'Enter a debt payment amount greater than 0.',
+      });
+      return;
+    }
+    const normalizedAmount = Math.round(amount * 100) / 100;
+    if (normalizedAmount > cash) {
+      loop.setFeedback({
+        tone: 'error',
+        message: 'Not enough cash for this debt payment.',
+      });
+      return;
+    }
+    if (normalizedAmount > debt) {
+      loop.setFeedback({
+        tone: 'error',
+        message: 'Amount exceeds current debt.',
+      });
+      return;
+    }
+    setBusyDebtPayment(true);
+    try {
+      const ok = await loop.executeAction({
+        action_key: 'debt_payment',
+        title: `Pay ${formatMoney(normalizedAmount)} debt`,
+        description: 'Pay debt from available cash.',
+        status: 'available',
+        blockers: [],
+        warnings: [],
+        tradeoffs: [],
+        confidence_level: 'high',
+        parameters: {
+          payment_amount: normalizedAmount,
+        },
+      });
+      if (ok) {
+        setDebtPaymentAmount('0');
+        loop.setFeedback({
+          tone: 'success',
+          message: `Paid ${formatMoney(normalizedAmount)} toward debt.`,
+        });
+      }
+    } finally {
+      setBusyDebtPayment(false);
+    }
   }
 
   return (
@@ -937,7 +1012,7 @@ export default function DashboardScreen() {
                 {
                   label: 'Cash',
                   value: formatMoney(cash),
-                  tone: cash < 50 ? 'danger' : cash < 200 ? 'warning' : 'positive',
+                  tone: cashTone,
                 },
                 {
                   label: 'Net flow today',
@@ -975,6 +1050,14 @@ export default function DashboardScreen() {
           tone="info"
         />
       )}
+
+      {needsDinnerReminder ? (
+        <GameplayWarningBanner
+          title="You still need dinner tonight."
+          message={dinnerReminderMessage}
+          tone="warning"
+        />
+      ) : null}
 
       {/* Game time */}
       <GameplaySummaryCard eyebrow="Game Time" title="Houston Clock">
@@ -1259,9 +1342,23 @@ export default function DashboardScreen() {
       <GameplaySummaryCard eyebrow="Life" title="Food &amp; Meals">
         {cash < 6 ? (
           <GameplayWarningBanner
-            title="Not enough cash for a meal"
-            message="You need at least 6 XGP. Run a shift first."
-            tone="danger"
+            title="Low cash for meals"
+            message="Breakfast/Lunch need cash. Dinner can still be resolved with survival debt if needed."
+            tone="warning"
+          />
+        ) : null}
+        {workState?.day_settled ? (
+          <GameplayWarningBanner
+            title="Day finalized"
+            message="Dinner outcome already recorded during settlement."
+            tone="info"
+          />
+        ) : null}
+        {dinnerResolvedToday && !workState?.day_settled ? (
+          <GameplayWarningBanner
+            title="Dinner already resolved"
+            message={`Dinner mode today: ${String(workState?.dinner_mode_today || 'recorded').replace(/_/g, ' ')}.`}
+            tone="info"
           />
         ) : null}
         <View style={styles.buttonRow}>
@@ -1283,14 +1380,14 @@ export default function DashboardScreen() {
             <SecondaryButton
               label={busyMeal === 'eat_dinner' ? 'Eating...' : 'Dinner (-6 XGP)'}
               onPress={() => void handleEat('dinner')}
-              disabled={busyLife || cash < 6}
+              disabled={busyLife || Boolean(workState?.day_settled) || dinnerResolvedToday}
             />
           </View>
         </View>
       </GameplaySummaryCard>
 
       {/* Finance */}
-      <GameplaySummaryCard eyebrow="Finance" title="Quick Loan">
+      <GameplaySummaryCard eyebrow="Finance" title="Quick Loan &amp; Debt Payment">
         {debt > 200 ? (
           <GameplayWarningBanner
             title="High debt"
@@ -1321,6 +1418,47 @@ export default function DashboardScreen() {
             onPress={() => void handleLoan()}
             disabled={busyFinance}
           />
+        </View>
+
+        <View style={styles.debtDivider} />
+        <Text style={styles.loanRepayNote}>
+          Pay Debt: cash {formatMoney(cash)} | debt {formatMoney(debt)} | max payable now {formatMoney(maxDebtPayable)}.
+        </Text>
+        <View style={styles.debtInputRow}>
+          <TextInput
+            value={debtPaymentAmount}
+            keyboardType="decimal-pad"
+            onChangeText={setDebtPaymentAmount}
+            style={styles.debtInput}
+            placeholder="Amount"
+            placeholderTextColor={theme.color.muted}
+            editable={!busyFinance}
+          />
+          <View style={styles.debtPayButtonWrap}>
+            <PrimaryButton
+              label={busyDebtPayment ? 'Paying...' : 'Pay Debt'}
+              onPress={() => void handleDebtPayment()}
+              disabled={busyFinance || maxDebtPayable <= 0}
+            />
+          </View>
+        </View>
+        <View style={styles.debtQuickRow}>
+          {[10, 25, 50].map((quickAmount) => (
+            <View key={`quick_debt_${quickAmount}`} style={styles.loanAmtBtn}>
+              <SecondaryButton
+                label={`Pay ${quickAmount}`}
+                onPress={() => void handleDebtPayment(quickAmount)}
+                disabled={busyFinance || quickAmount > maxDebtPayable}
+              />
+            </View>
+          ))}
+          <View style={styles.loanAmtBtn}>
+            <SecondaryButton
+              label="Pay Max"
+              onPress={() => void handleDebtPayment(maxDebtPayable)}
+              disabled={busyFinance || maxDebtPayable <= 0}
+            />
+          </View>
         </View>
       </GameplaySummaryCard>
 
@@ -1446,6 +1584,37 @@ const styles = StyleSheet.create({
   },
   loanConfirmBtn: {
     marginTop: theme.spacing.xs,
+  },
+  debtDivider: {
+    marginTop: theme.spacing.md,
+    marginBottom: theme.spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.color.border,
+  },
+  debtInputRow: {
+    flexDirection: 'row',
+    gap: theme.spacing.sm,
+    alignItems: 'center',
+    marginBottom: theme.spacing.sm,
+  },
+  debtInput: {
+    flex: 1,
+    minHeight: 42,
+    borderWidth: 1,
+    borderColor: theme.color.border,
+    borderRadius: theme.radius.md,
+    paddingHorizontal: theme.spacing.sm,
+    color: theme.color.textPrimary,
+    backgroundColor: theme.color.surfaceAlt,
+    ...theme.typography.bodyMd,
+  },
+  debtPayButtonWrap: {
+    minWidth: 130,
+  },
+  debtQuickRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.spacing.sm,
   },
   jobOptionsGrid: {
     gap: theme.spacing.sm,

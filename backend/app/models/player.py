@@ -33,6 +33,9 @@ class Player(Base):
     distress_state = Column(String(20), nullable=False, default="stable")
     distress_score = Column(Numeric(8, 4), nullable=False, default=0)
     last_missed_payment_date = Column(Date, nullable=True)
+    # Last Houston calendar date for which offline survival catch-up ran.
+    # Used to ensure missed-login survival processing is idempotent.
+    last_survival_resolved_date = Column(Date, nullable=True)
     borrowing_cost_modifier = Column(Numeric(8, 4), nullable=False, default=1.0)
     opportunity_access_penalty = Column(Numeric(8, 4), nullable=False, default=0)
     business_risk_penalty = Column(Numeric(8, 4), nullable=False, default=0)

@@ -108,12 +108,27 @@ export interface WorkStateSnapshot {
   survival_health_delta?: number;
   survival_stress_delta?: number;
   meals_recorded_today?: number;
+  dinner_resolved_today?: boolean;
+  dinner_mode_today?: string;
+  dinner_cost_today?: number;
+  food_debt_added_today?: number;
+  needs_dinner_reminder?: boolean;
+  dinner_reminder_message?: string | null;
+  night_eat_reminder_shown?: boolean;
   last_completed_shift: CompletedShiftSnapshot;
   rideshare_state?: RideshareStateSnapshot | null;
   rideshare_unlocked: boolean;
   rideshare_available: boolean;
   rideshare_unlock_time_label?: string | null;
   remaining_side_income_hours_today: number;
+  offline_survival_catchup?: {
+    applied_days: number;
+    missed_days: number;
+    truncated_days: number;
+    current_day_after?: number;
+    sync_date_updated?: boolean;
+    processed_days?: Array<Record<string, unknown>>;
+  } | null;
 }
 
 export interface DashboardStateCard {

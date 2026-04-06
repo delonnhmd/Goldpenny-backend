@@ -139,6 +139,12 @@ def _run_schema_migrations() -> None:
         "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS missed_penalty NUMERIC(14,4) NOT NULL DEFAULT 0",
         "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS meals_recorded INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS survival_penalty_applied BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS dinner_resolved BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS dinner_mode TEXT",
+        "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS dinner_cost NUMERIC(14,4) NOT NULL DEFAULT 0",
+        "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS food_debt_added NUMERIC(14,4) NOT NULL DEFAULT 0",
+        "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS night_eat_reminder_shown BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS dinner_resolved_at TIMESTAMPTZ",
         # Step 5 (macro economy): sensitivity columns on goods_baskets.
         # These drive the deterministic basket price formula in macro_engine.py.
         "ALTER TABLE goods_baskets ADD COLUMN inflation_sensitivity NUMERIC(6,4) NOT NULL DEFAULT 0.6",
@@ -347,6 +353,7 @@ def _run_schema_migrations() -> None:
         "ALTER TABLE players ADD COLUMN distress_state VARCHAR(20) NOT NULL DEFAULT 'stable'",
         "ALTER TABLE players ADD COLUMN distress_score NUMERIC(8,4) NOT NULL DEFAULT 0",
         "ALTER TABLE players ADD COLUMN last_missed_payment_date DATE",
+        "ALTER TABLE players ADD COLUMN IF NOT EXISTS last_survival_resolved_date DATE",
         "ALTER TABLE players ADD COLUMN borrowing_cost_modifier NUMERIC(8,4) NOT NULL DEFAULT 1.0",
         "ALTER TABLE players ADD COLUMN opportunity_access_penalty NUMERIC(8,4) NOT NULL DEFAULT 0",
         "ALTER TABLE players ADD COLUMN business_risk_penalty NUMERIC(8,4) NOT NULL DEFAULT 0",
