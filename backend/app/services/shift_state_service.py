@@ -11,7 +11,8 @@ from typing import Any
 from uuid import UUID
 
 import pytz
-from sqlalchemy import func
+from sqlalchemy import func, inspect
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.engine.balance_config import (
@@ -26,7 +27,9 @@ from app.models.gameplay_transaction import GameplayTransaction
 from app.models.job_action import JobAction
 from app.models.job_definition import MAIN_JOBS, resolve_job_definition
 from app.models.player import Player
+from app.models.player_career import PlayerCareer
 from app.models.player_daily_state import PlayerDailyState
+from app.models.player_employment_state import PlayerEmploymentState
 from app.models.side_income_action import SideIncomeAction
 from app.models.xgp_transaction import XGPTransaction
 from app.services.dinner_survival_service import (
@@ -57,6 +60,17 @@ RIDESHARE_DAILY_CAP = 6
 GAME_EPOCH = date(2026, 1, 1)
 MISSED_SHIFT_HEALTH_DELTA = -5
 MISSED_SHIFT_STRESS_DELTA = 6
+AUTO_ROLLOVER_MAX_DAYS = 30
+HOUSTON_DAY_RESET_LABEL = "12:00 AM CT"
+
+JOB_DISPLAY_NAMES: dict[str, str] = {
+    "auto_mechanic": "Auto Mechanic",
+    "aircraft_mechanic": "Aircraft Mechanic",
+    "banker": "Banker",
+    "chef": "Chef",
+    "retail": "Retail Associate",
+    "delivery": "Delivery Driver",
+}
 
 JOB_SHIFT_MAP: dict[str, dict[str, str]] = {
     "banker": {"start": "10:00", "end": "18:00"},
@@ -150,6 +164,265 @@ def _format_houston_hhmm(value: str | None) -> str | None:
     return datetime.combine(date(2026, 1, 1), parsed).strftime("%I:%M %p").lstrip("0")
 
 
+def _format_houston_datetime_label(value: datetime | None) -> str | None:
+    resolved = _as_houston(value)
+    if resolved is None:
+        return None
+    return f"{resolved.strftime('%I:%M %p').lstrip('0')} CT"
+
+
+def _is_table_available(db: Session, table_name: str) -> bool:
+    normalized_name = str(table_name or "").strip()
+    if not normalized_name:
+        return False
+
+    table_cache = db.info.setdefault("_table_exists_cache", {})
+    cached = table_cache.get(normalized_name)
+    if cached is not None:
+        return bool(cached)
+
+    bind = db.get_bind()
+    if bind is None:
+        table_cache[normalized_name] = False
+        return False
+
+    try:
+        # Use the session's current connection so capability checks don't open
+        # a separate transactional connection that can interfere with in-flight
+        # writes on SQLite test sessions.
+        available = bool(inspect(db.connection()).has_table(normalized_name))
+    except Exception:
+        available = False
+
+    table_cache[normalized_name] = available
+    return available
+
+
+def _job_display_name(job_key: str | None) -> str:
+    canonical = _canonical_main_job(job_key or "")
+    if not canonical:
+        return "No job selected"
+    return JOB_DISPLAY_NAMES.get(canonical, canonical.replace("_", " ").title())
+
+
+def _latest_employment_state_for_player(db: Session, player: Player) -> PlayerEmploymentState | None:
+    if not _is_table_available(db, "player_employment_states"):
+        return None
+    try:
+        return (
+            db.query(PlayerEmploymentState)
+            .filter(PlayerEmploymentState.player_id == player.id)
+            .order_by(PlayerEmploymentState.day.desc(), PlayerEmploymentState.created_at.desc())
+            .first()
+        )
+    except OperationalError:
+        logger.warning(
+            "shift.job_truth employment table unavailable; falling back to player main_job.",
+            extra={"player_id": str(player.id)},
+        )
+        return None
+
+
+def _latest_career_state_for_player(db: Session, player: Player) -> PlayerCareer | None:
+    if not _is_table_available(db, "player_career_states"):
+        return None
+    try:
+        return (
+            db.query(PlayerCareer)
+            .filter(PlayerCareer.player_id == player.id)
+            .order_by(PlayerCareer.updated_at.desc(), PlayerCareer.created_at.desc())
+            .first()
+        )
+    except OperationalError:
+        logger.warning(
+            "shift.job_truth career table unavailable; falling back to player main_job.",
+            extra={"player_id": str(player.id)},
+        )
+        return None
+
+
+def _resolve_job_truth_context(
+    db: Session,
+    *,
+    player: Player,
+    scheduled_shift_job_id: str | None,
+    active_shift_job_id: str | None,
+) -> dict[str, Any]:
+    latest_employment = _latest_employment_state_for_player(db, player)
+    latest_career = _latest_career_state_for_player(db, player)
+
+    player_job_id = _canonical_main_job(getattr(player, "main_job", None))
+    scheduled_job_id = _canonical_main_job(scheduled_shift_job_id or "")
+    active_job_id = _canonical_main_job(active_shift_job_id or "")
+    employment_job_id = _canonical_main_job(
+        getattr(latest_employment, "current_job_code", None) if latest_employment is not None else None
+    )
+    career_job_id = _canonical_main_job(
+        getattr(latest_career, "current_job_key", None) if latest_career is not None else None
+    )
+
+    authoritative_current_job_id = (
+        active_job_id
+        or player_job_id
+        or career_job_id
+        or employment_job_id
+        or scheduled_job_id
+    )
+    ui_job_id = authoritative_current_job_id
+    pay_calculation_job_id = active_job_id or authoritative_current_job_id
+
+    if (
+        latest_employment is not None
+        and authoritative_current_job_id
+        and employment_job_id == authoritative_current_job_id
+    ):
+        current_job_level = max(1, _safe_int(getattr(latest_employment, "skill_level", 1), 1))
+    else:
+        current_job_level = max(1, _safe_int(getattr(player, "skill_level", 1), 1))
+
+    distinct_job_ids = {
+        value
+        for value in [
+            player_job_id,
+            scheduled_job_id,
+            active_job_id,
+            employment_job_id,
+            career_job_id,
+            pay_calculation_job_id,
+            ui_job_id,
+        ]
+        if value
+    }
+    mismatch_detected = len(distinct_job_ids) > 1
+
+    return {
+        "authoritative_current_job_id": authoritative_current_job_id or "",
+        "current_job_display_name": _job_display_name(authoritative_current_job_id),
+        "current_job_level": int(current_job_level),
+        "scheduled_shift_job_id": scheduled_job_id or "",
+        "active_shift_job_id": active_job_id or "",
+        "pay_calculation_job_id": pay_calculation_job_id or "",
+        "ui_job_id": ui_job_id or "",
+        "job_truth_mismatch_detected": mismatch_detected,
+        "job_truth_sources": {
+            "player.current_job_id": player_job_id or "",
+            "player_profile.selected_job": player_job_id or "",
+            "active_shift.job_id": active_job_id or "",
+            "generated_shift.job_id": scheduled_job_id or "",
+            "compensation_job_id": pay_calculation_job_id or "",
+            "latest_work_session_label": _canonical_main_job(getattr(player, "main_shift_job_name", None) or "") or "",
+            "frontend_cached_work_card_job": ui_job_id or "",
+            "employment_state.current_job_code": employment_job_id or "",
+            "career_state.current_job_key": career_job_id or "",
+        },
+    }
+
+
+def _resolve_houston_rollover_days(player: Player, *, now_houston: datetime) -> tuple[int, date]:
+    today = now_houston.date()
+    last_sync = getattr(player, "last_survival_resolved_date", None)
+    if not isinstance(last_sync, date):
+        updated_at = _as_houston(getattr(player, "updated_at", None))
+        last_sync = (updated_at or now_houston).date()
+    return max(0, int((today - last_sync).days)), last_sync
+
+
+def _run_houston_auto_rollover_if_needed(
+    db: Session,
+    *,
+    player: Player,
+    now_houston: datetime,
+) -> dict[str, Any]:
+    missed_days, previous_sync_date = _resolve_houston_rollover_days(player, now_houston=now_houston)
+    if missed_days <= 0:
+        return {
+            "applied_days": 0,
+            "missed_days": 0,
+            "truncated_days": 0,
+            "previous_sync_date": str(previous_sync_date),
+            "today_date": str(now_houston.date()),
+            "settlement_days": [],
+            "triggered": False,
+        }
+
+    if not _is_table_available(db, "stock_daily_prices"):
+        logger.warning(
+            "shift.auto_rollover skipped because stock_daily_prices table is unavailable.",
+            extra={
+                "player_id": str(player.id),
+                "missed_days": int(missed_days),
+                "previous_sync_date": str(previous_sync_date),
+                "today_date": str(now_houston.date()),
+            },
+        )
+        return {
+            "applied_days": 0,
+            "missed_days": int(missed_days),
+            "truncated_days": int(missed_days),
+            "previous_sync_date": str(previous_sync_date),
+            "today_date": str(now_houston.date()),
+            "settlement_days": [],
+            "triggered": False,
+            "skipped_reason": "missing_stock_daily_prices_table",
+        }
+
+    # Import lazily to avoid circular import at module load time.
+    from app.services.day_progression_service import run_player_next_day
+
+    days_to_apply = min(missed_days, AUTO_ROLLOVER_MAX_DAYS)
+    settlement_days: list[int] = []
+    for _ in range(days_to_apply):
+        db.refresh(player)
+        active_shift = bool(
+            getattr(player, "main_shift_active_flag", False)
+            and str(getattr(player, "main_shift_status", "") or "") == SHIFT_STATUS_ACTIVE
+        )
+        if active_shift:
+            finalize_active_main_shift(
+                db,
+                player=player,
+                now_houston=now_houston,
+                trigger="auto_houston_midnight_rollover",
+                require_expired=False,
+            )
+            db.refresh(player)
+
+        settled = run_player_next_day(db, player.id)
+        settlement_days.append(int(settled.get("settled_day") or 0))
+        db.refresh(player)
+
+    player.last_survival_resolved_date = now_houston.date()
+    db.commit()
+    db.refresh(player)
+
+    return {
+        "applied_days": int(days_to_apply),
+        "missed_days": int(missed_days),
+        "truncated_days": max(0, int(missed_days - days_to_apply)),
+        "previous_sync_date": str(previous_sync_date),
+        "today_date": str(now_houston.date()),
+        "settlement_days": settlement_days,
+        "triggered": True,
+    }
+
+
+def _empty_offline_survival_catchup(current_day: int) -> dict[str, Any]:
+    return {
+        "applied_days": 0,
+        "missed_days": 0,
+        "truncated_days": 0,
+        "processed_days": [],
+        "current_day_after": int(current_day),
+        "sync_date_updated": False,
+    }
+
+
+def _should_run_offline_survival_catchup(player: Player, *, current_day: int) -> bool:
+    # Dinner/survival catchup should only process days that have already been
+    # settled; running it on an open current day can create unintended costs.
+    return int(getattr(player, "last_settled_day", 0) or 0) >= int(current_day)
+
+
 def _scheduled_shift_context(player: Player, *, day_number: int, now_houston: datetime) -> dict[str, Any]:
     resolved_now = _as_houston(now_houston) or get_houston_now()
     resolved_date = _day_to_date(day_number)
@@ -162,10 +435,20 @@ def _scheduled_shift_context(player: Player, *, day_number: int, now_houston: da
     scheduled_start_time = _parse_houston_hhmm(scheduled_shift_start)
     scheduled_end_time = _parse_houston_hhmm(scheduled_shift_end)
     current_local_time = resolved_now.timetz().replace(tzinfo=None)
-    reached_shift_end = bool(scheduled_end_time and current_local_time >= scheduled_end_time)
-    passed_shift_end = bool(scheduled_end_time and current_local_time > scheduled_end_time)
+    current_day_matches_houston_date = bool(resolved_now.date() == resolved_date)
+    reached_shift_end = bool(
+        current_day_matches_houston_date
+        and scheduled_end_time
+        and current_local_time >= scheduled_end_time
+    )
+    passed_shift_end = bool(
+        current_day_matches_houston_date
+        and scheduled_end_time
+        and current_local_time > scheduled_end_time
+    )
     return {
         "day_of_week": day_of_week,
+        "current_day_matches_houston_date": current_day_matches_houston_date,
         "is_weekend": is_weekend,
         "has_main_job": bool(canonical_main_job),
         "canonical_main_job": canonical_main_job or "",
@@ -192,16 +475,29 @@ def _gameplay_event_exists(
     category: str,
     description: str,
 ) -> bool:
-    return bool(
-        db.query(GameplayTransaction.id)
-        .filter(
-            GameplayTransaction.player_id == player_id,
-            GameplayTransaction.day == int(day_number),
-            GameplayTransaction.category == str(category or "").strip().lower(),
-            GameplayTransaction.description == str(description or "").strip(),
+    if not _is_table_available(db, "gameplay_transactions"):
+        return False
+    try:
+        return bool(
+            db.query(GameplayTransaction.id)
+            .filter(
+                GameplayTransaction.player_id == player_id,
+                GameplayTransaction.day == int(day_number),
+                GameplayTransaction.category == str(category or "").strip().lower(),
+                GameplayTransaction.description == str(description or "").strip(),
+            )
+            .first()
         )
-        .first()
-    )
+    except OperationalError:
+        logger.warning(
+            "shift.gameplay_event_exists gameplay_transactions table unavailable; treating as no existing event.",
+            extra={
+                "player_id": str(player_id),
+                "day_number": int(day_number),
+                "category": str(category or "").strip().lower(),
+            },
+        )
+        return False
 
 
 def _record_gameplay_event_once(
@@ -215,6 +511,8 @@ def _record_gameplay_event_once(
     normalized_description = str(description or "").strip()
     if not normalized_description:
         return False
+    if not _is_table_available(db, "gameplay_transactions"):
+        return False
     if _gameplay_event_exists(
         db,
         player_id=player.id,
@@ -223,16 +521,28 @@ def _record_gameplay_event_once(
         description=normalized_description,
     ):
         return False
-    record_gameplay_transaction(
-        db,
-        player=player,
-        day=day_number,
-        transaction_type="expense",
-        category=category,
-        amount=0,
-        description=normalized_description,
-    )
-    return True
+    try:
+        record_gameplay_transaction(
+            db,
+            player=player,
+            day=day_number,
+            transaction_type="expense",
+            category=category,
+            amount=0,
+            description=normalized_description,
+        )
+        return True
+    except OperationalError:
+        logger.warning(
+            "shift.record_gameplay_event_once skipped because gameplay_transactions table is unavailable.",
+            extra={
+                "player_id": str(player.id),
+                "day_number": int(day_number),
+                "category": str(category or "").strip().lower(),
+                "description": normalized_description,
+            },
+        )
+        return False
 
 
 def _did_work_for_day(player: Player, pds: PlayerDailyState | None, *, current_day: int, active_shift: bool) -> bool:
@@ -666,15 +976,33 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
     )
 
     canonical_main_job = _canonical_main_job(getattr(player, "main_job", None))
-    canonical_shift_job_name = _canonical_main_job(
-        getattr(player, "main_shift_job_name", None) or canonical_main_job or ""
-    )
+    canonical_shift_job_name = _canonical_main_job(getattr(player, "main_shift_job_name", None) or "")
     shift_started_at = _as_houston(getattr(player, "main_shift_started_at", None))
     shift_ends_at = _as_houston(getattr(player, "main_shift_ends_at", None))
     shift_completed_at = _as_houston(getattr(player, "main_shift_completed_at", None))
     active_shift = bool(getattr(player, "main_shift_active_flag", False) and getattr(player, "main_shift_status", "") == SHIFT_STATUS_ACTIVE)
     shift_expired = bool(active_shift and shift_ends_at and now >= shift_ends_at)
     schedule = _scheduled_shift_context(player, day_number=current_day, now_houston=now)
+    resolved_shift_job_name = canonical_shift_job_name or _canonical_main_job(schedule["canonical_main_job"]) or canonical_main_job
+    job_truth_context = _resolve_job_truth_context(
+        db,
+        player=player,
+        scheduled_shift_job_id=_canonical_main_job(schedule["canonical_main_job"]),
+        active_shift_job_id=canonical_shift_job_name if active_shift else None,
+    )
+    if bool(job_truth_context.get("job_truth_mismatch_detected")):
+        logger.warning(
+            "shift.job_truth_mismatch_detected",
+            extra={
+                "player_id": str(player.id),
+                "authoritative_current_job_id": str(job_truth_context.get("authoritative_current_job_id") or ""),
+                "scheduled_shift_job_id": str(job_truth_context.get("scheduled_shift_job_id") or ""),
+                "active_shift_job_id": str(job_truth_context.get("active_shift_job_id") or ""),
+                "pay_calculation_job_id": str(job_truth_context.get("pay_calculation_job_id") or ""),
+                "ui_job_id": str(job_truth_context.get("ui_job_id") or ""),
+                "job_truth_sources": dict(job_truth_context.get("job_truth_sources") or {}),
+            },
+        )
     main_shift_hours_today = _safe_float(
         getattr(pds, "main_shift_hours_today", None),
         _safe_float(getattr(player, "main_job_hours_today", 0), 0.0),
@@ -687,6 +1015,8 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
                 SideIncomeAction.day_number == current_day,
             )
             .scalar()
+            if _is_table_available(db, "side_income_actions")
+            else 0
         ),
         0.0,
     )
@@ -701,6 +1031,8 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
                 GameplayTransaction.category == "ride_share",
             )
             .scalar()
+            if _is_table_available(db, "gameplay_transactions")
+            else 0
         ),
         0.0,
     )
@@ -790,16 +1122,33 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
     return {
         "player_id": str(player.id),
         "current_houston_time": now.isoformat(),
+        "current_houston_time_label": _format_houston_datetime_label(now),
         "current_game_day": current_day,
         "day_of_week": str(schedule["day_of_week"]),
         "is_weekend": bool(schedule["is_weekend"]),
+        "day_rollover_timezone": "America/Chicago",
+        "day_rollover_time_label": HOUSTON_DAY_RESET_LABEL,
+        "next_day_rollover_time": "00:00",
         "day_settled": day_settled,
+        "authoritative_current_job_id": str(job_truth_context.get("authoritative_current_job_id") or ""),
+        "current_job_display_name": str(job_truth_context.get("current_job_display_name") or ""),
+        "current_job_level": int(job_truth_context.get("current_job_level") or 1),
+        "scheduled_shift_job_id": str(job_truth_context.get("scheduled_shift_job_id") or ""),
+        "active_shift_job_id": str(job_truth_context.get("active_shift_job_id") or ""),
+        "pay_calculation_job_id": str(job_truth_context.get("pay_calculation_job_id") or ""),
+        "ui_job_id": str(job_truth_context.get("ui_job_id") or ""),
+        "job_truth_mismatch_detected": bool(job_truth_context.get("job_truth_mismatch_detected")),
+        "job_truth_sources": dict(job_truth_context.get("job_truth_sources") or {}),
         "shift_status": str(getattr(player, "main_shift_status", SHIFT_STATUS_IDLE) or SHIFT_STATUS_IDLE),
         "main_shift_active_flag": active_shift,
         "shift_started_at": shift_started_at.isoformat() if shift_started_at else None,
         "shift_ends_at": shift_ends_at.isoformat() if shift_ends_at else None,
         "shift_completed_at": shift_completed_at.isoformat() if shift_completed_at else None,
-        "shift_job_name": canonical_shift_job_name or "",
+        "shift_start_time_label": _format_houston_datetime_label(shift_started_at),
+        "shift_end_time_label": _format_houston_datetime_label(shift_ends_at),
+        "shift_completed_time_label": _format_houston_datetime_label(shift_completed_at),
+        "shift_job_name": resolved_shift_job_name or "",
+        "shift_job_display_name": _job_display_name(resolved_shift_job_name),
         "shift_type": str(getattr(player, "main_shift_shift_type", None) or "standard_shift"),
         "shift_hours": int(getattr(player, "main_shift_hours", 0) or 0),
         "shift_number": int(getattr(player, "main_shift_number", 0) or 0),
@@ -857,6 +1206,10 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         "rideshare_available": rideshare_available,
         "rideshare_unlock_time_label": schedule["scheduled_shift_end_label"],
         "remaining_side_income_hours_today": round(remaining_side_cap, 4),
+        "auto_finalized_previous_day": False,
+        "auto_finalized_days_count": 0,
+        "new_day_started_houston_time": False,
+        "auto_rollover_recap_lines": [],
     }
 
 
@@ -882,7 +1235,7 @@ def start_main_shift(
 
     if bool(getattr(player, "main_shift_active_flag", False)) and str(getattr(player, "main_shift_status", "")) == SHIFT_STATUS_ACTIVE:
         raise ValueError(
-            f"Main shift is already active and ends at {current_work_state.get('shift_ends_at') or 'the scheduled Houston end time'}."
+            f"Main shift is already active and ends at {current_work_state.get('shift_end_time_label') or current_work_state.get('scheduled_shift_end_label') or 'the scheduled Houston end time'}."
         )
 
     canonical_player_job = _canonical_main_job(getattr(player, "main_job", None))
@@ -972,6 +1325,12 @@ def start_main_shift(
             "main_shift_hours_today": work_state.get("main_shift_hours_today"),
             "side_income_hours_today": work_state.get("side_income_hours_today"),
             "rideshare_unlocked": work_state.get("rideshare_unlocked"),
+            "authoritative_current_job_id": work_state.get("authoritative_current_job_id"),
+            "scheduled_shift_job_id": work_state.get("scheduled_shift_job_id"),
+            "active_shift_job_id": work_state.get("active_shift_job_id"),
+            "pay_calculation_job_id": work_state.get("pay_calculation_job_id"),
+            "ui_job_id": work_state.get("ui_job_id"),
+            "job_truth_mismatch_detected": bool(work_state.get("job_truth_mismatch_detected")),
         },
     )
     return work_state
@@ -1146,14 +1505,15 @@ def finalize_active_main_shift(
     except AttributeError:
         pass
 
-    upsert_employment_foundation(
-        db,
-        player=player,
-        settled_day=max(1, _safe_int(getattr(player, "last_settled_day", None), 0) + 1),
-        job_key=job_name,
-        shift_type=getattr(player, "main_shift_shift_type", None),
-        grant_work_xp=xp_gained,
-    )
+    if _is_table_available(db, "player_employment_states") and _is_table_available(db, "stock_daily_prices"):
+        upsert_employment_foundation(
+            db,
+            player=player,
+            settled_day=max(1, _safe_int(getattr(player, "last_settled_day", None), 0) + 1),
+            job_key=job_name,
+            shift_type=getattr(player, "main_shift_shift_type", None),
+            grant_work_xp=xp_gained,
+        )
     sync_shift_day_rules_if_needed(
         db,
         player=player,
@@ -1179,6 +1539,12 @@ def finalize_active_main_shift(
             "rideshare_unlocked": work_state.get("rideshare_unlocked"),
             "side_income_hours_today": work_state.get("side_income_hours_today"),
             "main_shift_hours_today": work_state.get("main_shift_hours_today"),
+            "authoritative_current_job_id": work_state.get("authoritative_current_job_id"),
+            "scheduled_shift_job_id": work_state.get("scheduled_shift_job_id"),
+            "active_shift_job_id": work_state.get("active_shift_job_id"),
+            "pay_calculation_job_id": work_state.get("pay_calculation_job_id"),
+            "ui_job_id": work_state.get("ui_job_id"),
+            "job_truth_mismatch_detected": bool(work_state.get("job_truth_mismatch_detected")),
             "trigger": trigger,
         },
     )
@@ -1258,6 +1624,53 @@ def resolve_expired_shift_if_needed(
         },
     )
 
+    rollover_result = _run_houston_auto_rollover_if_needed(db, player=player, now_houston=now)
+    if int(rollover_result.get("applied_days") or 0) > 0:
+        refreshed_day = _current_game_day_for_player(db, player)
+        sync_result = sync_shift_day_rules_if_needed(
+            db,
+            player=player,
+            day_number=refreshed_day,
+            now_houston=now,
+        )
+        if bool(sync_result.get("applied")):
+            db.commit()
+            db.refresh(player)
+        work_state = build_work_state_payload(db, player, now_houston=now)
+        applied_days = int(rollover_result.get("applied_days") or 0)
+        recap_lines = [
+            "Yesterday was automatically finalized."
+            if applied_days == 1
+            else f"{applied_days} days were automatically finalized.",
+            "New day started in Houston time.",
+        ]
+        work_state["offline_survival_catchup"] = {
+            "applied_days": 0,
+            "missed_days": 0,
+            "truncated_days": 0,
+            "current_day_after": int(work_state.get("current_game_day") or refreshed_day),
+            "sync_date_updated": False,
+            "processed_days": [],
+        }
+        work_state["auto_day_rollover"] = rollover_result
+        work_state["auto_finalized_previous_day"] = True
+        work_state["auto_finalized_days_count"] = applied_days
+        work_state["new_day_started_houston_time"] = True
+        work_state["auto_rollover_recap_lines"] = recap_lines
+        logger.info(
+            "shift.resolve_expired_shift_if_needed applied Houston auto-rollover.",
+            extra={
+                "player_id": str(player.id),
+                "applied_days": applied_days,
+                "missed_days": int(rollover_result.get("missed_days") or 0),
+                "truncated_days": int(rollover_result.get("truncated_days") or 0),
+                "previous_sync_date": str(rollover_result.get("previous_sync_date") or ""),
+                "today_date": str(rollover_result.get("today_date") or ""),
+                "settlement_days": list(rollover_result.get("settlement_days") or []),
+            },
+        )
+        return work_state
+
     if expired:
         finalized_state = finalize_active_main_shift(
             db,
@@ -1266,11 +1679,16 @@ def resolve_expired_shift_if_needed(
             trigger="auto_resolve_expired_shift",
             require_expired=True,
         )
-        catchup_result = run_offline_survival_catchup(
-            db,
-            player=player,
-            current_day=int(finalized_state.get("current_game_day") or _current_game_day_for_player(db, player)),
-            now_houston=now,
+        finalized_day = int(finalized_state.get("current_game_day") or _current_game_day_for_player(db, player))
+        catchup_result = (
+            run_offline_survival_catchup(
+                db,
+                player=player,
+                current_day=finalized_day,
+                now_houston=now,
+            )
+            if _should_run_offline_survival_catchup(player, current_day=finalized_day)
+            else _empty_offline_survival_catchup(finalized_day)
         )
         if (
             int(catchup_result.get("applied_days") or 0) > 0
@@ -1280,6 +1698,11 @@ def resolve_expired_shift_if_needed(
             db.refresh(player)
             finalized_state = build_work_state_payload(db, player, now_houston=now)
         finalized_state["offline_survival_catchup"] = catchup_result
+        finalized_state["auto_day_rollover"] = rollover_result
+        finalized_state["auto_finalized_previous_day"] = False
+        finalized_state["auto_finalized_days_count"] = 0
+        finalized_state["new_day_started_houston_time"] = False
+        finalized_state["auto_rollover_recap_lines"] = []
         return finalized_state
 
     sync_result = sync_shift_day_rules_if_needed(
@@ -1288,11 +1711,15 @@ def resolve_expired_shift_if_needed(
         day_number=current_day,
         now_houston=now,
     )
-    catchup_result = run_offline_survival_catchup(
-        db,
-        player=player,
-        current_day=current_day,
-        now_houston=now,
+    catchup_result = (
+        run_offline_survival_catchup(
+            db,
+            player=player,
+            current_day=current_day,
+            now_houston=now,
+        )
+        if _should_run_offline_survival_catchup(player, current_day=current_day)
+        else _empty_offline_survival_catchup(current_day)
     )
     if (
         bool(sync_result.get("applied"))
@@ -1304,4 +1731,10 @@ def resolve_expired_shift_if_needed(
 
     work_state = build_work_state_payload(db, player, now_houston=now)
     work_state["offline_survival_catchup"] = catchup_result
+    work_state["auto_day_rollover"] = rollover_result
+    work_state["auto_finalized_previous_day"] = False
+    work_state["auto_finalized_days_count"] = 0
+    work_state["new_day_started_houston_time"] = False
+    work_state["auto_rollover_recap_lines"] = []
     return work_state
+

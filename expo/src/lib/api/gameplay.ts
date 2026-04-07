@@ -22,6 +22,7 @@ import {
   CompletedShiftSnapshot,
   DailyActionHubResponse,
   DailyActionItem,
+  EconomyRiskOverview,
   EndDayResponse,
   EndOfDaySummaryResponse,
   GameplayActionKey,
@@ -253,6 +254,7 @@ function normalizeDashboard(raw: Record<string, unknown>, playerId: string): Pla
         : null),
     playerId,
   );
+  const economyRiskOverview = normalizeEconomyRiskOverview(raw.economy_risk_overview);
 
   return {
     player_id: toString(raw.player_id, playerId),
@@ -267,6 +269,12 @@ function normalizeDashboard(raw: Record<string, unknown>, playerId: string): Pla
       health: normalizePercentageStat(stats.health ?? raw.health ?? raw.health_after, 100),
       credit_score: normalizeCreditScore(stats.credit_score ?? raw.ending_credit_score ?? raw.credit_score, 650),
       current_job: toString(stats.current_job ?? raw.main_job ?? raw.current_job, ''),
+      current_job_display: toString(
+        stats.current_job_display
+          ?? workState?.current_job_display_name
+          ?? raw.current_job_display,
+        '',
+      ),
       region_key: toString(stats.region_key ?? raw.region_key ?? raw.housing_region, ''),
     },
     state_cards: Array.isArray(raw.state_cards) ? (raw.state_cards as any) : [],
@@ -292,6 +300,7 @@ function normalizeDashboard(raw: Record<string, unknown>, playerId: string): Pla
         category: toString(item.category, ''),
       };
     }),
+    economy_risk_overview: economyRiskOverview,
     recommended_actions: hints.map((entry, index) => {
       if (typeof entry === 'string') {
         return {
@@ -387,22 +396,71 @@ function normalizeRideshareState(raw: unknown): WorkStateSnapshot['rideshare_sta
   };
 }
 
+function normalizeEconomySignalChips(raw: unknown, keyPrefix: string): EconomyRiskOverview['macro_conditions'] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((entry, index) => {
+    const item = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : {};
+    return {
+      key: toString(item.key, `${keyPrefix}_${index}`),
+      label: toString(item.label, 'Signal'),
+      level: toString(item.level, 'moderate').toLowerCase(),
+      value_text: toString(item.value_text || item.value, ''),
+      trend: toString(item.trend, ''),
+    };
+  });
+}
+
+function normalizeEconomyRiskOverview(raw: unknown): EconomyRiskOverview | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  return {
+    macro_conditions: normalizeEconomySignalChips(obj.macro_conditions, 'macro'),
+    opportunity_signals: normalizeEconomySignalChips(obj.opportunity_signals, 'opportunity'),
+    risk_badges: normalizeEconomySignalChips(obj.risk_badges, 'badge'),
+    summary_line: toString(obj.summary_line, ''),
+  };
+}
+
 function normalizeWorkState(raw: unknown, playerId: string): WorkStateSnapshot | null {
   if (!raw || typeof raw !== 'object') return null;
   const obj = raw as Record<string, unknown>;
   return {
     player_id: toString(obj.player_id, playerId),
     current_houston_time: toString(obj.current_houston_time, ''),
+    current_houston_time_label: obj.current_houston_time_label == null ? null : toString(obj.current_houston_time_label, ''),
     current_game_day: normalizeCurrentDay(obj.current_game_day ?? obj.current_day, 1),
     day_of_week: toString(obj.day_of_week, ''),
     is_weekend: Boolean(obj.is_weekend),
     day_settled: Boolean(obj.day_settled),
+    day_rollover_timezone: obj.day_rollover_timezone == null ? null : toString(obj.day_rollover_timezone, ''),
+    day_rollover_time_label: obj.day_rollover_time_label == null ? null : toString(obj.day_rollover_time_label, ''),
+    next_day_rollover_time: obj.next_day_rollover_time == null ? null : toString(obj.next_day_rollover_time, ''),
+    authoritative_current_job_id: obj.authoritative_current_job_id == null ? null : toString(obj.authoritative_current_job_id, ''),
+    current_job_display_name: obj.current_job_display_name == null ? null : toString(obj.current_job_display_name, ''),
+    current_job_level: Math.max(1, Math.round(toNumber(obj.current_job_level, 1))),
+    scheduled_shift_job_id: obj.scheduled_shift_job_id == null ? null : toString(obj.scheduled_shift_job_id, ''),
+    active_shift_job_id: obj.active_shift_job_id == null ? null : toString(obj.active_shift_job_id, ''),
+    pay_calculation_job_id: obj.pay_calculation_job_id == null ? null : toString(obj.pay_calculation_job_id, ''),
+    ui_job_id: obj.ui_job_id == null ? null : toString(obj.ui_job_id, ''),
+    job_truth_mismatch_detected: Boolean(obj.job_truth_mismatch_detected),
+    job_truth_sources:
+      obj.job_truth_sources && typeof obj.job_truth_sources === 'object'
+        ? Object.fromEntries(
+          Object.entries(obj.job_truth_sources as Record<string, unknown>)
+            .map(([key, value]) => [toString(key, ''), toString(value, '')])
+            .filter(([key]) => key.length > 0),
+        )
+        : {},
     shift_status: toString(obj.shift_status, 'idle'),
     main_shift_active_flag: Boolean(obj.main_shift_active_flag),
     shift_started_at: obj.shift_started_at == null ? null : toString(obj.shift_started_at, ''),
     shift_ends_at: obj.shift_ends_at == null ? null : toString(obj.shift_ends_at, ''),
     shift_completed_at: obj.shift_completed_at == null ? null : toString(obj.shift_completed_at, ''),
+    shift_start_time_label: obj.shift_start_time_label == null ? null : toString(obj.shift_start_time_label, ''),
+    shift_end_time_label: obj.shift_end_time_label == null ? null : toString(obj.shift_end_time_label, ''),
+    shift_completed_time_label: obj.shift_completed_time_label == null ? null : toString(obj.shift_completed_time_label, ''),
     shift_job_name: obj.shift_job_name == null ? null : toString(obj.shift_job_name, ''),
+    shift_job_display_name: obj.shift_job_display_name == null ? null : toString(obj.shift_job_display_name, ''),
     shift_type: obj.shift_type == null ? null : toString(obj.shift_type, ''),
     shift_hours: Math.max(0, Math.round(toNumber(obj.shift_hours, 0))),
     shift_number: Math.max(0, Math.round(toNumber(obj.shift_number, 0))),
@@ -517,6 +575,27 @@ function normalizeWorkState(raw: unknown, playerId: string): WorkStateSnapshot |
     rideshare_available: Boolean(obj.rideshare_available),
     rideshare_unlock_time_label: obj.rideshare_unlock_time_label == null ? null : toString(obj.rideshare_unlock_time_label, ''),
     remaining_side_income_hours_today: normalizeFiniteNumber(obj.remaining_side_income_hours_today, { fallback: 0 }),
+    auto_day_rollover:
+      obj.auto_day_rollover && typeof obj.auto_day_rollover === 'object'
+        ? {
+          applied_days: Math.max(0, Math.round(toNumber((obj.auto_day_rollover as Record<string, unknown>).applied_days, 0))),
+          missed_days: Math.max(0, Math.round(toNumber((obj.auto_day_rollover as Record<string, unknown>).missed_days, 0))),
+          truncated_days: Math.max(0, Math.round(toNumber((obj.auto_day_rollover as Record<string, unknown>).truncated_days, 0))),
+          previous_sync_date: toString((obj.auto_day_rollover as Record<string, unknown>).previous_sync_date, ''),
+          today_date: toString((obj.auto_day_rollover as Record<string, unknown>).today_date, ''),
+          settlement_days: Array.isArray((obj.auto_day_rollover as Record<string, unknown>).settlement_days)
+            ? ((obj.auto_day_rollover as Record<string, unknown>).settlement_days as unknown[])
+              .map((entry) => Math.max(0, Math.round(toNumber(entry, 0))))
+            : [],
+          triggered: Boolean((obj.auto_day_rollover as Record<string, unknown>).triggered),
+        }
+        : null,
+    auto_finalized_previous_day: Boolean(obj.auto_finalized_previous_day),
+    auto_finalized_days_count: Math.max(0, Math.round(toNumber(obj.auto_finalized_days_count, 0))),
+    new_day_started_houston_time: Boolean(obj.new_day_started_houston_time),
+    auto_rollover_recap_lines: Array.isArray(obj.auto_rollover_recap_lines)
+      ? (obj.auto_rollover_recap_lines as unknown[]).map((entry) => toString(entry, '')).filter(Boolean)
+      : [],
     offline_survival_catchup:
       obj.offline_survival_catchup && typeof obj.offline_survival_catchup === 'object'
         ? {

@@ -26,6 +26,7 @@ export interface DashboardStatSnapshot {
   health: number;
   credit_score: number;
   current_job?: string | null;
+  current_job_display?: string | null;
   region_key?: string | null;
 }
 
@@ -102,16 +103,33 @@ export interface TravelOptionSnapshot {
 export interface WorkStateSnapshot {
   player_id: string;
   current_houston_time: string;
+  current_houston_time_label?: string | null;
   current_game_day: number;
   day_of_week?: string;
   is_weekend?: boolean;
   day_settled: boolean;
+  day_rollover_timezone?: string | null;
+  day_rollover_time_label?: string | null;
+  next_day_rollover_time?: string | null;
+  authoritative_current_job_id?: string | null;
+  current_job_display_name?: string | null;
+  current_job_level?: number;
+  scheduled_shift_job_id?: string | null;
+  active_shift_job_id?: string | null;
+  pay_calculation_job_id?: string | null;
+  ui_job_id?: string | null;
+  job_truth_mismatch_detected?: boolean;
+  job_truth_sources?: Record<string, string>;
   shift_status: 'idle' | 'active' | 'completed' | string;
   main_shift_active_flag: boolean;
   shift_started_at?: string | null;
   shift_ends_at?: string | null;
   shift_completed_at?: string | null;
+  shift_start_time_label?: string | null;
+  shift_end_time_label?: string | null;
+  shift_completed_time_label?: string | null;
   shift_job_name?: string | null;
+  shift_job_display_name?: string | null;
   shift_type?: string | null;
   shift_hours: number;
   shift_number: number;
@@ -171,6 +189,19 @@ export interface WorkStateSnapshot {
   rideshare_available: boolean;
   rideshare_unlock_time_label?: string | null;
   remaining_side_income_hours_today: number;
+  auto_day_rollover?: {
+    applied_days: number;
+    missed_days: number;
+    truncated_days: number;
+    previous_sync_date?: string;
+    today_date?: string;
+    settlement_days?: number[];
+    triggered?: boolean;
+  } | null;
+  auto_finalized_previous_day?: boolean;
+  auto_finalized_days_count?: number;
+  new_day_started_houston_time?: boolean;
+  auto_rollover_recap_lines?: string[];
   offline_survival_catchup?: {
     applied_days: number;
     missed_days: number;
@@ -179,6 +210,21 @@ export interface WorkStateSnapshot {
     sync_date_updated?: boolean;
     processed_days?: Array<Record<string, unknown>>;
   } | null;
+}
+
+export interface EconomySignalChip {
+  key: string;
+  label: string;
+  level: 'low' | 'moderate' | 'high' | 'critical' | string;
+  value_text?: string;
+  trend?: string;
+}
+
+export interface EconomyRiskOverview {
+  macro_conditions: EconomySignalChip[];
+  opportunity_signals: EconomySignalChip[];
+  risk_badges: EconomySignalChip[];
+  summary_line: string;
 }
 
 export interface DashboardStateCard {
@@ -211,6 +257,7 @@ export interface PlayerDashboardResponse {
   state_cards?: DashboardStateCard[];
   top_opportunities: DashboardSignalItem[];
   top_risks: DashboardSignalItem[];
+  economy_risk_overview?: EconomyRiskOverview | null;
   recommended_actions: ActionRecommendation[];
   job_progress?: JobProgressSnapshot | null;
   work_state?: WorkStateSnapshot | null;

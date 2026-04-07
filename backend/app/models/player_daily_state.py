@@ -29,6 +29,7 @@ from app.db.database import Base
 
 class PlayerDailyState(Base):
     __tablename__ = "player_daily_states"
+    __mapper_args__ = {"confirm_deleted_rows": False}
 
     # One row per player per in-game day — duplicates are prevented by the
     # unique constraint at the bottom of this class.
@@ -232,3 +233,4 @@ class PlayerDailyState(Base):
 
     # ── Relationships ─────────────────────────────────────────────────────────
     player = relationship("Player", back_populates="daily_states", foreign_keys=[player_id])
+

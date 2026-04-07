@@ -17,7 +17,7 @@ import { BALANCE } from '@/lib/balanceConfig';
 import { normalizeJobName } from '@/lib/economySafety';
 import { formatMoney } from '@/lib/gameplayFormatters';
 import { recordInfo } from '@/lib/logger';
-import { DailyActionItem } from '@/types/gameplay';
+import { DailyActionItem, EconomySignalChip } from '@/types/gameplay';
 
 import { useGameplayLoop } from '../context';
 import {
@@ -38,6 +38,22 @@ function signedWhole(value: number): string {
   const rounded = Math.round(value);
   if (rounded > 0) return `+${rounded}`;
   return String(rounded);
+}
+
+function formatRiskLevel(level: string | null | undefined): string {
+  const normalized = String(level || '').trim().toLowerCase();
+  if (normalized === 'critical') return 'Critical';
+  if (normalized === 'high') return 'High';
+  if (normalized === 'moderate') return 'Moderate';
+  return 'Low';
+}
+
+function riskTone(level: string | null | undefined): 'neutral' | 'info' | 'warning' | 'danger' | 'positive' {
+  const normalized = String(level || '').trim().toLowerCase();
+  if (normalized === 'critical') return 'danger';
+  if (normalized === 'high') return 'warning';
+  if (normalized === 'moderate') return 'info';
+  return 'positive';
 }
 
 const HOUSTON_TIMEZONE = 'America/Chicago';
@@ -372,6 +388,19 @@ export default function DashboardScreen() {
     [allActionItems],
   );
   const workState = loop.dashboard?.work_state || loop.actionHub?.work_state || null;
+  const economyOverview = loop.dashboard?.economy_risk_overview || null;
+  const macroConditions = Array.isArray(economyOverview?.macro_conditions)
+    ? economyOverview.macro_conditions
+    : [];
+  const opportunitySignals = Array.isArray(economyOverview?.opportunity_signals)
+    ? economyOverview.opportunity_signals
+    : [];
+  const riskBadges = Array.isArray(economyOverview?.risk_badges)
+    ? economyOverview.risk_badges
+    : [];
+  const findSignal = (signals: EconomySignalChip[], key: string): EconomySignalChip | null => (
+    signals.find((entry) => String(entry.key || '').trim().toLowerCase() === key) || null
+  );
   const needsDinnerReminder = Boolean(workState?.needs_dinner_reminder);
   const dinnerReminderMessage = String(
     workState?.dinner_reminder_message || 'Dinner not completed. Eat now to avoid health loss.',
@@ -390,20 +419,42 @@ export default function DashboardScreen() {
     ? Math.max(0, Math.floor((backendShiftEndsAtMs - houstonNow.getTime()) / 1000))
     : 0;
   const shiftRemainingLabel = formatSecondsRemaining(shiftRemainingSeconds);
-  const shiftEndLabel = workState?.shift_ends_at ? formatHoustonNow(new Date(workState.shift_ends_at)) : '5:00 PM';
+  const shiftEndLabel = String(
+    workState?.shift_end_time_label
+    || (workState?.shift_ends_at ? `${formatHoustonNow(new Date(workState.shift_ends_at))} CT` : '5:00 PM CT'),
+  );
   const scheduledShiftWindowLabel = shiftWindowLabel(workState);
   const lastCompletedShift = workState?.last_completed_shift || null;
   const salaryEarnedToday = Number(workState?.salary_earned_today || 0);
   const salaryEarnedYesterday = Number(workState?.salary_earned_yesterday || 0);
   const workPayModelLabel = String(workState?.pay_model_label || 'Paid daily after shift completion');
+  const currentHoustonTimeLabel = String(
+    workState?.current_houston_time_label
+    || `${formatHoustonNow(houstonNow)} CT`,
+  );
+  const dayRolloverLabel = String(workState?.day_rollover_time_label || '12:00 AM CT');
+  const autoRolloverRecapLines = Array.isArray(workState?.auto_rollover_recap_lines)
+    ? workState.auto_rollover_recap_lines.filter(Boolean)
+    : [];
+  const deliveryDemandSignal = findSignal(opportunitySignals, 'delivery_demand');
+  const rideshareDemandSignal = findSignal(opportunitySignals, 'rideshare_demand');
+  const fuelPressureSignal = findSignal(macroConditions, 'fuel_pressure');
+  const foodInflationSignal = findSignal(macroConditions, 'food_inflation');
+  const unemploymentSignal = findSignal(macroConditions, 'unemployment_pressure');
+  const confidenceSignal = findSignal(macroConditions, 'consumer_mood');
+  const supplySignal = findSignal(macroConditions, 'supply_chain_stress');
+  const workDemandSignal = deliveryDemandSignal || rideshareDemandSignal;
+  const workDemandLabel = workDemandSignal
+    ? `${formatRiskLevel(workDemandSignal.level)}${workDemandSignal.value_text ? ` - ${workDemandSignal.value_text}` : ''}`
+    : 'Moderate';
   const workIncomeVisibilityLabel = backendShiftActive
-    ? 'Shift active — salary pending until completion.'
+    ? 'Shift active - salary pending until completion.'
     : workState?.missed_shift_today
-      ? 'Missed shift — no salary earned today.'
+      ? 'Missed shift - no salary earned today.'
       : workState?.is_weekend
-        ? 'Weekend — no required main shift.'
+        ? 'Weekend - no required main shift.'
         : salaryEarnedToday > 0
-          ? `Worked today — salary +${formatMoney(salaryEarnedToday)}.`
+          ? `Worked today - salary +${formatMoney(salaryEarnedToday)}.`
           : 'No salary earned today.';
 
   useEffect(() => {
@@ -434,7 +485,7 @@ export default function DashboardScreen() {
   );
 
   const clockInBlocker = useMemo(() => {
-    if (backendShiftActive) return `Backend shows an active shift until ${shiftEndLabel}.`;
+    if (backendShiftActive) return `Shift already active until ${shiftEndLabel}.`;
     if (loop.dailySession.sessionStatus !== 'active') return 'Day already ended.';
     if (!workShiftAction) return 'No work shift is available right now.';
     if (!workExecutionGuard.allowed) return workExecutionGuard.reason || 'Cannot start shift right now.';
@@ -567,13 +618,27 @@ export default function DashboardScreen() {
     [switchJobAction?.parameters?.job_options],
   );
   const currentJobKey = String(
-    loop.actionHub?.debug_meta?.current_job_key
+    workState?.authoritative_current_job_id
+    || workState?.active_shift_job_id
+    || workState?.scheduled_shift_job_id
+    || loop.actionHub?.debug_meta?.current_job_key
     || loop.dashboard?.stats?.current_job
     || '',
   ).trim();
+  const currentJobDisplayName = String(
+    workState?.current_job_display_name
+    || loop.dashboard?.stats?.current_job_display
+    || (currentJobKey ? currentJobKey.replace(/_/g, ' ') : 'No job selected'),
+  ).trim();
   const jobProgress = loop.dashboard?.job_progress || null;
   const jobLevelMax = Math.max(1, Number(jobProgress?.max_job_level || 40));
-  const jobLevel = Math.max(1, Math.min(jobLevelMax, Number(jobProgress?.job_level || jobProgress?.skill_level || 1)));
+  const jobLevel = Math.max(
+    1,
+    Math.min(
+      jobLevelMax,
+      Number(workState?.current_job_level || jobProgress?.job_level || jobProgress?.skill_level || 1),
+    ),
+  );
   const jobXp = Math.max(0, Number(jobProgress?.job_xp || 0));
   const jobXpToNext = Math.max(0, Number(jobProgress?.job_xp_to_next_level || 0));
   const monthlyPay = Number(jobProgress?.monthly_pay_xgp || 0);
@@ -598,6 +663,21 @@ export default function DashboardScreen() {
   const showStarterJobChooser = starterJobOptions.length > 0 && (firstSessionFlag || !hasStarterJobSelected);
   const selectingStarterJob = loop.executingAction && loop.busyActionKey === 'switch_job';
   const endDayDisabled = !loop.dailyProgression.canAdvanceDay || loop.endingDay || backendShiftActive || autoClockingOut;
+  const economySummaryLine = String(
+    economyOverview?.summary_line
+    || 'Market signals are available for today.',
+  ).trim();
+  const economyMacroItems = [
+    { label: 'Fuel pressure', signal: fuelPressureSignal },
+    { label: 'Food inflation', signal: foodInflationSignal },
+    { label: 'Job market', signal: unemploymentSignal },
+    { label: 'Consumer mood', signal: confidenceSignal },
+    { label: 'Supply chain', signal: supplySignal },
+  ];
+  const economyOpportunityItems = [
+    { label: 'Rideshare demand', signal: rideshareDemandSignal },
+    { label: 'Delivery demand', signal: deliveryDemandSignal },
+  ];
 
   useEffect(() => {
     if (!INTERACTION_DIAGNOSTICS_ENABLED) return;
@@ -717,7 +797,7 @@ export default function DashboardScreen() {
     appendTimelineNote({
       timestampIso: new Date().toISOString(),
       title: `Clocked in to ${workShiftAction.title}`,
-      detail: 'Backend shift started. Waiting for Houston-time completion.',
+      detail: `Shift started. Current job: ${currentJobDisplayName}.`,
       category: 'work',
     });
   };
@@ -737,7 +817,7 @@ export default function DashboardScreen() {
     ) {
       appendTimelineNote({
         timestampIso: backendShiftCompletedAt,
-        title: 'Backend confirmed shift completion',
+        title: 'Shift completion confirmed',
         detail: (
           `Earned ${formatMoney(lastCompletedShift.earned_cash_xgp)} | `
           + `XP +${Math.round(lastCompletedShift.xp_gained)} | `
@@ -827,7 +907,7 @@ export default function DashboardScreen() {
       appendTimelineNote({
         timestampIso: new Date().toISOString(),
         title: 'Shift timer ended',
-        detail: 'Requesting backend finalize/refresh.',
+        detail: 'Finalizing shift and refreshing your work status.',
         category: 'system',
       });
 
@@ -849,7 +929,7 @@ export default function DashboardScreen() {
         if (finalizedState?.main_shift_active_flag) {
           setLoopFeedback({
             tone: 'info',
-            message: 'Timer reached zero. Waiting for backend confirmation to finish the shift.',
+            message: 'Timer reached zero. Shift finalization is still in progress.',
           });
         } else if (finalizedState?.shift_status === 'completed') {
           const earnedCash = Number(finalizedState.last_completed_shift?.earned_cash_xgp || 0);
@@ -1223,7 +1303,8 @@ export default function DashboardScreen() {
           <GameplayCompactMetricRows
             items={[
               { label: 'Current day', value: `Day ${dayLabel}` },
-              { label: 'Current time', value: `${formatHoustonNow(houstonNow)} CT` },
+              { label: 'Houston time', value: currentHoustonTimeLabel },
+              { label: 'Day reset', value: dayRolloverLabel },
               { label: 'Date', value: formatHoustonDate(houstonNow) },
               {
                 label: 'Phase / status',
@@ -1237,6 +1318,61 @@ export default function DashboardScreen() {
         </GameplaySummaryCard>
       </SlideFadeInOnChange>
 
+      {autoRolloverRecapLines.length > 0 ? (
+        <GameplayWarningBanner
+          title="Day rollover complete"
+          message={autoRolloverRecapLines.join(' ')}
+          tone="info"
+        />
+      ) : null}
+
+      {/* Economy */}
+      <SlideFadeInOnChange
+        watchValue={`economy_${dayLabel}_${economySummaryLine}_${workDemandLabel}`}
+        delayMs={50}
+      >
+        <GameplaySummaryCard eyebrow="Economy" title="Today's Risk &amp; Opportunity">
+          <Text style={styles.helperText}>{economySummaryLine}</Text>
+          <GameplayCompactMetricRows
+            items={economyMacroItems.map((entry, index) => ({
+              label: entry.label,
+              value: formatRiskLevel(entry.signal?.level),
+              tone: riskTone(entry.signal?.level),
+              note: entry.signal?.value_text || `Signal ${index + 1}`,
+            }))}
+          />
+          <GameplayCompactMetricRows
+            items={economyOpportunityItems.map((entry) => ({
+              label: entry.label,
+              value: formatRiskLevel(entry.signal?.level),
+              tone: riskTone(entry.signal?.level),
+              note: entry.signal?.value_text || 'Moderate',
+            }))}
+          />
+          {riskBadges.length > 0 ? (
+            <View style={styles.riskBadgeWrap}>
+              {riskBadges.slice(0, 5).map((badge, index) => {
+                const normalizedLevel = String(badge.level || '').toLowerCase();
+                const badgeStyle = normalizedLevel === 'critical'
+                  ? styles.riskBadgeCritical
+                  : normalizedLevel === 'high'
+                    ? styles.riskBadgeHigh
+                    : normalizedLevel === 'moderate'
+                      ? styles.riskBadgeModerate
+                      : styles.riskBadgeLow;
+                return (
+                  <View key={`${badge.key || badge.label || 'badge'}_${index}`} style={[styles.riskBadge, badgeStyle]}>
+                    <Text style={styles.riskBadgeText}>
+                      {badge.label}: {formatRiskLevel(badge.level)}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
+        </GameplaySummaryCard>
+      </SlideFadeInOnChange>
+
       {/* Work shift */}
       <SlideFadeInOnChange
         watchValue={`work_${dayLabel}_${backendShiftActive ? 'active' : backendShiftCompleted ? 'done' : workState?.missed_shift_today ? 'missed' : 'idle'}_${Math.round(salaryEarnedToday * 100)}`}
@@ -1245,22 +1381,40 @@ export default function DashboardScreen() {
         <GameplaySummaryCard eyebrow="Work" title="Income &amp; Shifts">
         <View style={styles.metricRow}>
           <GameplayStatCard
+            label="Current job"
+            value={currentJobDisplayName || 'No job selected'}
+            tone={currentJobKey ? 'info' : 'warning'}
+            note={employerLabel || (currentJobKey ? `Role key: ${currentJobKey.replace(/_/g, ' ')}` : 'Choose a job to unlock stable shifts.')}
+          />
+          <GameplayStatCard
+            label="Shift status"
+            value={autoClockingOut ? 'Auto-finalizing' : backendShiftActive ? 'Active' : backendShiftCompleted ? 'Completed' : canClockIn ? 'Ready' : 'Off shift'}
+            tone={backendShiftActive || autoClockingOut ? 'warning' : backendShiftCompleted ? 'positive' : canClockIn ? 'positive' : 'neutral'}
+            note={
+              backendShiftActive || autoClockingOut
+                ? `Ends ${shiftEndLabel}`
+                : backendShiftCompleted
+                  ? `Completed ${workState?.shift_completed_time_label || 'this shift'}`
+                  : `Window: ${scheduledShiftWindowLabel}`
+            }
+          />
+          <GameplayStatCard
+            label="Shift end (CT)"
+            value={backendShiftActive ? shiftEndLabel : `${workState?.scheduled_shift_end_label || '5:00 PM'} CT`}
+            tone={backendShiftActive ? 'warning' : 'info'}
+            note="Houston local time."
+          />
+          <GameplayStatCard
             label="Salary today"
             value={salaryEarnedToday > 0 ? `+${formatMoney(salaryEarnedToday)}` : 'No salary yet'}
             tone={salaryEarnedToday > 0 ? 'positive' : backendShiftActive ? 'warning' : 'neutral'}
             note={workIncomeVisibilityLabel}
           />
           <GameplayStatCard
-            label="Salary yesterday"
-            value={salaryEarnedYesterday > 0 ? `+${formatMoney(salaryEarnedYesterday)}` : '--'}
-            tone={salaryEarnedYesterday > 0 ? 'positive' : 'neutral'}
-            note={employerLabel || (loop.jobIncome.currentJob ? loop.jobIncome.currentJob.replace(/_/g, ' ') : 'No job selected')}
-          />
-          <GameplayStatCard
             label="Pay model"
-            value="Paid daily"
+            value={workPayModelLabel}
             tone="info"
-            note={workPayModelLabel}
+            note={salaryEarnedYesterday > 0 ? `Yesterday +${formatMoney(salaryEarnedYesterday)}` : 'Daily payout after shift completion.'}
           />
           <GameplayStatCard
             label="Job level"
@@ -1269,34 +1423,16 @@ export default function DashboardScreen() {
             note={jobLevelDetail}
           />
           <GameplayStatCard
-            label="Pay scale"
-            value={monthlyPay > 0 ? formatMoney(monthlyPay) : '--'}
-            tone={monthlyPay > 0 ? 'positive' : 'neutral'}
-            note={monthlyPay > 0 ? `~${formatMoney(estimatedHourlyPay)}/hour` : 'Monthly salary updates with level'}
-          />
-          <GameplayStatCard
-            label="Shift status"
-            value={autoClockingOut ? 'Auto-finalizing' : backendShiftActive ? 'On shift' : backendShiftCompleted ? 'Completed' : canClockIn ? 'Ready to clock in' : 'Off shift'}
-            tone={backendShiftActive || autoClockingOut ? 'warning' : backendShiftCompleted ? 'positive' : canClockIn ? 'positive' : 'neutral'}
-            note={
-              backendShiftActive || autoClockingOut
-                ? `Ends at ${shiftEndLabel} CT`
-                : backendShiftCompleted
-                  ? 'Backend confirmed completion'
-                  : `Window: ${scheduledShiftWindowLabel}`
-            }
-          />
-          <GameplayStatCard
-            label="Shift timer"
-            value={backendShiftActive ? shiftRemainingLabel : autoClockingOut ? 'Syncing...' : '--'}
-            tone={backendShiftActive || autoClockingOut ? 'warning' : 'neutral'}
-            note={SHIFT_SHORT_MODE ? 'Backend timer (accelerated testing mode)' : 'Backend auto-finalizes at shift end'}
+            label="Demand today"
+            value={workDemandLabel}
+            tone={riskTone(workDemandSignal?.level)}
+            note={rideshareDemandSignal?.value_text || 'Check economy card for details.'}
           />
           <GameplayStatCard
             label="Time left"
             value={`${loop.dailySession.remainingTimeUnits}/${loop.dailySession.totalTimeUnits}`}
             tone={loop.dailySession.remainingTimeUnits <= 2 ? 'warning' : 'info'}
-            note="Each shift uses time units."
+            note={SHIFT_SHORT_MODE ? 'Accelerated testing mode.' : 'Real-time shift timer.'}
           />
         </View>
 
@@ -1319,13 +1455,13 @@ export default function DashboardScreen() {
         {backendShiftActive ? (
           <GameplayWarningBanner
             title="Shift active"
-            message={`Backend shows you clocked in. Shift ends at ${shiftEndLabel} CT.`}
+            message={`Clocked in as ${currentJobDisplayName} - shift ends at ${shiftEndLabel}.`}
             tone="info"
           />
         ) : autoClockingOut ? (
           <GameplayWarningBanner
             title="Auto-finalizing"
-            message="Timer reached zero. Waiting for backend confirmation before unlocking ride share."
+            message="Timer reached zero. Finalizing shift and unlocking post-shift actions."
             tone="warning"
           />
         ) : backendShiftCompleted && lastCompletedShift ? (
@@ -1338,7 +1474,7 @@ export default function DashboardScreen() {
           <Text style={styles.helperText}>{clockInBlocker}</Text>
         ) : (
           <Text style={styles.helperText}>
-            Clock in, then let the backend finalize the shift when Houston time reaches the scheduled end.
+            Clock in to start your shift. It auto-finalizes when Houston time reaches shift end.
           </Text>
         )}
         <Text style={styles.helperText}>
@@ -1782,6 +1918,39 @@ const styles = StyleSheet.create({
     ...theme.typography.bodySm,
     color: theme.color.textSecondary,
   },
+  riskBadgeWrap: {
+    marginTop: theme.spacing.xs,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.spacing.xs,
+  },
+  riskBadge: {
+    borderWidth: 1,
+    borderRadius: theme.radius.pill,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xxs,
+  },
+  riskBadgeLow: {
+    borderColor: '#86efac',
+    backgroundColor: '#f0fdf4',
+  },
+  riskBadgeModerate: {
+    borderColor: '#93c5fd',
+    backgroundColor: '#eff6ff',
+  },
+  riskBadgeHigh: {
+    borderColor: '#fcd34d',
+    backgroundColor: '#fffbeb',
+  },
+  riskBadgeCritical: {
+    borderColor: '#fca5a5',
+    backgroundColor: '#fef2f2',
+  },
+  riskBadgeText: {
+    ...theme.typography.caption,
+    color: theme.color.textPrimary,
+    fontWeight: '700',
+  },
   recoveryList: {
     gap: theme.spacing.sm,
   },
@@ -1995,4 +2164,6 @@ const styles = StyleSheet.create({
     color: '#166534',
   },
 });
+
+
 

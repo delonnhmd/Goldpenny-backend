@@ -13,6 +13,7 @@ from app.db.database import Base
 
 class PlayerEmploymentState(Base):
     __tablename__ = "player_employment_states"
+    __mapper_args__ = {"confirm_deleted_rows": False}
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     player_id = Column(
@@ -60,3 +61,4 @@ class PlayerEmploymentState(Base):
 
     player = relationship("Player", back_populates="employment_states", foreign_keys=[player_id])
     job_definition = relationship("JobDefinition", foreign_keys=[current_job_code])
+

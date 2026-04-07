@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import json
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -171,6 +171,226 @@ def _safe_int(value: Any, fallback: int = 0) -> int:
         return fallback
 
 
+JOB_DISPLAY_NAMES: dict[str, str] = {
+    "auto_mechanic": "Auto Mechanic",
+    "aircraft_mechanic": "Aircraft Mechanic",
+    "banker": "Banker",
+    "chef": "Chef",
+    "retail": "Retail Associate",
+    "delivery": "Delivery Driver",
+}
+
+
+def _job_display_name(job_key: str | None) -> str:
+    canonical = normalize_main_job_key(job_key, allow_aliases=True)
+    if not canonical:
+        return "No job selected"
+    return JOB_DISPLAY_NAMES.get(canonical, canonical.replace("_", " ").title())
+
+
+def _safe_iso_to_houston_label(value: Any) -> str | None:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.strftime("%I:%M %p").lstrip("0") + " CT"
+
+
+def _pressure_level(
+    value: float,
+    *,
+    moderate_at: float,
+    high_at: float,
+    critical_at: float,
+    inverse: bool = False,
+) -> str:
+    if inverse:
+        if value <= critical_at:
+            return "critical"
+        if value <= high_at:
+            return "high"
+        if value <= moderate_at:
+            return "moderate"
+        return "low"
+    if value >= critical_at:
+        return "critical"
+    if value >= high_at:
+        return "high"
+    if value >= moderate_at:
+        return "moderate"
+    return "low"
+
+
+def _pressure_phrase(level: str, *, demand: bool = False) -> str:
+    norm = str(level or "").strip().lower()
+    if demand:
+        if norm in {"critical", "high"}:
+            return "Strong"
+        if norm == "moderate":
+            return "Elevated"
+        return "Soft"
+    if norm == "critical":
+        return "Critical"
+    if norm == "high":
+        return "High"
+    if norm == "moderate":
+        return "Moderate"
+    return "Low"
+
+
+def _build_economy_risk_overview(
+    *,
+    economy_payload: dict[str, Any] | None,
+    debt_xgp: float,
+    cash_xgp: float,
+    shift_status: str,
+) -> dict[str, Any]:
+    market = (economy_payload or {}).get("market_overview") or {}
+    macro_values = ((market.get("debug_meta") or {}).get("macro_values") or {})
+    macro_trends = market.get("macro_trend_labels") or {}
+    basket_labels = market.get("basket_pressure_labels") or {}
+    supply_summary = (economy_payload or {}).get("supply_chain_summary") or {}
+    commute_summary = (economy_payload or {}).get("commute_pressure") or {}
+
+    inflation_rate = _safe_float(macro_values.get("inflation_rate"), 0.0)
+    oil_index = _safe_float(macro_values.get("oil_index"), 100.0)
+    unemployment_rate = _safe_float(macro_values.get("unemployment_rate"), 0.0)
+    consumer_confidence = _safe_float(macro_values.get("consumer_confidence"), 50.0)
+    supply_chain_stress = _safe_float(macro_values.get("supply_chain_stress"), 0.0)
+
+    fuel_pressure = _pressure_level(oil_index, moderate_at=105.0, high_at=115.0, critical_at=125.0)
+    food_inflation = _pressure_level(inflation_rate, moderate_at=2.6, high_at=3.3, critical_at=4.0)
+    unemployment_pressure = _pressure_level(unemployment_rate, moderate_at=5.5, high_at=6.3, critical_at=7.2)
+    confidence_pressure = _pressure_level(
+        consumer_confidence,
+        moderate_at=48.0,
+        high_at=44.0,
+        critical_at=40.0,
+        inverse=True,
+    )
+    supply_pressure = _pressure_level(supply_chain_stress, moderate_at=0.75, high_at=1.0, critical_at=1.2)
+
+    protein_pressure = str(basket_labels.get("protein") or "low").strip().lower()
+    essentials_pressure = str(basket_labels.get("essentials") or "low").strip().lower()
+
+    job_pressure_rows = supply_summary.get("job_pressure") if isinstance(supply_summary.get("job_pressure"), list) else []
+    job_pressure_map: dict[str, float] = {}
+    for row in job_pressure_rows:
+        if not isinstance(row, dict):
+            continue
+        key = normalize_main_job_key(row.get("job_key"), allow_aliases=True) or str(row.get("job_key") or "").strip().lower()
+        if key:
+            job_pressure_map[key] = _safe_float(row.get("job_pressure_multiplier"), 1.0)
+
+    delivery_multiplier = max(
+        _safe_float(job_pressure_map.get("delivery"), 1.0),
+        _safe_float(supply_summary.get("best_job_pressure_multiplier"), 1.0)
+        if str(supply_summary.get("best_job_opportunity") or "").strip().lower() in {"delivery", "delivery_driver"}
+        else 1.0,
+    )
+    rideshare_multiplier = max(1.0, delivery_multiplier * 0.92)
+    rideshare_demand = _pressure_level(rideshare_multiplier, moderate_at=1.03, high_at=1.12, critical_at=1.22)
+    delivery_demand = _pressure_level(delivery_multiplier, moderate_at=1.03, high_at=1.12, critical_at=1.22)
+
+    debt_ratio = debt_xgp / max(1.0, cash_xgp)
+    debt_pressure = _pressure_level(debt_ratio, moderate_at=0.7, high_at=1.25, critical_at=2.0)
+
+    downtown_pressure = str(commute_summary.get("commute_pressure_level") or "moderate").strip().lower()
+    if downtown_pressure not in {"low", "moderate", "high", "critical"}:
+        downtown_pressure = "moderate"
+
+    shift_stability = "moderate" if shift_status == "active" else "low"
+
+    macro_conditions = [
+        {
+            "key": "fuel_pressure",
+            "label": "Fuel pressure",
+            "level": fuel_pressure,
+            "value_text": f"{_pressure_phrase(fuel_pressure)} - oil index {oil_index:.1f}",
+            "trend": str(macro_trends.get("oil_direction") or "stable"),
+        },
+        {
+            "key": "food_inflation",
+            "label": "Food inflation",
+            "level": food_inflation,
+            "value_text": f"{_pressure_phrase(food_inflation)} - inflation {inflation_rate:.2f}%",
+            "trend": str(macro_trends.get("inflation_direction") or "stable"),
+        },
+        {
+            "key": "unemployment_pressure",
+            "label": "Job market pressure",
+            "level": unemployment_pressure,
+            "value_text": f"{_pressure_phrase(unemployment_pressure)} - unemployment {unemployment_rate:.2f}%",
+            "trend": str(macro_trends.get("unemployment_direction") or "stable"),
+        },
+        {
+            "key": "consumer_mood",
+            "label": "Consumer mood",
+            "level": confidence_pressure,
+            "value_text": f"{_pressure_phrase(confidence_pressure)} - confidence {consumer_confidence:.1f}",
+            "trend": str(macro_trends.get("confidence_direction") or "stable"),
+        },
+        {
+            "key": "supply_chain_stress",
+            "label": "Supply chain stress",
+            "level": supply_pressure,
+            "value_text": f"{_pressure_phrase(supply_pressure)} - stress {supply_chain_stress:.2f}",
+            "trend": str(macro_trends.get("supply_chain_pressure") or "stable"),
+        },
+    ]
+
+    opportunity_signals = [
+        {
+            "key": "rideshare_demand",
+            "label": "Rideshare demand",
+            "level": rideshare_demand,
+            "value_text": f"{_pressure_phrase(rideshare_demand, demand=True)} tonight",
+        },
+        {
+            "key": "delivery_demand",
+            "label": "Delivery demand",
+            "level": delivery_demand,
+            "value_text": f"{_pressure_phrase(delivery_demand, demand=True)}",
+        },
+        {
+            "key": "grocery_costs",
+            "label": "Grocery costs",
+            "level": essentials_pressure if essentials_pressure in {"low", "moderate", "high", "critical"} else "moderate",
+            "value_text": (
+                "Up"
+                if essentials_pressure in {"high", "critical"}
+                else "Steady"
+                if essentials_pressure == "moderate"
+                else "Soft"
+            ),
+        },
+        {
+            "key": "downtown_stress",
+            "label": "Downtown stress",
+            "level": downtown_pressure,
+            "value_text": _pressure_phrase(downtown_pressure),
+        },
+    ]
+
+    risk_badges = [
+        {"key": "debt_pressure", "label": "Debt pressure", "level": debt_pressure},
+        {"key": "fuel_pressure", "label": "Fuel pressure", "level": fuel_pressure},
+        {"key": "food_inflation", "label": "Food inflation", "level": protein_pressure if protein_pressure in {"low", "moderate", "high", "critical"} else food_inflation},
+        {"key": "rideshare_demand", "label": "Rideshare demand", "level": rideshare_demand},
+        {"key": "shift_stability", "label": "Shift stability", "level": shift_stability},
+    ]
+
+    return {
+        "macro_conditions": macro_conditions,
+        "opportunity_signals": opportunity_signals,
+        "risk_badges": risk_badges,
+        "summary_line": str(market.get("short_explainer") or "Market signals are available."),
+    }
 def _current_game_day(db: Session) -> int:
     state = db.query(GameState).order_by(GameState.id.asc()).first()
     if state is None:
@@ -185,17 +405,22 @@ def _sync_player_work_state(db: Session, player: Player) -> dict[str, Any]:
 def _assert_no_active_main_shift(work_state: dict[str, Any], *, action_key: str) -> None:
     if not bool(work_state.get("main_shift_active_flag")):
         return
+    shift_end_label = (
+        str(work_state.get("shift_end_time_label") or "").strip()
+        or str(work_state.get("scheduled_shift_end_label") or "").strip()
+        or "the scheduled Houston end time"
+    )
     if action_key == "work_shift":
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
-                f"Main shift is already active and ends at {work_state.get('shift_ends_at') or 'the scheduled Houston end time'}."
+                f"Main shift is already active and ends at {shift_end_label}."
             ),
         )
     raise HTTPException(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         detail=(
-            f"Main shift is still active. Post-shift actions unlock after {work_state.get('shift_ends_at') or 'shift completion'}."
+            f"Main shift is still active. Post-shift actions unlock after {shift_end_label}."
         ),
     )
 
@@ -282,7 +507,7 @@ def _starter_daily_brief(current_job: str | None) -> str:
 
 
 def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> dict[str, Any]:
-    current_job = normalize_main_job_key(player.main_job, allow_aliases=True) or ""
+    current_job = normalize_main_job_key((work_state or {}).get("authoritative_current_job_id") or player.main_job, allow_aliases=True) or ""
     has_job = bool(current_job)
     is_first_session = _is_new_player_first_session(player)
     as_of_date = date.today().isoformat()
@@ -300,7 +525,7 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
     rideshare_unlocked = bool(work_state.get("rideshare_unlocked"))
     shift_end_label = str(work_state.get("scheduled_shift_end_label") or "shift end").strip()
     rideshare_unlock_reason = (
-        f"Unavailable during active work shift until {work_state.get('shift_ends_at') or 'backend completion'}."
+        f"Unavailable during active work shift until {work_state.get('shift_end_time_label') or work_state.get('scheduled_shift_end_label') or 'shift completion'}."
         if shift_active
         else (
             "Ride Share is available all day because it is the weekend."
@@ -544,14 +769,14 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
     elif shift_active:
         travel_action_payload["status"] = "blocked"
         travel_action_payload["blockers"] = [
-            f"Travel unlocks after the active shift ends at {work_state.get('shift_ends_at') or 'shift completion'}."
+            f"Travel unlocks after the active shift ends at {work_state.get('shift_end_time_label') or work_state.get('scheduled_shift_end_label') or 'shift completion'}."
         ]
         blocked_actions.append(travel_action_payload)
     else:
         available_actions.append(travel_action_payload)
 
     if shift_active:
-        top_tradeoffs.append("Your main shift is in progress. The backend will unlock post-shift actions after completion.")
+        top_tradeoffs.append("Your main shift is in progress. Post-shift actions unlock after completion.")
     elif is_weekend:
         top_tradeoffs.append("Weekend rules are active. Your main shift is optional and ride share is open all day.")
     elif has_job:
@@ -619,17 +844,32 @@ def get_gameplay_dashboard(player_id: str, db: Session = Depends(get_db)) -> dic
         job_payload = None
 
     is_first_session = _is_new_player_first_session(player)
+    authoritative_job = normalize_main_job_key(
+        (work_state or {}).get("authoritative_current_job_id"),
+        allow_aliases=True,
+    ) or ""
     current_job = (
-        (job_payload or {}).get("current_job_code")
+        authoritative_job
+        or (job_payload or {}).get("current_job_code")
         or playable.get("latest_daily_brief", {}).get("current_job")
         or player.main_job
     )
     current_job = normalize_main_job_key(current_job, allow_aliases=True) or ""
+    current_job_display_name = str(
+        (work_state or {}).get("current_job_display_name")
+        or _job_display_name(current_job)
+    )
     employment_state = latest_employment_state(db, player.id)
     job_progress = build_job_progress_payload(
         employment_state,
         fallback_job_key=current_job or None,
         fallback_shift_type="standard_shift",
+    )
+    economy_risk_overview = _build_economy_risk_overview(
+        economy_payload=economy_payload,
+        debt_xgp=_safe_float(playable.get("debt_xgp"), _safe_float(player.debt_xgp, 0.0)),
+        cash_xgp=_safe_float(playable.get("cash_xgp"), _safe_float(player.cash_xgp, 0.0)),
+        shift_status=str((work_state or {}).get("shift_status") or "idle"),
     )
 
     player_warnings = ((economy_payload or {}).get("player_warnings") or [])[:3]
@@ -676,7 +916,7 @@ def get_gameplay_dashboard(player_id: str, db: Session = Depends(get_db)) -> dic
             "action_key": "work_shift" if current_job else "switch_job",
             "title": "Work Shift" if current_job else "Choose Your First Job",
             "reason": (
-                f"Use {current_job.replace('_', ' ')} for immediate day-1 cash."
+                f"Use {current_job_display_name} for immediate day-1 cash."
                 if current_job
                 else "Pick one starter role to unlock reliable day-1 work actions."
             ),
@@ -696,16 +936,19 @@ def get_gameplay_dashboard(player_id: str, db: Session = Depends(get_db)) -> dic
             "health": _safe_int(playable.get("health"), _safe_int(player.health, 100)),
             "credit_score": _safe_int(playable.get("credit_score"), _safe_int(player.credit_score, 650)),
             "current_job": current_job or None,
+            "current_job_display": current_job_display_name,
             "region_key": str(playable.get("region") or player.region or "suburban"),
         },
         "top_opportunities": top_opportunities,
         "top_risks": top_risks,
+        "economy_risk_overview": economy_risk_overview,
         "recommended_actions": recommended_actions,
         "job_progress": job_progress,
         "work_state": work_state,
         "debug_meta": {
             "new_player_first_session": is_first_session,
             "has_starter_job_selected": bool(current_job),
+            "authoritative_current_job_id": str((work_state or {}).get("authoritative_current_job_id") or ""),
             "source_brief_available": brief_payload is not None,
             "source_economy_available": economy_payload is not None,
             "work_state": work_state,
@@ -718,6 +961,7 @@ def get_gameplay_dashboard(player_id: str, db: Session = Depends(get_db)) -> dic
             "resolved_player_id": str(player.id),
             "new_player_first_session": is_first_session,
             "has_starter_job_selected": bool(current_job),
+            "authoritative_current_job_id": str((work_state or {}).get("authoritative_current_job_id") or ""),
         },
     )
     return dashboard
@@ -739,7 +983,7 @@ def get_gameplay_actions(player_id: str, db: Session = Depends(get_db)) -> dict[
                 "player_id": player_id,
                 "resolved_player_id": str(player.id),
                 "new_player_first_session": _is_new_player_first_session(player),
-                "has_starter_job_selected": bool(player.main_job),
+                "has_starter_job_selected": bool((work_state or {}).get("authoritative_current_job_id") or player.main_job),
             },
         )
         return payload
@@ -1009,9 +1253,9 @@ def preview_gameplay_action(
 
     if key in {"switch_job", "study", "rest", "side_income", "travel"} and bool(work_state.get("main_shift_active_flag")):
         base["blockers"] = [
-            f"Main shift is active until {work_state.get('shift_ends_at') or 'backend completion'}."
+            f"Main shift is active until {work_state.get('shift_end_time_label') or work_state.get('scheduled_shift_end_label') or 'shift completion'}."
         ]
-        base["warnings"] = ["Refresh after backend shift completion to unlock this action."]
+        base["warnings"] = ["Refresh after shift completion to unlock this action."]
         base["confidence_level"] = "high"
         return base
 
@@ -1284,8 +1528,8 @@ def execute_gameplay_action(
                 "success": True,
                 "message": "Shift clocked in.",
                 "result_summary": (
-                    f"Clocked in as {job_name.replace('_', ' ')}. "
-                    f"Backend shift ends at {work_state.get('shift_ends_at')}."
+                    f"Clocked in as {str(work_state.get('current_job_display_name') or _job_display_name(job_name))}"
+                    f" - Shift ends at {str(work_state.get('shift_end_time_label') or _safe_iso_to_houston_label(work_state.get('shift_ends_at')) or 'scheduled Houston end')}"
                 ),
                 "time_cost_units": max(1, min(4, hours_worked // 2)),
                 "cash_delta_xgp": 0.0,
@@ -1739,3 +1983,22 @@ def execute_gameplay_action(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         detail=f"Unsupported action_key '{action_key}'.",
     )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
