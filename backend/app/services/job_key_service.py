@@ -9,6 +9,9 @@ CANONICAL_MAIN_JOB_KEYS: Final[tuple[str, ...]] = (
     "aircraft_mechanic",
     "banker",
     "chef",
+    "cleaner",
+    "warehouse_operator",
+    "real_estate_agent",
     "retail",
     "delivery",
 )
@@ -17,6 +20,8 @@ CANONICAL_SIDE_JOB_KEYS: Final[frozenset[str]] = frozenset({"rideshare"})
 LEGACY_JOB_KEY_ALIASES: Final[dict[str, str]] = {
     "retail_worker": "retail",
     "delivery_driver": "delivery",
+    "warehouse_worker": "warehouse_operator",
+    "real_estate": "real_estate_agent",
 }
 
 

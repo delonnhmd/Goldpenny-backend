@@ -7,6 +7,7 @@ export type GameplayActionKey =
   | 'buy_inventory'
   | 'rest'
   | 'study'
+  | 'start_training'
   | 'debt_payment'
   | string;
 
@@ -120,6 +121,7 @@ export interface WorkStateSnapshot {
   ui_job_id?: string | null;
   job_truth_mismatch_detected?: boolean;
   job_truth_sources?: Record<string, string>;
+  job_market?: WorkJobMarketSnapshot | null;
   shift_status: 'idle' | 'active' | 'completed' | string;
   main_shift_active_flag: boolean;
   shift_started_at?: string | null;
@@ -210,6 +212,54 @@ export interface WorkStateSnapshot {
     sync_date_updated?: boolean;
     processed_days?: Array<Record<string, unknown>>;
   } | null;
+}
+
+export interface JobMarketJobSnapshot {
+  job_key: string;
+  display_name: string;
+  tier: string;
+  base_salary_xgp: number;
+  stress_level: string;
+  status: 'locked' | 'available' | 'current' | string;
+  is_current_job: boolean;
+  is_future_unlock: boolean;
+  requires_certification: boolean;
+  certification_key?: string | null;
+  certification_name?: string | null;
+  certification_completed?: boolean;
+  requirement_label?: string | null;
+  can_start_training?: boolean;
+  can_switch?: boolean;
+  training_in_progress?: boolean;
+  training_days_completed?: number;
+  training_days_required?: number;
+}
+
+export interface JobMarketCertificationSnapshot {
+  certification_key: string;
+  display_name: string;
+  unlocks_job?: string | null;
+  duration_days: number;
+  cost_xgp: number;
+  completed: boolean;
+  in_progress: boolean;
+  progress_days: number;
+  days_remaining: number;
+}
+
+export interface WorkJobMarketSnapshot {
+  current_job_key: string;
+  current_job_display_name: string;
+  has_main_job: boolean;
+  jobs: JobMarketJobSnapshot[];
+  certifications: JobMarketCertificationSnapshot[];
+  training_active: boolean;
+  training_certification_key?: string | null;
+  training_certification_name?: string | null;
+  training_days_completed?: number;
+  training_days_required?: number;
+  training_days_remaining?: number;
+  completed_certification_keys?: string[];
 }
 
 export interface EconomySignalChip {

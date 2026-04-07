@@ -134,6 +134,9 @@ SUPPORTED_JOB_KEYS = (
     "aircraft_mechanic",
     "banker",
     "chef",
+    "cleaner",
+    "warehouse_operator",
+    "real_estate_agent",
     "retail",
     "delivery",
 )

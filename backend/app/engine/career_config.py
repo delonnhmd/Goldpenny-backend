@@ -129,7 +129,9 @@ AUTO_MECHANIC_CONFIG = JobCareerConfig(
             min_trailing_performance=Decimal("0.70"),
         ),
     ),
-    certification_required=False,
+    certification_required=True,
+    certification_track_key="auto_mechanic_cert",
+    certification_days_required=3,
     training_skill_rate=Decimal("0.09"),
 )
 
@@ -164,7 +166,7 @@ AIRCRAFT_MECHANIC_CONFIG = JobCareerConfig(
     ),
     certification_required=True,
     certification_track_key="aircraft_mechanic_cert",
-    certification_days_required=180,
+    certification_days_required=6,
     training_skill_rate=Decimal("0.12"),
 )
 
@@ -197,7 +199,9 @@ BANKER_CONFIG = JobCareerConfig(
             min_trailing_performance=Decimal("0.72"),
         ),
     ),
-    certification_required=False,
+    certification_required=True,
+    certification_track_key="banking_license",
+    certification_days_required=5,
     training_skill_rate=Decimal("0.08"),
 )
 
@@ -230,8 +234,76 @@ CHEF_CONFIG = JobCareerConfig(
             min_trailing_performance=Decimal("0.69"),
         ),
     ),
-    certification_required=False,
+    certification_required=True,
+    certification_track_key="chef_cert",
+    certification_days_required=2,
     training_skill_rate=Decimal("0.10"),
+)
+
+CLEANER_CONFIG = JobCareerConfig(
+    job_key="cleaner",
+    display_name="Cleaner",
+    base_pay_reference=Decimal("2400.00"),
+    skill_growth_rate=Decimal("0.26"),
+    stability_weight=Decimal("0.07"),
+    stress_sensitivity=Decimal("0.95"),
+    performance_weight=Decimal("0.86"),
+    rank_wage_multipliers={
+        RANK_ENTRY: Decimal("1.00"),
+        RANK_INTERMEDIATE: Decimal("1.07"),
+        RANK_ADVANCED: Decimal("1.14"),
+    },
+    promotion_thresholds=(
+        PromotionThreshold(
+            from_rank=RANK_ENTRY,
+            to_rank=RANK_INTERMEDIATE,
+            min_days_worked=14,
+            min_skill=Decimal("12.0"),
+            min_trailing_performance=Decimal("0.56"),
+        ),
+        PromotionThreshold(
+            from_rank=RANK_INTERMEDIATE,
+            to_rank=RANK_ADVANCED,
+            min_days_worked=40,
+            min_skill=Decimal("28.0"),
+            min_trailing_performance=Decimal("0.60"),
+        ),
+    ),
+    certification_required=False,
+    training_skill_rate=Decimal("0.06"),
+)
+
+WAREHOUSE_OPERATOR_CONFIG = JobCareerConfig(
+    job_key="warehouse_operator",
+    display_name="Warehouse Operator",
+    base_pay_reference=Decimal("3200.00"),
+    skill_growth_rate=Decimal("0.34"),
+    stability_weight=Decimal("0.11"),
+    stress_sensitivity=Decimal("1.02"),
+    performance_weight=Decimal("0.96"),
+    rank_wage_multipliers={
+        RANK_ENTRY: Decimal("1.00"),
+        RANK_INTERMEDIATE: Decimal("1.09"),
+        RANK_ADVANCED: Decimal("1.18"),
+    },
+    promotion_thresholds=(
+        PromotionThreshold(
+            from_rank=RANK_ENTRY,
+            to_rank=RANK_INTERMEDIATE,
+            min_days_worked=18,
+            min_skill=Decimal("16.0"),
+            min_trailing_performance=Decimal("0.60"),
+        ),
+        PromotionThreshold(
+            from_rank=RANK_INTERMEDIATE,
+            to_rank=RANK_ADVANCED,
+            min_days_worked=52,
+            min_skill=Decimal("36.0"),
+            min_trailing_performance=Decimal("0.66"),
+        ),
+    ),
+    certification_required=False,
+    training_skill_rate=Decimal("0.08"),
 )
 
 RETAIL_CONFIG = JobCareerConfig(
@@ -300,6 +372,41 @@ DELIVERY_CONFIG = JobCareerConfig(
     training_skill_rate=Decimal("0.07"),
 )
 
+REAL_ESTATE_AGENT_CONFIG = JobCareerConfig(
+    job_key="real_estate_agent",
+    display_name="Real Estate Agent",
+    base_pay_reference=Decimal("4800.00"),
+    skill_growth_rate=Decimal("0.33"),
+    stability_weight=Decimal("0.09"),
+    stress_sensitivity=Decimal("1.08"),
+    performance_weight=Decimal("1.12"),
+    rank_wage_multipliers={
+        RANK_ENTRY: Decimal("1.00"),
+        RANK_INTERMEDIATE: Decimal("1.12"),
+        RANK_ADVANCED: Decimal("1.25"),
+    },
+    promotion_thresholds=(
+        PromotionThreshold(
+            from_rank=RANK_ENTRY,
+            to_rank=RANK_INTERMEDIATE,
+            min_days_worked=21,
+            min_skill=Decimal("19.0"),
+            min_trailing_performance=Decimal("0.64"),
+        ),
+        PromotionThreshold(
+            from_rank=RANK_INTERMEDIATE,
+            to_rank=RANK_ADVANCED,
+            min_days_worked=64,
+            min_skill=Decimal("45.0"),
+            min_trailing_performance=Decimal("0.72"),
+        ),
+    ),
+    certification_required=True,
+    certification_track_key="real_estate_license",
+    certification_days_required=4,
+    training_skill_rate=Decimal("0.08"),
+)
+
 # ── Registry ───────────────────────────────────────────────────────────────────
 
 CAREER_CONFIG: dict[str, JobCareerConfig] = {
@@ -307,6 +414,9 @@ CAREER_CONFIG: dict[str, JobCareerConfig] = {
     "aircraft_mechanic": AIRCRAFT_MECHANIC_CONFIG,
     "banker": BANKER_CONFIG,
     "chef": CHEF_CONFIG,
+    "cleaner": CLEANER_CONFIG,
+    "warehouse_operator": WAREHOUSE_OPERATOR_CONFIG,
+    "real_estate_agent": REAL_ESTATE_AGENT_CONFIG,
     "retail": RETAIL_CONFIG,
     "delivery": DELIVERY_CONFIG,
 }
@@ -315,13 +425,54 @@ VALID_JOB_KEYS: frozenset[str] = frozenset(CAREER_CONFIG.keys())
 
 # Certification tracks — keyed by certification_track_key
 CERTIFICATION_CATALOG: dict[str, dict] = {
+    "chef_cert": {
+        "display_name": "Chef Certification",
+        "required_days": 2,
+        "unlocks_job": "chef",
+        "cost_xgp": 20,
+        "description": (
+            "2 in-game days of culinary training. Allocate at least "
+            "1 hour/day in training to progress."
+        ),
+    },
+    "auto_mechanic_cert": {
+        "display_name": "Auto Mechanic Certification",
+        "required_days": 3,
+        "unlocks_job": "auto_mechanic",
+        "cost_xgp": 40,
+        "description": (
+            "3 in-game days of workshop training. Allocate at least "
+            "1 hour/day in training to progress."
+        ),
+    },
     "aircraft_mechanic_cert": {
         "display_name": "Aircraft Mechanic Certification",
-        "required_days": 180,
+        "required_days": 6,
         "unlocks_job": "aircraft_mechanic",
+        "cost_xgp": 100,
         "description": (
-            "180 in-game days of structured training. Must allocate at least "
-            "1 hour/day to advance. Consumes time budget and adds moderate stress."
+            "6 in-game days of structured training. Must allocate at least "
+            "1 hour/day to advance."
+        ),
+    },
+    "banking_license": {
+        "display_name": "Banking License",
+        "required_days": 5,
+        "unlocks_job": "banker",
+        "cost_xgp": 80,
+        "description": (
+            "5 in-game days of finance compliance training. Allocate at least "
+            "1 hour/day in training to progress."
+        ),
+    },
+    "real_estate_license": {
+        "display_name": "Real Estate License",
+        "required_days": 4,
+        "unlocks_job": "real_estate_agent",
+        "cost_xgp": 60,
+        "description": (
+            "4 in-game days of property and contract training. Allocate at least "
+            "1 hour/day in training to progress."
         ),
     },
 }

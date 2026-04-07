@@ -171,6 +171,41 @@ def _parse_json(raw: str | None) -> dict:
         return {}
 
 
+def _write_json(value: dict) -> str:
+    try:
+        return json.dumps(value, separators=(",", ":"), sort_keys=True)
+    except Exception:
+        return "{}"
+
+
+def _completed_certification_keys(career: PlayerCareer) -> set[str]:
+    debug = _parse_json(career.career_debug_json)
+    raw = debug.get("completed_certification_keys")
+    keys: set[str] = set()
+    if isinstance(raw, list):
+        for entry in raw:
+            candidate = str(entry or "").strip().lower()
+            if candidate:
+                keys.add(candidate)
+    active_track = str(career.certification_track_key or "").strip().lower()
+    if active_track and bool(career.certification_completed):
+        keys.add(active_track)
+    return keys
+
+
+def _persist_completed_certification_keys(career: PlayerCareer, keys: set[str]) -> None:
+    debug = _parse_json(career.career_debug_json)
+    debug["completed_certification_keys"] = sorted(k for k in keys if str(k or "").strip())
+    career.career_debug_json = _write_json(debug)
+
+
+def _has_completed_certification(career: PlayerCareer, track_key: str | None) -> bool:
+    normalized = str(track_key or "").strip().lower()
+    if not normalized:
+        return True
+    return normalized in _completed_certification_keys(career)
+
+
 # ── Core public functions ──────────────────────────────────────────────────────
 
 def get_or_create_player_career(db: Session, player_id: str | UUID) -> PlayerCareer:
@@ -379,8 +414,8 @@ def attempt_promotion(db: Session, career: PlayerCareer, day: int) -> bool:
     if threshold is None:
         return False  # already at max rank
 
-    # Guard: aircraft_mechanic requires certification
-    if cfg.certification_required and not career.certification_completed:
+    # Guard: certification-gated roles require completed certification track.
+    if cfg.certification_required and not _has_completed_certification(career, cfg.certification_track_key):
         return False
 
     skill = _d(career.current_job_skill)
@@ -413,31 +448,58 @@ def start_certification_track(db: Session, player_id: str | UUID, track_key: str
     - player must not already be enrolled in the same track
     - player must not already have the certification completed
     """
-    if track_key not in CERTIFICATION_CATALOG:
+    normalized_track_key = str(track_key or "").strip().lower()
+    if normalized_track_key not in CERTIFICATION_CATALOG:
         raise CareerValidationError(
             f"Unknown certification track: {track_key!r}. "
             f"Valid: {sorted(CERTIFICATION_CATALOG.keys())}"
         )
 
-    career = get_or_create_player_career(db, player_id)
-    cat = CERTIFICATION_CATALOG[track_key]
-
-    if career.certification_completed and career.certification_track_key == track_key:
-        raise CareerValidationError(
-            f"Certification {track_key!r} is already completed for this player."
-        )
-    if career.certification_track_key == track_key and not career.certification_completed:
+    player = _resolve_player(db, player_id)
+    career = get_or_create_player_career(db, player.id)
+    cat = CERTIFICATION_CATALOG[normalized_track_key]
+    completed_tracks = _completed_certification_keys(career)
+    if normalized_track_key in completed_tracks:
+        return {
+            "enrolled": False,
+            "message": f"Certification {cat['display_name']} is already completed.",
+            "certification_track_key": normalized_track_key,
+            "certification_progress_days": int(career.certification_progress_days or cat["required_days"]),
+            "certification_required_days": int(career.certification_required_days or cat["required_days"]),
+            "certification_completed": True,
+            "training_active": False,
+            "training_days_remaining": 0,
+            "cost_xgp": int(cat.get("cost_xgp") or 0),
+        }
+    if career.certification_track_key == normalized_track_key and not career.certification_completed:
         # Already enrolled — return current state
         return {
             "enrolled": False,
             "message": "Already enrolled in this certification track.",
-            "certification_track_key": track_key,
+            "certification_track_key": normalized_track_key,
             "certification_progress_days": int(career.certification_progress_days or 0),
             "certification_required_days": int(career.certification_required_days or cat["required_days"]),
             "certification_completed": False,
+            "training_active": True,
+            "training_days_remaining": max(
+                0,
+                int(career.certification_required_days or cat["required_days"])
+                - int(career.certification_progress_days or 0),
+            ),
+            "cost_xgp": int(cat.get("cost_xgp") or 0),
         }
 
-    career.certification_track_key = track_key
+    cost_xgp = _money(_d(cat.get("cost_xgp") or 0))
+    player_cash = _money(_d(getattr(player, "cash", 0)))
+    if cost_xgp > Decimal("0.00") and player_cash < cost_xgp:
+        raise CareerValidationError(
+            f"Not enough cash to start {cat['display_name']}. Need {float(cost_xgp):.0f} XGP."
+        )
+
+    if cost_xgp > Decimal("0.00"):
+        player.cash = _money(player_cash - cost_xgp)
+
+    career.certification_track_key = normalized_track_key
     career.certification_progress_days = 0
     career.certification_required_days = cat["required_days"]
     career.certification_completed = False
@@ -447,10 +509,14 @@ def start_certification_track(db: Session, player_id: str | UUID, track_key: str
     return {
         "enrolled": True,
         "message": f"Enrolled in {cat['display_name']}.",
-        "certification_track_key": track_key,
+        "certification_track_key": normalized_track_key,
         "certification_progress_days": 0,
         "certification_required_days": cat["required_days"],
         "certification_completed": False,
+        "training_active": True,
+        "training_days_remaining": int(cat["required_days"]),
+        "cost_xgp": int(cat.get("cost_xgp") or 0),
+        "cash_after_xgp": float(_money(_d(getattr(player, "cash", 0)))),
     }
 
 
@@ -513,6 +579,11 @@ def complete_certification_if_eligible(db: Session, career: PlayerCareer) -> boo
 
     if progress >= required:
         career.certification_completed = True
+        completed_keys = _completed_certification_keys(career)
+        active_track = str(career.certification_track_key or "").strip().lower()
+        if active_track:
+            completed_keys.add(active_track)
+            _persist_completed_certification_keys(career, completed_keys)
         db.flush()
         return True
     return False
@@ -553,8 +624,8 @@ def switch_player_job(
     career = get_or_create_player_career(db, player.id)
     cfg = get_job_config(canonical_new_job_key)
 
-    # Gate check for aircraft mechanic
-    if cfg.certification_required and not career.certification_completed:
+    # Certification gate per target job.
+    if cfg.certification_required and not _has_completed_certification(career, cfg.certification_track_key):
         raise CareerValidationError(
             f"Cannot switch to {canonical_new_job_key!r}: certification "
             f"{cfg.certification_track_key!r} must be completed first."
@@ -673,9 +744,10 @@ def get_player_career_snapshot(db: Session, player_id: str | UUID) -> dict:
                     f"Need trailing performance >= {float(threshold.min_trailing_performance):.2f} "
                     f"(current: {float(trailing):.2f})."
                 )
-            if cfg.certification_required and not cert_completed:
+            if cfg.certification_required and not _has_completed_certification(career, cfg.certification_track_key):
                 blockers.append("Certification required before promotion is available.")
 
+    completed_cert_keys = sorted(_completed_certification_keys(career))
     return {
         "player_id": str(player.id),
         "current_job_key": career.current_job_key,
@@ -689,10 +761,13 @@ def get_player_career_snapshot(db: Session, player_id: str | UUID) -> dict:
         "certification_progress_days": cert_progress,
         "certification_required_days": cert_required,
         "certification_completed": cert_completed,
+        "completed_certification_keys": completed_cert_keys,
+        "training_active": bool(cert_track and not cert_completed),
         "effective_monthly_pay_xgp": eff_pay,
         "last_promotion_day": career.last_promotion_day,
         "debug_meta": {
             "promotion_blockers": blockers,
+            "completed_certification_keys": completed_cert_keys,
             "rank_wage_multiplier": float(
                 (cfg.rank_wage_multipliers.get(rank, Decimal("1.00"))) if cfg else 1.00
             ),

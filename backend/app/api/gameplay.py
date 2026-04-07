@@ -21,12 +21,13 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
-from app.engine.career_config import CAREER_CONFIG
+from app.engine.career_config import CAREER_CONFIG, CERTIFICATION_CATALOG
 from app.engine.career_service import (
     CareerError,
     CareerNotFoundError,
     CareerValidationError,
     apply_daily_career_progression,
+    start_certification_track,
     switch_player_job,
 )
 from app.engine.economy_presentation_service import build_economy_presentation_summary
@@ -176,7 +177,10 @@ JOB_DISPLAY_NAMES: dict[str, str] = {
     "aircraft_mechanic": "Aircraft Mechanic",
     "banker": "Banker",
     "chef": "Chef",
-    "retail": "Retail Associate",
+    "cleaner": "Cleaner",
+    "warehouse_operator": "Warehouse Operator",
+    "real_estate_agent": "Real Estate Agent",
+    "retail": "Retail Worker",
     "delivery": "Delivery Driver",
 }
 
@@ -458,8 +462,7 @@ def _first_line(text_value: Any, fallback: str) -> str:
 
 def _job_options_payload() -> list[dict[str, Any]]:
     options: list[dict[str, Any]] = []
-    # Keep six MVP options deterministic + stable for first-session UI.
-    for cfg in sorted(CAREER_CONFIG.values(), key=lambda row: row.display_name)[:6]:
+    for cfg in sorted(CAREER_CONFIG.values(), key=lambda row: row.display_name):
         company = JOB_COMPANY_MAP.get(
             cfg.job_key,
             {
@@ -654,51 +657,41 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
             }
         )
 
-    if has_job:
-        (blocked_actions if shift_active else available_actions).append(
-            {
-                "action_key": "switch_job",
-                "title": "Switch Job",
-                "description": "Change role if your current lane does not fit your strategy.",
-                "status": "blocked" if shift_active else "available",
-                "blockers": ([f"Switch jobs after the active shift ends at {work_state.get('shift_ends_at')}."] if shift_active else []),
-                "tradeoffs": ["Role change can shift stress profile and promotion pace."],
-                "warnings": [],
-                "confidence_level": "medium",
-                "parameters": {
-                    "job_options": job_options,
-                    "current_job_key": current_job,
-                    "new_job_key": default_switch_job_key,
-                    "shift_type": "standard_shift",
-                },
-            }
-        )
-    else:
-        recommended_actions.append(
-            {
-                "action_key": "switch_job",
-                "title": "Choose Your First Job",
-                "description": "Select one starter role to unlock reliable work-shift income.",
-                "status": "recommended",
-                "blockers": [],
-                "tradeoffs": ["Higher pay roles can carry higher stress and tighter requirements."],
-                "warnings": [],
-                "confidence_level": "high",
-                "parameters": {
-                    "job_options": job_options,
-                    "current_job_key": None,
-                    "new_job_key": (job_options[0].get("job_key") if job_options else None),
-                    "shift_type": "standard_shift",
-                },
-            }
-        )
+    blocked_actions.append(
+        {
+            "action_key": "switch_job",
+            "title": "Job Market",
+            "description": (
+                "Open the Job Market panel to review roles, certifications, and training before switching."
+            ),
+            "status": "blocked",
+            "blockers": [
+                (
+                    f"Finish your active shift first (ends {work_state.get('shift_end_time_label') or work_state.get('scheduled_shift_end_label') or 'at shift end'}), then switch from Job Market."
+                    if shift_active
+                    else "Use the Job Market panel to choose a role or start certification training."
+                )
+            ],
+            "tradeoffs": ["Job changes can alter stress, pay growth, and promotion pace."],
+            "warnings": [],
+            "confidence_level": "high",
+            "parameters": {
+                "job_options": job_options,
+                "current_job_key": current_job or None,
+                "new_job_key": default_switch_job_key,
+                "shift_type": "standard_shift",
+            },
+        }
+    )
+
+    if not has_job:
         blocked_actions.append(
             {
                 "action_key": "work_shift",
                 "title": "Work Shift",
                 "description": "Complete job selection first to start earning from shifts.",
                 "status": "blocked",
-                "blockers": ["Choose your first job first."],
+                "blockers": ["You don't have a job yet. Choose a job in Job Market to start earning."],
                 "tradeoffs": [],
                 "warnings": [],
                 "confidence_level": "unknown",
@@ -1261,7 +1254,7 @@ def preview_gameplay_action(
         "debug_meta": {"preview_route": "canonical"},
     }
 
-    if key in {"switch_job", "study", "rest", "side_income", "travel"} and bool(work_state.get("main_shift_active_flag")):
+    if key in {"switch_job", "start_training", "study", "rest", "side_income", "travel"} and bool(work_state.get("main_shift_active_flag")):
         base["blockers"] = [
             f"Main shift is active until {work_state.get('shift_end_time_label') or work_state.get('scheduled_shift_end_label') or 'shift completion'}."
         ]
@@ -1285,6 +1278,26 @@ def preview_gameplay_action(
         base["summary"] = "Switching jobs changes pay trajectory and stress profile."
         base["expected_career_impact"] = {"label": "Career", "direction": "mixed", "text": "Role and progression path update"}
         base["expected_time_impact"] = {"label": "Time", "direction": "flat", "amount": 0, "text": "No time cost"}
+    elif key == "start_training":
+        cert_key = str(params.get("certification_key") or params.get("track_key") or "").strip().lower()
+        cert_meta = CERTIFICATION_CATALOG.get(cert_key, {})
+        cert_name = str(cert_meta.get("display_name") or cert_key.replace("_", " ").title() or "Certification")
+        cert_cost = int(cert_meta.get("cost_xgp") or 0)
+        cert_days = int(cert_meta.get("required_days") or 0)
+        base["summary"] = f"Start {cert_name} training to unlock the required job path."
+        base["expected_cash_impact"] = {
+            "label": "Cash",
+            "direction": "down" if cert_cost > 0 else "flat",
+            "amount": -cert_cost if cert_cost > 0 else 0,
+            "text": f"-{cert_cost} XGP" if cert_cost > 0 else "0 XGP",
+        }
+        base["expected_time_impact"] = {"label": "Time", "direction": "down", "amount": -1, "text": "-1 units"}
+        base["expected_career_impact"] = {
+            "label": "Career",
+            "direction": "up",
+            "amount": cert_days,
+            "text": f"Training plan started ({cert_days} in-game days)",
+        }
     elif key == "study":
         base["summary"] = "Training improves long-term growth with no immediate cash."
         base["expected_career_impact"] = {"label": "Career", "direction": "up", "amount": training, "text": f"+{training} training hours"}
@@ -1489,6 +1502,47 @@ def execute_gameplay_action(
                     "action_payload": params,
                 },
             )
+            _raise_gameplay_http_error(exc)
+
+    if action_key == "start_training":
+        _assert_no_active_main_shift(work_state, action_key=action_key)
+        certification_key = str(
+            params.get("certification_key") or params.get("track_key") or ""
+        ).strip().lower()
+        if not certification_key:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Could not start training because no certification was selected.",
+            )
+        try:
+            result = start_certification_track(db, player_id, certification_key)
+            db.commit()
+            db.refresh(player)
+            cert_label = str(
+                (CERTIFICATION_CATALOG.get(certification_key, {}) or {}).get("display_name")
+                or certification_key.replace("_", " ").title()
+            )
+            remaining_days = int(result.get("training_days_remaining") or 0)
+            return {
+                "player_id": str(player.id),
+                "action_key": action_key,
+                "success": True,
+                "message": str(result.get("message") or f"Training started for {cert_label}."),
+                "result_summary": (
+                    f"Training started: {cert_label} - {remaining_days} day{'s' if remaining_days != 1 else ''} remaining"
+                ),
+                "time_cost_units": 1,
+                "cash_delta_xgp": -_safe_float(result.get("cost_xgp"), 0.0),
+                "stress_delta": 0,
+                "health_delta": 0,
+                "raw_result": {
+                    **result,
+                    "certification_key": certification_key,
+                    "work_state": build_work_state_payload(db, player),
+                },
+            }
+        except Exception as exc:
+            db.rollback()
             _raise_gameplay_http_error(exc)
 
     if action_key == "work_shift":

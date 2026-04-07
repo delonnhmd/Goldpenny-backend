@@ -139,6 +139,12 @@ function normalizeError(error: unknown): string {
     return 'Could not switch jobs because no destination job was selected.';
   }
   if (
+    normalized.includes('could not start training because no certification was selected')
+    || normalized.includes('start_training requires certification_key')
+  ) {
+    return 'Could not start training because no certification was selected.';
+  }
+  if (
     normalized.includes('choose a job before running work_shift')
     || normalized.includes('no main job is assigned yet')
     || normalized.includes("assigned main job is 'none'")
@@ -156,6 +162,7 @@ function canonicalActionKey(actionKey: string): string {
   if (raw === 'work_shift' || raw.includes('work') || raw.includes('shift')) return 'work_shift';
   if (raw === 'recovery_action' || raw.includes('recovery')) return 'recovery_action';
   if (raw === 'switch_job' || (raw.includes('switch') && raw.includes('job'))) return 'switch_job';
+  if (raw === 'start_training' || (raw.includes('start') && raw.includes('training'))) return 'start_training';
   if (raw.includes('stock') || raw.includes('market')) return 'stocks';
   return raw;
 }

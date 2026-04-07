@@ -134,6 +134,28 @@ function normalizeExecutionParameters(
     }
   }
 
+  if (canonical === 'start_training') {
+    const rawCertificationKey =
+      params.certification_key ?? params.track_key ?? params.certification ?? params.cert_key;
+    const certificationKey = toString(rawCertificationKey, '').trim().toLowerCase();
+    delete normalizedParams.track_key;
+    delete normalizedParams.certification;
+    delete normalizedParams.cert_key;
+    if (certificationKey) {
+      normalizedParams.certification_key = certificationKey;
+    }
+    if (GAMEPLAY_ROUTE_DIAGNOSTICS_ENABLED) {
+      recordInfo('gameplayApi', 'Normalized start_training payload.', {
+        action: 'start_training_payload_normalized',
+        context: {
+          rawCertificationKey: rawCertificationKey == null ? null : String(rawCertificationKey),
+          certificationKey,
+          requestPayload: normalizedParams,
+        },
+      });
+    }
+  }
+
   return normalizedParams;
 }
 
@@ -421,6 +443,69 @@ function normalizeEconomyRiskOverview(raw: unknown): EconomyRiskOverview | null 
   };
 }
 
+function normalizeJobMarket(raw: unknown): WorkStateSnapshot['job_market'] {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  const jobs = Array.isArray(obj.jobs)
+    ? (obj.jobs as unknown[]).map((entry) => {
+      const row = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : {};
+      return {
+        job_key: toString(row.job_key, ''),
+        display_name: toString(row.display_name, ''),
+        tier: toString(row.tier, 'entry'),
+        base_salary_xgp: normalizeMoneyValue(row.base_salary_xgp, { allowNegative: false, fallback: 0 }),
+        stress_level: toString(row.stress_level, 'Moderate'),
+        status: toString(row.status, 'locked'),
+        is_current_job: Boolean(row.is_current_job),
+        is_future_unlock: Boolean(row.is_future_unlock),
+        requires_certification: Boolean(row.requires_certification),
+        certification_key: row.certification_key == null ? null : toString(row.certification_key, ''),
+        certification_name: row.certification_name == null ? null : toString(row.certification_name, ''),
+        certification_completed: Boolean(row.certification_completed),
+        requirement_label: row.requirement_label == null ? null : toString(row.requirement_label, ''),
+        can_start_training: Boolean(row.can_start_training),
+        can_switch: Boolean(row.can_switch),
+        training_in_progress: Boolean(row.training_in_progress),
+        training_days_completed: Math.max(0, Math.round(toNumber(row.training_days_completed, 0))),
+        training_days_required: Math.max(0, Math.round(toNumber(row.training_days_required, 0))),
+      };
+    })
+    : [];
+  const certifications = Array.isArray(obj.certifications)
+    ? (obj.certifications as unknown[]).map((entry) => {
+      const row = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : {};
+      return {
+        certification_key: toString(row.certification_key, ''),
+        display_name: toString(row.display_name, ''),
+        unlocks_job: row.unlocks_job == null ? null : toString(row.unlocks_job, ''),
+        duration_days: Math.max(0, Math.round(toNumber(row.duration_days, 0))),
+        cost_xgp: normalizeMoneyValue(row.cost_xgp, { allowNegative: false, fallback: 0 }),
+        completed: Boolean(row.completed),
+        in_progress: Boolean(row.in_progress),
+        progress_days: Math.max(0, Math.round(toNumber(row.progress_days, 0))),
+        days_remaining: Math.max(0, Math.round(toNumber(row.days_remaining, 0))),
+      };
+    })
+    : [];
+
+  return {
+    current_job_key: toString(obj.current_job_key, ''),
+    current_job_display_name: toString(obj.current_job_display_name, ''),
+    has_main_job: Boolean(obj.has_main_job),
+    jobs,
+    certifications,
+    training_active: Boolean(obj.training_active),
+    training_certification_key: obj.training_certification_key == null ? null : toString(obj.training_certification_key, ''),
+    training_certification_name: obj.training_certification_name == null ? null : toString(obj.training_certification_name, ''),
+    training_days_completed: Math.max(0, Math.round(toNumber(obj.training_days_completed, 0))),
+    training_days_required: Math.max(0, Math.round(toNumber(obj.training_days_required, 0))),
+    training_days_remaining: Math.max(0, Math.round(toNumber(obj.training_days_remaining, 0))),
+    completed_certification_keys: Array.isArray(obj.completed_certification_keys)
+      ? (obj.completed_certification_keys as unknown[]).map((entry) => toString(entry, '')).filter(Boolean)
+      : [],
+  };
+}
+
 function normalizeWorkState(raw: unknown, playerId: string): WorkStateSnapshot | null {
   if (!raw || typeof raw !== 'object') return null;
   const obj = raw as Record<string, unknown>;
@@ -451,6 +536,7 @@ function normalizeWorkState(raw: unknown, playerId: string): WorkStateSnapshot |
             .filter(([key]) => key.length > 0),
         )
         : {},
+    job_market: normalizeJobMarket(obj.job_market),
     shift_status: toString(obj.shift_status, 'idle'),
     main_shift_active_flag: Boolean(obj.main_shift_active_flag),
     shift_started_at: obj.shift_started_at == null ? null : toString(obj.shift_started_at, ''),
@@ -754,6 +840,7 @@ function canonicalActionKey(actionKey: GameplayActionKey): GameplayActionKey {
   if (raw.includes('travel') || raw.includes('map_move')) return 'travel';
   // switch_job must be resolved before work_shift — 'job' appears in both but they are distinct actions.
   if (raw === 'switch_job' || (raw.includes('switch') && raw.includes('job'))) return 'switch_job';
+  if (raw === 'start_training' || (raw.includes('start') && raw.includes('training'))) return 'start_training';
   if (raw.includes('work') || raw.includes('shift')) return 'work_shift';
   if (raw.includes('study') || raw.includes('train') || raw.includes('cert')) return 'study';
   if (raw.includes('debt') || raw.includes('payment')) return 'debt_payment';
@@ -942,6 +1029,16 @@ export async function executeAction(
     }
     normalizedParams.new_job_key = targetJob;
   }
+  if (canonical === 'start_training') {
+    const certificationKey = toString(
+      normalizedParams.certification_key ?? normalizedParams.track_key,
+      '',
+    ).trim().toLowerCase();
+    if (!certificationKey) {
+      throw new Error('Could not start training because no certification was selected.');
+    }
+    normalizedParams.certification_key = certificationKey;
+  }
   const unifiedPayload = {
     action_key: canonical,
     parameters: normalizedParams,
@@ -950,7 +1047,7 @@ export async function executeAction(
 
   try {
     logCanonicalRoute('action_execute', playerId, canonicalExecutePath);
-    if (GAMEPLAY_ROUTE_DIAGNOSTICS_ENABLED && (canonical === 'switch_job' || canonical === 'work_shift')) {
+    if (GAMEPLAY_ROUTE_DIAGNOSTICS_ENABLED && (canonical === 'switch_job' || canonical === 'work_shift' || canonical === 'start_training')) {
       recordInfo('gameplayApi', 'Dispatching canonical gameplay action.', {
         action: `${String(canonical)}_request`,
         context: {
@@ -964,7 +1061,7 @@ export async function executeAction(
       method: 'POST',
       body: JSON.stringify(unifiedPayload),
     });
-    if (GAMEPLAY_ROUTE_DIAGNOSTICS_ENABLED && (canonical === 'switch_job' || canonical === 'work_shift')) {
+    if (GAMEPLAY_ROUTE_DIAGNOSTICS_ENABLED && (canonical === 'switch_job' || canonical === 'work_shift' || canonical === 'start_training')) {
       recordInfo('gameplayApi', 'Canonical gameplay action completed.', {
         action: `${String(canonical)}_response`,
         context: {
@@ -994,7 +1091,7 @@ export async function executeAction(
       || normalized.includes('not found')
       || normalized.includes('failed to fetch')
       || normalized.includes('network request failed');
-    if (GAMEPLAY_ROUTE_DIAGNOSTICS_ENABLED && (canonical === 'switch_job' || canonical === 'work_shift')) {
+    if (GAMEPLAY_ROUTE_DIAGNOSTICS_ENABLED && (canonical === 'switch_job' || canonical === 'work_shift' || canonical === 'start_training')) {
       recordWarning('gameplayApi', 'Canonical gameplay action failed before fallback.', {
         action: `${String(canonical)}_request_failed`,
         context: {
@@ -1074,6 +1171,33 @@ export async function executeAction(
       'Training logged',
       toString(raw.summary || raw.message, 'Career training applied.'),
       toNumber(params.time_cost_units, 2),
+      raw,
+    );
+  }
+
+  if (canonical === 'start_training') {
+    const certificationKey = toString(
+      normalizedParams.certification_key ?? normalizedParams.track_key,
+      '',
+    ).trim().toLowerCase();
+    if (!certificationKey) {
+      throw new Error('Could not start training because no certification was selected.');
+    }
+    const raw = await fetchApiWithFallback<Record<string, unknown>>(
+      [`/career/player/${playerId}/certification/start`],
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          track_key: certificationKey,
+        }),
+      },
+    );
+    return executionResponseBase(
+      playerId,
+      canonical,
+      toString(raw.message, 'Training started'),
+      toString(raw.message || raw.summary, 'Certification training started.'),
+      toNumber(params.time_cost_units, 1),
       raw,
     );
   }

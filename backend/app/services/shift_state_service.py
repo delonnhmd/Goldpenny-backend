@@ -15,6 +15,7 @@ from sqlalchemy import func, inspect
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
+from app.engine.career_config import CAREER_CONFIG, CERTIFICATION_CATALOG
 from app.engine.balance_config import (
     apply_health_decay_rate,
     apply_income_multiplier,
@@ -69,18 +70,107 @@ JOB_DISPLAY_NAMES: dict[str, str] = {
     "aircraft_mechanic": "Aircraft Mechanic",
     "banker": "Banker",
     "chef": "Chef",
-    "retail": "Retail Associate",
+    "cleaner": "Cleaner",
+    "warehouse_operator": "Warehouse Operator",
+    "real_estate_agent": "Real Estate Agent",
+    "retail": "Retail Worker",
     "delivery": "Delivery Driver",
 }
 
 JOB_SHIFT_MAP: dict[str, dict[str, str]] = {
     "banker": {"start": "10:00", "end": "18:00"},
     "chef": {"start": "09:00", "end": "17:00"},
+    "cleaner": {"start": "07:00", "end": "15:00"},
+    "warehouse_operator": {"start": "07:00", "end": "16:00"},
+    "real_estate_agent": {"start": "10:00", "end": "18:00"},
     "retail": {"start": "10:00", "end": "18:00"},
     "delivery": {"start": "08:00", "end": "16:00"},
     "auto_mechanic": {"start": "08:00", "end": "17:00"},
     "aircraft_mechanic": {"start": "06:00", "end": "14:00"},
 }
+
+JOB_MARKET_TEMPLATES: tuple[dict[str, Any], ...] = (
+    {
+        "job_key": "retail",
+        "display_name": "Retail Worker",
+        "tier": "entry",
+        "stress_level": "Moderate",
+        "certification_key": None,
+        "future_unlock": False,
+    },
+    {
+        "job_key": "delivery",
+        "display_name": "Delivery Driver",
+        "tier": "entry",
+        "stress_level": "Moderate",
+        "certification_key": None,
+        "future_unlock": False,
+    },
+    {
+        "job_key": "cleaner",
+        "display_name": "Cleaner",
+        "tier": "entry",
+        "stress_level": "Low",
+        "certification_key": None,
+        "future_unlock": False,
+    },
+    {
+        "job_key": "chef",
+        "display_name": "Chef",
+        "tier": "mid",
+        "stress_level": "High",
+        "certification_key": "chef_cert",
+        "future_unlock": False,
+    },
+    {
+        "job_key": "auto_mechanic",
+        "display_name": "Auto Mechanic",
+        "tier": "mid",
+        "stress_level": "High",
+        "certification_key": "auto_mechanic_cert",
+        "future_unlock": False,
+    },
+    {
+        "job_key": "warehouse_operator",
+        "display_name": "Warehouse Operator",
+        "tier": "mid",
+        "stress_level": "Moderate",
+        "certification_key": None,
+        "future_unlock": False,
+    },
+    {
+        "job_key": "aircraft_mechanic",
+        "display_name": "Aircraft Mechanic",
+        "tier": "high",
+        "stress_level": "High",
+        "certification_key": "aircraft_mechanic_cert",
+        "future_unlock": False,
+    },
+    {
+        "job_key": "banker",
+        "display_name": "Banker",
+        "tier": "high",
+        "stress_level": "High",
+        "certification_key": "banking_license",
+        "future_unlock": False,
+    },
+    {
+        "job_key": "real_estate_agent",
+        "display_name": "Real Estate Agent",
+        "tier": "high",
+        "stress_level": "Moderate",
+        "certification_key": "real_estate_license",
+        "future_unlock": False,
+    },
+    {
+        "job_key": "business_owner",
+        "display_name": "Business Owner",
+        "tier": "future",
+        "stress_level": "Critical",
+        "certification_key": None,
+        "future_unlock": True,
+    },
+)
 
 
 def get_houston_now() -> datetime:
@@ -316,6 +406,157 @@ def _resolve_job_truth_context(
             "employment_state.current_job_code": employment_job_id or "",
             "career_state.current_job_key": career_job_id or "",
         },
+    }
+
+
+def _career_completed_certification_keys(career: PlayerCareer | None) -> set[str]:
+    if career is None:
+        return set()
+    keys: set[str] = set()
+    if bool(getattr(career, "certification_completed", False)):
+        active_track = str(getattr(career, "certification_track_key", "") or "").strip().lower()
+        if active_track:
+            keys.add(active_track)
+    raw_debug = getattr(career, "career_debug_json", None)
+    if raw_debug:
+        try:
+            decoded = json.loads(raw_debug)
+            rows = decoded.get("completed_certification_keys")
+            if isinstance(rows, list):
+                for row in rows:
+                    key = str(row or "").strip().lower()
+                    if key:
+                        keys.add(key)
+        except Exception:
+            pass
+    return keys
+
+
+def _build_job_market_payload(
+    *,
+    player: Player,
+    career: PlayerCareer | None,
+    authoritative_current_job_id: str | None,
+) -> dict[str, Any]:
+    active_training_track = str(getattr(career, "certification_track_key", "") or "").strip().lower()
+    active_training_completed = bool(getattr(career, "certification_completed", False))
+    training_active = bool(active_training_track and not active_training_completed)
+    completed_cert_keys = _career_completed_certification_keys(career)
+
+    certification_rows: list[dict[str, Any]] = []
+    for cert_key in [
+        "chef_cert",
+        "auto_mechanic_cert",
+        "aircraft_mechanic_cert",
+        "banking_license",
+        "real_estate_license",
+    ]:
+        meta = CERTIFICATION_CATALOG.get(cert_key, {})
+        required_days = int(meta.get("required_days") or 0)
+        completed = cert_key in completed_cert_keys
+        in_progress = bool(training_active and active_training_track == cert_key)
+        progress_days = (
+            int(getattr(career, "certification_progress_days", 0) or 0)
+            if in_progress
+            else (required_days if completed else 0)
+        )
+        certification_rows.append(
+            {
+                "certification_key": cert_key,
+                "display_name": str(meta.get("display_name") or cert_key.replace("_", " ").title()),
+                "unlocks_job": str(meta.get("unlocks_job") or ""),
+                "duration_days": required_days,
+                "cost_xgp": int(meta.get("cost_xgp") or 0),
+                "completed": completed,
+                "in_progress": in_progress,
+                "progress_days": int(max(0, progress_days)),
+                "days_remaining": int(max(0, required_days - progress_days)),
+            }
+        )
+
+    canonical_current_job = _canonical_main_job(authoritative_current_job_id or getattr(player, "main_job", None))
+    job_rows: list[dict[str, Any]] = []
+    for template in JOB_MARKET_TEMPLATES:
+        job_key = str(template.get("job_key") or "")
+        cert_key = str(template.get("certification_key") or "").strip().lower() or None
+        cert_meta = CERTIFICATION_CATALOG.get(cert_key or "", {})
+        is_future_unlock = bool(template.get("future_unlock"))
+        is_current = bool(canonical_current_job and canonical_current_job == job_key)
+        certification_completed = bool(not cert_key or cert_key in completed_cert_keys)
+        supported_switch = bool(job_key in CAREER_CONFIG)
+
+        if is_current:
+            status = "current"
+        elif is_future_unlock:
+            status = "locked"
+        elif certification_completed and supported_switch:
+            status = "available"
+        else:
+            status = "locked"
+
+        required_track_name = str(cert_meta.get("display_name") or "").strip()
+        requirement_label = (
+            "No certification needed"
+            if not cert_key
+            else f"Requires: {required_track_name or cert_key.replace('_', ' ').title()}"
+        )
+        can_start_training = bool(
+            cert_key
+            and not certification_completed
+            and not is_future_unlock
+            and cert_key in CERTIFICATION_CATALOG
+        )
+        can_switch = bool(status == "available")
+        cfg = CAREER_CONFIG.get(job_key)
+        base_salary = float(getattr(cfg, "base_pay_reference", 0) or 0)
+
+        training_days_completed = (
+            int(getattr(career, "certification_progress_days", 0) or 0)
+            if training_active and cert_key and active_training_track == cert_key
+            else (int(cert_meta.get("required_days") or 0) if certification_completed and cert_key else 0)
+        )
+        training_days_required = int(cert_meta.get("required_days") or 0) if cert_key else 0
+
+        job_rows.append(
+            {
+                "job_key": job_key,
+                "display_name": str(template.get("display_name") or _job_display_name(job_key)),
+                "tier": str(template.get("tier") or "entry"),
+                "base_salary_xgp": round(base_salary, 2),
+                "stress_level": str(template.get("stress_level") or "Moderate"),
+                "status": status,
+                "is_current_job": is_current,
+                "is_future_unlock": is_future_unlock,
+                "requires_certification": bool(cert_key),
+                "certification_key": cert_key,
+                "certification_name": required_track_name,
+                "certification_completed": certification_completed,
+                "requirement_label": requirement_label,
+                "can_start_training": can_start_training,
+                "can_switch": can_switch,
+                "training_in_progress": bool(training_active and cert_key and active_training_track == cert_key),
+                "training_days_completed": training_days_completed,
+                "training_days_required": training_days_required,
+            }
+        )
+
+    active_cert_meta = CERTIFICATION_CATALOG.get(active_training_track, {})
+    training_required = int(getattr(career, "certification_required_days", 0) or active_cert_meta.get("required_days") or 0)
+    training_progress = int(getattr(career, "certification_progress_days", 0) or 0)
+
+    return {
+        "current_job_key": canonical_current_job or "",
+        "current_job_display_name": _job_display_name(canonical_current_job),
+        "has_main_job": bool(canonical_current_job),
+        "jobs": job_rows,
+        "certifications": certification_rows,
+        "training_active": training_active,
+        "training_certification_key": active_training_track if training_active else "",
+        "training_certification_name": str(active_cert_meta.get("display_name") or "") if training_active else "",
+        "training_days_completed": int(training_progress if training_active else 0),
+        "training_days_required": int(training_required if training_active else 0),
+        "training_days_remaining": int(max(0, training_required - training_progress)) if training_active else 0,
+        "completed_certification_keys": sorted(completed_cert_keys),
     }
 
 
@@ -985,6 +1226,12 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         scheduled_shift_job_id=_canonical_main_job(schedule["canonical_main_job"]),
         active_shift_job_id=canonical_shift_job_name if active_shift else None,
     )
+    latest_career = _latest_career_state_for_player(db, player)
+    job_market_payload = _build_job_market_payload(
+        player=player,
+        career=latest_career,
+        authoritative_current_job_id=str(job_truth_context.get("authoritative_current_job_id") or ""),
+    )
     if bool(job_truth_context.get("job_truth_mismatch_detected")):
         logger.warning(
             "shift.job_truth_mismatch_detected",
@@ -1134,6 +1381,7 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         "ui_job_id": str(job_truth_context.get("ui_job_id") or ""),
         "job_truth_mismatch_detected": bool(job_truth_context.get("job_truth_mismatch_detected")),
         "job_truth_sources": dict(job_truth_context.get("job_truth_sources") or {}),
+        "job_market": job_market_payload,
         "shift_status": str(getattr(player, "main_shift_status", SHIFT_STATUS_IDLE) or SHIFT_STATUS_IDLE),
         "main_shift_active_flag": active_shift,
         "shift_started_at": shift_started_at.isoformat() if shift_started_at else None,

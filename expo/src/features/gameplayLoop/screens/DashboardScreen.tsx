@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Animated, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import ActionHubPanel from '@/components/gameplay/ActionHubPanel';
 import AnimatedMoneyValue from '@/components/motion/AnimatedMoneyValue';
@@ -14,12 +14,12 @@ import { useOnboarding } from '@/features/onboarding';
 import { useScreenTimer } from '@/hooks/useScreenTimer';
 import { finalizePlayerWorkState } from '@/lib/api/gameplay';
 import { BALANCE } from '@/lib/balanceConfig';
-import { normalizeJobName } from '@/lib/economySafety';
 import { formatMoney } from '@/lib/gameplayFormatters';
 import { recordInfo } from '@/lib/logger';
-import { DailyActionItem, EconomySignalChip } from '@/types/gameplay';
+import { DailyActionItem, EconomySignalChip, JobMarketJobSnapshot } from '@/types/gameplay';
 
 import { useGameplayLoop } from '../context';
+import JobMarketPanel from '../components/JobMarketPanel';
 import {
   GameplayCompactMetricRows,
   GameplayStickyActionArea,
@@ -223,38 +223,10 @@ function sanitizeRideShareReason(reason: string | null | undefined): string {
   return normalized;
 }
 
-interface StarterJobOption {
-  job_key: string;
-  title: string;
-  monthly_pay_xgp: number;
-  stability_weight: number;
-  performance_weight: number;
-  stress_sensitivity: number;
-}
-
 const INTERACTION_DIAGNOSTICS_ENABLED =
   __DEV__
   || process.env.EXPO_PUBLIC_INTERACTION_DIAGNOSTICS === 'true'
   || process.env.EXPO_PUBLIC_INTERACTION_DIAGNOSTICS === '1';
-
-function asStarterJobOptions(raw: unknown): StarterJobOption[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((entry) => {
-      const row = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : {};
-      const job_key = normalizeJobName(row.job_key) || '';
-      if (!job_key) return null;
-      return {
-        job_key,
-        title: String(row.title || job_key),
-        monthly_pay_xgp: Number(row.monthly_pay_xgp || 0) || 0,
-        stability_weight: Number(row.stability_weight || 0) || 0,
-        performance_weight: Number(row.performance_weight || 0) || 0,
-        stress_sensitivity: Number(row.stress_sensitivity || 0) || 0,
-      };
-    })
-    .filter((entry): entry is StarterJobOption => Boolean(entry));
-}
 
 const LOAN_AMOUNTS = [100, 200, 300, 500] as const;
 
@@ -605,18 +577,7 @@ export default function DashboardScreen() {
 
   const rideshareAvailable = !rideshareDisableReasonsByTrip[1];
 
-  const switchJobAction = useMemo(() => {
-    if (!loop.actionHub) return null;
-    return (
-      [...(loop.actionHub.recommended_actions || []), ...(loop.actionHub.available_actions || [])]
-        .find((action) => String(action.action_key || '').toLowerCase() === 'switch_job')
-      || null
-    );
-  }, [loop.actionHub]);
-  const starterJobOptions = useMemo(
-    () => asStarterJobOptions(switchJobAction?.parameters?.job_options),
-    [switchJobAction?.parameters?.job_options],
-  );
+  const jobMarket = workState?.job_market || null;
   const currentJobKey = String(
     workState?.authoritative_current_job_id
     || workState?.active_shift_job_id
@@ -652,7 +613,8 @@ export default function DashboardScreen() {
     || '',
   ).trim();
   const hasStarterJobSelected = Boolean(
-    loop.actionHub?.debug_meta?.has_starter_job_selected
+    jobMarket?.has_main_job
+    ?? loop.actionHub?.debug_meta?.has_starter_job_selected
     ?? currentJobKey,
   );
   const firstSessionFlag = Boolean(
@@ -660,8 +622,11 @@ export default function DashboardScreen() {
     ?? loop.actionHub?.debug_meta?.new_player_first_session
     ?? false,
   );
-  const showStarterJobChooser = starterJobOptions.length > 0 && (firstSessionFlag || !hasStarterJobSelected);
-  const selectingStarterJob = loop.executingAction && loop.busyActionKey === 'switch_job';
+  const showJobMarket = Boolean(
+    (jobMarket?.jobs && jobMarket.jobs.length > 0)
+    || firstSessionFlag
+    || !hasStarterJobSelected,
+  );
   const endDayDisabled = !loop.dailyProgression.canAdvanceDay || loop.endingDay || backendShiftActive || autoClockingOut;
   const economySummaryLine = String(
     economyOverview?.summary_line
@@ -681,13 +646,13 @@ export default function DashboardScreen() {
 
   useEffect(() => {
     if (!INTERACTION_DIAGNOSTICS_ENABLED) return;
-    recordInfo('gameplayLoop', 'Dashboard job selection visibility evaluated.', {
+    recordInfo('gameplayLoop', 'Dashboard job market visibility evaluated.', {
       action: 'job_selection_visibility',
       context: {
         playerId: loop.playerId,
         firstSessionFlag,
-        showStarterJobChooser,
-        starterJobOptionsCount: starterJobOptions.length,
+        showJobMarket,
+        jobMarketOptionsCount: jobMarket?.jobs?.length || 0,
         hasStarterJobSelected,
         currentJobKey: currentJobKey || null,
       },
@@ -696,44 +661,64 @@ export default function DashboardScreen() {
     currentJobKey,
     firstSessionFlag,
     hasStarterJobSelected,
+    jobMarket?.jobs?.length,
     loop.playerId,
-    showStarterJobChooser,
-    starterJobOptions.length,
+    showJobMarket,
   ]);
 
-  const selectStarterJob = (job: StarterJobOption) => {
-    const rawJobKey = String(job.job_key || '');
-    const canonicalJobKey = normalizeJobName(rawJobKey);
-    if (!canonicalJobKey) return;
+  const switchToMarketJob = (job: JobMarketJobSnapshot) => {
+    const targetJobKey = String(job.job_key || '').trim().toLowerCase();
+    if (!targetJobKey) return;
     if (INTERACTION_DIAGNOSTICS_ENABLED) {
-      recordInfo('gameplayLoop', 'Starter job selected from dashboard.', {
+      recordInfo('gameplayLoop', 'Job market switch requested from dashboard.', {
         action: 'dashboard_switch_job_selected',
         context: {
           playerId: loop.playerId,
-          rawJobKey,
-          canonicalJobKey,
-          hasStarterJobSelected,
+          targetJobKey,
+          currentJobKey: currentJobKey || null,
         },
       });
     }
-    const template: DailyActionItem = switchJobAction || {
+    const action: DailyActionItem = {
       action_key: 'switch_job',
-      title: 'Choose Your First Job',
-      description: 'Select one starter role to unlock work-shift income.',
+      title: `Switch to ${job.display_name || targetJobKey.replace(/_/g, ' ')}`,
+      description: 'Switch main job from Job Market.',
       status: 'available',
       blockers: [],
       warnings: [],
       tradeoffs: [],
-      confidence_level: 'unknown',
-      parameters: {},
-    };
-    const action: DailyActionItem = {
-      ...template,
-      title: hasStarterJobSelected ? `Switch To ${job.title}` : `Choose ${job.title}`,
-      status: 'available',
+      confidence_level: 'high',
       parameters: {
-        ...(template.parameters || {}),
-        new_job_key: canonicalJobKey,
+        new_job_key: targetJobKey,
+      },
+    };
+    void loop.executeAction(action);
+  };
+
+  const startMarketTraining = (job: JobMarketJobSnapshot) => {
+    const certificationKey = String(job.certification_key || '').trim().toLowerCase();
+    if (!certificationKey) return;
+    if (INTERACTION_DIAGNOSTICS_ENABLED) {
+      recordInfo('gameplayLoop', 'Job market training requested from dashboard.', {
+        action: 'dashboard_start_training_selected',
+        context: {
+          playerId: loop.playerId,
+          certificationKey,
+          targetJobKey: String(job.job_key || ''),
+        },
+      });
+    }
+    const action: DailyActionItem = {
+      action_key: 'start_training',
+      title: `Start Training: ${job.certification_name || certificationKey.replace(/_/g, ' ')}`,
+      description: 'Begin certification training to unlock this job.',
+      status: 'available',
+      blockers: [],
+      warnings: [],
+      tradeoffs: [],
+      confidence_level: 'medium',
+      parameters: {
+        certification_key: certificationKey,
       },
     };
     void loop.executeAction(action);
@@ -1492,42 +1477,18 @@ export default function DashboardScreen() {
       </GameplaySummaryCard>
       </SlideFadeInOnChange>
 
-      {showStarterJobChooser ? (
+      {showJobMarket ? (
         <SlideFadeInOnChange
-          watchValue={`jobchooser_${dayLabel}_${currentJobKey}_${selectingStarterJob ? 'busy' : 'idle'}`}
+          watchValue={`job_market_${dayLabel}_${currentJobKey}_${loop.busyActionKey || 'idle'}`}
           delayMs={70}
         >
-          <GameplaySummaryCard
-            eyebrow={hasStarterJobSelected ? 'Switch Job' : 'Day 1 - Choose Your Job'}
-            title={hasStarterJobSelected ? `Current: ${currentJobKey.replace(/_/g, ' ')}` : 'Pick a Role to Start Earning'}
-          >
-            <View style={styles.jobOptionsGrid}>
-              {starterJobOptions.map((job) => {
-                const isCurrent = currentJobKey === job.job_key;
-                return (
-                  <View key={job.job_key} style={[styles.jobOptionCard, isCurrent ? styles.jobOptionCardActive : null]}>
-                    <Text style={styles.jobTitle}>{job.title}</Text>
-                    <Text style={styles.jobPay}>~{Math.round(job.monthly_pay_xgp)} xgp/mo</Text>
-                    <Pressable
-                      accessibilityRole="button"
-                      style={({ pressed }) => [
-                        styles.jobSelectButton,
-                        isCurrent ? styles.jobSelectButtonCurrent : null,
-                        selectingStarterJob ? styles.jobSelectButtonDisabled : null,
-                        pressed && !isCurrent && !selectingStarterJob ? styles.jobSelectButtonPressed : null,
-                      ]}
-                      disabled={selectingStarterJob || isCurrent}
-                      onPress={() => selectStarterJob(job)}
-                    >
-                      <Text style={[styles.jobSelectButtonLabel, isCurrent ? styles.jobSelectButtonLabelCurrent : null]}>
-                        {isCurrent ? 'Current Job' : selectingStarterJob ? 'Applying...' : 'Select'}
-                      </Text>
-                    </Pressable>
-                  </View>
-                );
-              })}
-            </View>
-          </GameplaySummaryCard>
+          <JobMarketPanel
+            jobMarket={jobMarket}
+            executingAction={loop.executingAction}
+            busyActionKey={loop.busyActionKey}
+            onSwitchJob={switchToMarketJob}
+            onStartTraining={startMarketTraining}
+          />
         </SlideFadeInOnChange>
       ) : null}
 
@@ -2102,66 +2063,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: theme.spacing.sm,
-  },
-  jobOptionsGrid: {
-    gap: theme.spacing.sm,
-  },
-  jobOptionCard: {
-    borderWidth: 1,
-    borderColor: theme.color.border,
-    borderRadius: theme.radius.lg,
-    backgroundColor: theme.color.surfaceAlt,
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: theme.spacing.sm,
-    gap: theme.spacing.xxs,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  jobOptionCardActive: {
-    borderColor: '#86efac',
-    backgroundColor: '#f0fdf4',
-  },
-  jobTitle: {
-    color: theme.color.textPrimary,
-    ...theme.typography.bodyMd,
-    fontWeight: '800',
-    flex: 1,
-  },
-  jobPay: {
-    color: theme.color.info,
-    ...theme.typography.bodySm,
-    fontWeight: '700',
-    marginRight: theme.spacing.sm,
-  },
-  jobSelectButton: {
-    minHeight: 36,
-    borderRadius: theme.radius.md,
-    borderWidth: 1,
-    borderColor: '#1d4ed8',
-    backgroundColor: '#1d4ed8',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: theme.spacing.sm,
-  },
-  jobSelectButtonCurrent: {
-    borderColor: '#16a34a',
-    backgroundColor: '#dcfce7',
-  },
-  jobSelectButtonDisabled: {
-    opacity: 0.7,
-  },
-  jobSelectButtonPressed: {
-    opacity: 0.94,
-    transform: [{ scale: 0.96 }],
-  },
-  jobSelectButtonLabel: {
-    color: '#ffffff',
-    ...theme.typography.bodySm,
-    fontWeight: '700',
-  },
-  jobSelectButtonLabelCurrent: {
-    color: '#166534',
   },
 });
 
