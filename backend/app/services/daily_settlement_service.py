@@ -45,6 +45,7 @@ from app.services.job_market_service import apply_employment_progression
 from app.services.net_worth_service import compute_player_net_worth_snapshot
 from app.engine.retention_engine import build_retention_summary
 from app.models.player_progression_state import PlayerProgressionState
+from app.services.player_daily_state_service import ensure_player_daily_state
 from app.services.player_transaction_log_service import record_player_transaction
 from app.services.shift_state_service import get_houston_now, sync_shift_day_rules_if_needed
 
@@ -122,35 +123,23 @@ def get_next_player_day(db: Session, player_id: str | UUID) -> int:
 
 
 def _get_or_create_player_daily_state(db: Session, player: Player, day_number: int) -> PlayerDailyState:
-    state = (
-        db.query(PlayerDailyState)
-        .filter(
-            PlayerDailyState.player_id == player.id,
-            PlayerDailyState.day_number == day_number,
-        )
-        .first()
-    )
-    if state is not None:
-        return state
-
-    cash_now = _money(_d(player.cash_xgp))
-    state = PlayerDailyState(
-        player_id=player.id,
+    return ensure_player_daily_state(
+        db,
+        player=player,
         day_number=day_number,
-        hours_available_start=int(player.hours_available or HOURS_RESET),
-        hours_available_end=int(player.hours_available or HOURS_RESET),
-        worked_main_job=False,
-        did_settlement=False,
-        stress_start=int(player.stress or 0),
-        stress_end=int(player.stress or 0),
-        health_start=int(player.health or 100),
-        health_end=int(player.health or 100),
-        cash_start=cash_now,
-        cash_end=cash_now,
+        defaults={
+            "hours_available_start": int(player.hours_available or HOURS_RESET),
+            "hours_available_end": int(player.hours_available or HOURS_RESET),
+            "worked_main_job": False,
+            "did_settlement": False,
+            "stress_start": int(player.stress or 0),
+            "stress_end": int(player.stress or 0),
+            "health_start": int(player.health or 100),
+            "health_end": int(player.health or 100),
+            "cash_start": _money(_d(player.cash_xgp)),
+            "cash_end": _money(_d(player.cash_xgp)),
+        },
     )
-    db.add(state)
-    db.flush()
-    return state
 
 
 def _latest_employment_state(db: Session, player_id: UUID) -> PlayerEmploymentState | None:

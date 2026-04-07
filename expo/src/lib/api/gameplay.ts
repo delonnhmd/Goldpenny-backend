@@ -929,6 +929,19 @@ export async function executeAction(
 ): Promise<ActionExecutionResponse> {
   const canonical = canonicalActionKey(actionKey);
   const normalizedParams = normalizeExecutionParameters(canonical, params);
+  if (canonical === 'switch_job') {
+    const targetJob = normalizeJobName(
+      normalizedParams.new_job_key
+      ?? normalizedParams.job_key
+      ?? normalizedParams.job
+      ?? normalizedParams.job_name
+      ?? normalizedParams.target_job,
+    );
+    if (!targetJob) {
+      throw new Error('Could not switch jobs because no destination job was selected.');
+    }
+    normalizedParams.new_job_key = targetJob;
+  }
   const unifiedPayload = {
     action_key: canonical,
     parameters: normalizedParams,

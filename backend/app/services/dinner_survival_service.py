@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.models.player import Player
 from app.models.player_daily_state import PlayerDailyState
 from app.services.gameplay_transaction_service import record_gameplay_transaction
+from app.services.player_daily_state_service import ensure_player_daily_state
 
 logger = logging.getLogger(__name__)
 
@@ -51,35 +52,24 @@ def _coerce_houston_date(value: datetime | None, fallback: date, *, tz_reference
 
 
 def _get_or_create_daily_state(db: Session, *, player: Player, day_number: int) -> PlayerDailyState:
-    pds = (
-        db.query(PlayerDailyState)
-        .filter(
-            PlayerDailyState.player_id == player.id,
-            PlayerDailyState.day_number == int(day_number),
-        )
-        .first()
-    )
-    if pds is not None:
-        return pds
-
     cash_now = _q4(_d(getattr(player, "cash", 0)))
-    pds = PlayerDailyState(
-        player_id=player.id,
+    return ensure_player_daily_state(
+        db,
+        player=player,
         day_number=int(day_number),
-        hours_available_start=int(getattr(player, "hours_available", 16) or 16),
-        hours_available_end=int(getattr(player, "hours_available", 16) or 16),
-        worked_main_job=False,
-        did_settlement=False,
-        stress_start=int(getattr(player, "stress", 0) or 0),
-        stress_end=int(getattr(player, "stress", 0) or 0),
-        health_start=int(getattr(player, "health", 100) or 100),
-        health_end=int(getattr(player, "health", 100) or 100),
-        cash_start=cash_now,
-        cash_end=cash_now,
+        defaults={
+            "hours_available_start": int(getattr(player, "hours_available", 16) or 16),
+            "hours_available_end": int(getattr(player, "hours_available", 16) or 16),
+            "worked_main_job": False,
+            "did_settlement": False,
+            "stress_start": int(getattr(player, "stress", 0) or 0),
+            "stress_end": int(getattr(player, "stress", 0) or 0),
+            "health_start": int(getattr(player, "health", 100) or 100),
+            "health_end": int(getattr(player, "health", 100) or 100),
+            "cash_start": cash_now,
+            "cash_end": cash_now,
+        },
     )
-    db.add(pds)
-    db.flush()
-    return pds
 
 
 def _hydrate_dinner_snapshot(

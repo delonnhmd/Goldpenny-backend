@@ -24,6 +24,7 @@ from app.models.user import User
 from app.models.job_definition import resolve_job_definition
 from app.services.job_key_service import normalize_main_job_key, supported_main_job_keys_text
 from app.services.housing_region_service import assign_player_housing
+from app.services.player_daily_state_service import ensure_player_daily_state
 from app.services.stock_trading_service import StockTradingError, StockTradingService
 
 MONEY_Q = Decimal("0.01")
@@ -532,37 +533,29 @@ def initialize_starter_player_state(
     )
     db.add(employment_state)
 
-    day_one_state = (
-        db.query(PlayerDailyState)
-        .filter(
-            PlayerDailyState.player_id == player.id,
-            PlayerDailyState.day_number == 1,
-        )
-        .first()
+    cash_now = _money(_d(player.cash_xgp))
+    starter_hours = int(player.available_hours or 16)
+    ensure_player_daily_state(
+        db,
+        player=player,
+        day_number=1,
+        defaults={
+            "hours_available_start": starter_hours,
+            "hours_available_end": starter_hours,
+            "worked_main_job": False,
+            "worked_hours": 0,
+            "gross_income_xgp": Decimal("0.00"),
+            "did_settlement": False,
+            "stress_start": int(player.stress or 0),
+            "stress_end": int(player.stress or 0),
+            "health_start": int(player.health or 100),
+            "health_end": int(player.health or 100),
+            "cash_start": cash_now,
+            "cash_end": cash_now,
+            "housing_region_id": clean_region,
+            "notes": "starter_context_initialized",
+        },
     )
-
-    if day_one_state is None:
-        cash_now = _money(_d(player.cash_xgp))
-        starter_hours = int(player.available_hours or 16)
-        day_one_state = PlayerDailyState(
-            player_id=player.id,
-            day_number=1,
-            hours_available_start=starter_hours,
-            hours_available_end=starter_hours,
-            worked_main_job=False,
-            worked_hours=0,
-            gross_income_xgp=Decimal("0.00"),
-            did_settlement=False,
-            stress_start=int(player.stress or 0),
-            stress_end=int(player.stress or 0),
-            health_start=int(player.health or 100),
-            health_end=int(player.health or 100),
-            cash_start=cash_now,
-            cash_end=cash_now,
-            housing_region_id=clean_region,
-            notes="starter_context_initialized",
-        )
-        db.add(day_one_state)
 
     player.main_job = clean_job
     player.skill_level = max(int(player.skill_level or 1), 1)

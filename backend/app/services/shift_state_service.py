@@ -48,6 +48,7 @@ from app.services.city_map_service import (
 from app.services.gameplay_transaction_service import record_gameplay_transaction
 from app.services.job_key_service import normalize_main_job_key, supported_main_job_keys_text
 from app.services.job_progress_service import normalize_shift_type, upsert_employment_foundation, work_xp_for_hours
+from app.services.player_daily_state_service import ensure_player_daily_state
 from app.services.player_transaction_log_service import record_player_transaction
 
 logger = logging.getLogger(__name__)
@@ -813,45 +814,36 @@ def _get_or_create_player_daily_state_in_txn(
     stress_start: int | None = None,
     health_start: int | None = None,
 ) -> PlayerDailyState:
-    pds = (
-        db.query(PlayerDailyState)
-        .filter(
-            PlayerDailyState.player_id == player.id,
-            PlayerDailyState.day_number == day_number,
-        )
-        .first()
-    )
-    if pds is not None:
-        return pds
-
     cash_value = _q4(cash_start if cash_start is not None else getattr(player, "cash", 0))
-    pds = PlayerDailyState(
-        player_id=player.id,
+    return ensure_player_daily_state(
+        db,
+        player=player,
         day_number=day_number,
-        hours_available_start=int(hours_available_start if hours_available_start is not None else int(player.hours_available or 0)),
-        hours_available_end=int(player.hours_available or 0),
-        worked_main_job=False,
-        did_work=False,
-        did_settlement=False,
-        stress_start=int(stress_start if stress_start is not None else int(player.stress or 0)),
-        stress_end=int(player.stress or 0),
-        health_start=int(health_start if health_start is not None else int(player.health or 0)),
-        health_end=int(player.health or 0),
-        cash_start=cash_value,
-        cash_end=_q4(getattr(player, "cash", 0)),
-        shift_start=None,
-        shift_end=None,
-        salary_earned=0,
-        missed_penalty=0,
-        main_shift_hours_today=0,
-        side_income_hours=0,
-        side_income_gross_xgp=0,
-        side_income_fuel_cost_xgp=0,
-        side_income_net_xgp=0,
+        defaults={
+            "hours_available_start": int(
+                hours_available_start if hours_available_start is not None else int(player.hours_available or 0)
+            ),
+            "hours_available_end": int(player.hours_available or 0),
+            "worked_main_job": False,
+            "did_work": False,
+            "did_settlement": False,
+            "stress_start": int(stress_start if stress_start is not None else int(player.stress or 0)),
+            "stress_end": int(player.stress or 0),
+            "health_start": int(health_start if health_start is not None else int(player.health or 0)),
+            "health_end": int(player.health or 0),
+            "cash_start": cash_value,
+            "cash_end": _q4(getattr(player, "cash", 0)),
+            "shift_start": None,
+            "shift_end": None,
+            "salary_earned": 0,
+            "missed_penalty": 0,
+            "main_shift_hours_today": 0,
+            "side_income_hours": 0,
+            "side_income_gross_xgp": 0,
+            "side_income_fuel_cost_xgp": 0,
+            "side_income_net_xgp": 0,
+        },
     )
-    db.add(pds)
-    db.flush()
-    return pds
 
 
 def _canonical_main_job(value: object) -> str | None:
@@ -865,6 +857,9 @@ def _validate_main_shift_start(player: Player, *, job_name: str, hours_worked: i
         raise ValueError(
             f"Invalid main job key: {job_name}. Expected one of: {supported_main_job_keys_text()}"
         )
+
+    if not canonical_player_job:
+        raise ValueError("No main job is assigned yet. Choose a job before starting a shift.")
 
     if canonical_player_job != canonical_job_name:
         raise ValueError(

@@ -512,6 +512,15 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
     is_first_session = _is_new_player_first_session(player)
     as_of_date = date.today().isoformat()
     job_options = _job_options_payload()
+    default_switch_job_key = next(
+        (
+            str(option.get("job_key") or "")
+            for option in job_options
+            if normalize_main_job_key(option.get("job_key"), allow_aliases=True)
+            and normalize_main_job_key(option.get("job_key"), allow_aliases=True) != current_job
+        ),
+        None,
+    )
     rideshare_state = (
         (work_state.get("rideshare_state") if isinstance(work_state.get("rideshare_state"), dict) else None)
         or {}
@@ -659,6 +668,7 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
                 "parameters": {
                     "job_options": job_options,
                     "current_job_key": current_job,
+                    "new_job_key": default_switch_job_key,
                     "shift_type": "standard_shift",
                 },
             }
@@ -1413,7 +1423,7 @@ def execute_gameplay_action(
         _assert_no_active_main_shift(work_state, action_key=action_key)
         target = str(params.get("new_job_key") or params.get("job_key") or params.get("target_job") or "").strip()
         if not target:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="switch_job requires new_job_key.")
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Could not switch jobs because no destination job was selected.")
         shift_type = normalize_shift_type(params.get("shift_type"))
         try:
             logger.info(
@@ -1983,6 +1993,7 @@ def execute_gameplay_action(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         detail=f"Unsupported action_key '{action_key}'.",
     )
+
 
 
 

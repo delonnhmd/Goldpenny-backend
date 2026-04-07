@@ -68,12 +68,16 @@ export default function WorkScreen() {
       || null
     );
   }, [loop.actionHub]);
+  const workState = loop.dashboard?.work_state || loop.actionHub?.work_state || null;
   const starterJobOptions = useMemo(
     () => asStarterJobOptions(switchJobAction?.parameters?.job_options),
     [switchJobAction?.parameters?.job_options],
   );
   const currentJobKey = String(
-    loop.actionHub?.debug_meta?.current_job_key
+    workState?.authoritative_current_job_id
+    || workState?.active_shift_job_id
+    || workState?.scheduled_shift_job_id
+    || loop.actionHub?.debug_meta?.current_job_key
     || loop.dashboard?.stats?.current_job
     || '',
   ).trim();

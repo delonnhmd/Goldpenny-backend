@@ -20,6 +20,7 @@ from app.models.player_daily_state import PlayerDailyState
 from app.models.side_income_action import SideIncomeAction
 from app.models.xgp_transaction import XGPTransaction
 from app.services.gameplay_transaction_service import record_gameplay_transaction
+from app.services.player_daily_state_service import ensure_player_daily_state
 from app.services.player_transaction_log_service import record_player_transaction
 from app.services.city_map_service import (
     ensure_player_location,
@@ -45,38 +46,27 @@ def _get_or_create_player_daily_state_in_txn(
     day_number: int,
 ) -> PlayerDailyState:
     """Get/create PlayerDailyState without committing (for atomic actions)."""
-    pds = (
-        db.query(PlayerDailyState)
-        .filter(
-            PlayerDailyState.player_id == player.id,
-            PlayerDailyState.day_number == day_number,
-        )
-        .first()
+    return ensure_player_daily_state(
+        db,
+        player=player,
+        day_number=day_number,
+        defaults={
+            "hours_available_start": int(player.hours_available),
+            "hours_available_end": int(player.hours_available),
+            "worked_main_job": False,
+            "did_settlement": False,
+            "stress_start": int(player.stress),
+            "stress_end": int(player.stress),
+            "health_start": int(player.health),
+            "health_end": int(player.health),
+            "cash_start": round(float(player.cash or 0), 4),
+            "cash_end": round(float(player.cash or 0), 4),
+            "side_income_hours": 0,
+            "side_income_gross_xgp": 0,
+            "side_income_fuel_cost_xgp": 0,
+            "side_income_net_xgp": 0,
+        },
     )
-    if pds is None:
-        cash_value = round(float(player.cash or 0), 4)
-        pds = PlayerDailyState(
-            player_id=player.id,
-            day_number=day_number,
-            hours_available_start=int(player.hours_available),
-            hours_available_end=int(player.hours_available),
-            worked_main_job=False,
-            did_settlement=False,
-            stress_start=int(player.stress),
-            stress_end=int(player.stress),
-            health_start=int(player.health),
-            health_end=int(player.health),
-            cash_start=cash_value,
-            cash_end=cash_value,
-            side_income_hours=0,
-            side_income_gross_xgp=0,
-            side_income_fuel_cost_xgp=0,
-            side_income_net_xgp=0,
-        )
-        db.add(pds)
-        db.flush()
-    return pds
-
 
 def get_current_oil_index(db: Session, day_number: int) -> float:
     """Return the active oil index for an in-game day (auto-seeded if missing)."""

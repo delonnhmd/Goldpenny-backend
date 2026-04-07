@@ -42,7 +42,9 @@ async function resolveSection<T>(
   section: string,
   loader: () => Promise<T>,
   mockFactory: () => T,
+  options?: { allowMockFallback?: boolean },
 ): Promise<ResolvedSection<T>> {
+  const allowMockFallback = options?.allowMockFallback ?? true;
   try {
     const value = await loader();
     return {
@@ -52,6 +54,18 @@ async function resolveSection<T>(
     };
   } catch (error) {
     const reason = normalizeError(error);
+    if (!allowMockFallback) {
+      recordWarning('gameplayLoop', `Critical section failed without fallback: ${section}.`, {
+        action: 'resolve_section_critical_failure',
+        context: {
+          playerId,
+          section,
+          reason,
+        },
+        error,
+      });
+      throw new Error(`${section}: ${reason}`);
+    }
     recordWarning('gameplayLoop', `Falling back to mock ${section}.`, {
       action: 'resolve_section',
       context: {
@@ -112,8 +126,20 @@ export async function loadGameplayLoopBundle(
 
   const [dashboard, actionHub, economySummary, stockMarket, businesses, businessPlan, endOfDaySummary] =
     await Promise.all([
-      resolveSection(playerId, 'dashboard', () => getPlayerDashboard(playerId), () => createMockDashboard(playerId)),
-      resolveSection(playerId, 'action_hub', () => getPlayerActions(playerId), () => createMockActionHub(playerId)),
+      resolveSection(
+        playerId,
+        'dashboard',
+        () => getPlayerDashboard(playerId),
+        () => createMockDashboard(playerId),
+        { allowMockFallback: false },
+      ),
+      resolveSection(
+        playerId,
+        'action_hub',
+        () => getPlayerActions(playerId),
+        () => createMockActionHub(playerId),
+        { allowMockFallback: false },
+      ),
       resolveSection(
         playerId,
         'economy_summary',

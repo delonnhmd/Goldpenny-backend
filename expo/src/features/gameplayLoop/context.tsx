@@ -120,8 +120,33 @@ const INTERACTION_DIAGNOSTICS_ENABLED =
   || process.env.EXPO_PUBLIC_INTERACTION_DIAGNOSTICS === '1';
 
 function normalizeError(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
+  const raw = error instanceof Error ? error.message : String(error);
+  let message = String(raw || '').trim();
+  if (!message) return 'Something went wrong. Please try again.';
+
+  if (message.startsWith('/')) {
+    const firstColon = message.indexOf(':');
+    if (firstColon > -1 && firstColon < message.length - 1) {
+      message = message.slice(firstColon + 1).trim();
+    }
+  }
+
+  const normalized = message.toLowerCase();
+  if (
+    normalized.includes('switch_job requires new_job_key')
+    || normalized.includes('no destination job was selected')
+  ) {
+    return 'Could not switch jobs because no destination job was selected.';
+  }
+  if (
+    normalized.includes('choose a job before running work_shift')
+    || normalized.includes('no main job is assigned yet')
+    || normalized.includes("assigned main job is 'none'")
+  ) {
+    return 'No main job is assigned yet. Choose a job before starting a shift.';
+  }
+
+  return message;
 }
 
 function canonicalActionKey(actionKey: string): string {
@@ -300,6 +325,8 @@ export function GameplayLoopProvider({
     } catch (loadError) {
       const message = normalizeError(loadError);
       setError(message);
+      setBundle(null);
+      setDailyActivity(null);
       recordWarning('gameplayLoop', 'Failed to load gameplay loop bundle.', {
         action: 'refresh_bundle',
         context: { playerId },

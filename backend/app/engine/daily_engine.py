@@ -35,6 +35,7 @@ from app.engine.needs_engine import (
     calculate_daily_needs_score,
     calculate_needs_based_settlement_modifiers,
 )
+from app.services.player_daily_state_service import ensure_player_daily_state
 from app.models.daily_settlement_log import DailySettlementLog
 from app.models.game_state import GameState
 from app.models.player import Player
@@ -163,7 +164,7 @@ def get_or_create_player_daily_state(
     Initialization uses current player vitals so the *_start columns accurately
     reflect what the player's stats were at the beginning of this day.
     """
-    pds = (
+    existing = (
         db.query(PlayerDailyState)
         .filter(
             PlayerDailyState.player_id == player.id,
@@ -171,27 +172,29 @@ def get_or_create_player_daily_state(
         )
         .first()
     )
-    if pds is None:
-        cash_value = round(float(player.cash or 0), 4)
-        pds = PlayerDailyState(
-            player_id=player.id,
-            day_number=day_number,
-            hours_available_start=int(player.hours_available),
-            hours_available_end=int(player.hours_available),
-            worked_main_job=False,
-            did_settlement=False,
-            stress_start=int(player.stress),
-            stress_end=int(player.stress),
-            health_start=int(player.health),
-            health_end=int(player.health),
-            cash_start=cash_value,
-            cash_end=cash_value,
-        )
-        db.add(pds)
-        db.commit()
-        db.refresh(pds)
-    return pds
+    if existing is not None:
+        return existing
 
+    pds = ensure_player_daily_state(
+        db,
+        player=player,
+        day_number=day_number,
+        defaults={
+            "hours_available_start": int(player.hours_available),
+            "hours_available_end": int(player.hours_available),
+            "worked_main_job": False,
+            "did_settlement": False,
+            "stress_start": int(player.stress),
+            "stress_end": int(player.stress),
+            "health_start": int(player.health),
+            "health_end": int(player.health),
+            "cash_start": round(float(player.cash or 0), 4),
+            "cash_end": round(float(player.cash or 0), 4),
+        },
+    )
+    db.commit()
+    db.refresh(pds)
+    return pds
 
 def can_player_settle_day(
     player: Player,
@@ -494,3 +497,5 @@ def advance_global_day(db: Session) -> GameState:
         pass  # Non-fatal: macro state can be created fresh via /macro/state
 
     return state
+
+

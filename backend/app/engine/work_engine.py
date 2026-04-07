@@ -25,6 +25,7 @@ from app.models.player import Player
 from app.models.player_daily_state import PlayerDailyState
 from app.models.xgp_transaction import XGPTransaction
 from app.services.job_key_service import normalize_job_key, normalize_main_job_key
+from app.services.player_daily_state_service import ensure_player_daily_state
 from app.services.player_transaction_log_service import record_player_transaction
 
 # â”€â”€ Day limits â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -280,43 +281,34 @@ class WorkEngine:
         Safe to skip on any error — the work transaction succeeds regardless.
         """
         try:
-            pds = (
-                db.query(PlayerDailyState)
-                .filter(
-                    PlayerDailyState.player_id == player.id,
-                    PlayerDailyState.day_number == current_day,
-                )
-                .first()
+            pds = ensure_player_daily_state(
+                db,
+                player=player,
+                day_number=current_day,
+                defaults={
+                    "hours_available_start": hours_before,
+                    "hours_available_end": int(player.hours_available),
+                    "worked_main_job": (job_category == "main"),
+                    "worked_hours": int(hours_worked),
+                    "gross_income_xgp": Decimal(str(round(earned_cash, 4))),
+                    "did_settlement": False,
+                    "stress_start": stress_before,
+                    "stress_end": int(player.stress),
+                    "health_start": health_before,
+                    "health_end": int(player.health),
+                    "cash_start": Decimal(str(balance_before)),
+                    "cash_end": round(float(player.cash or 0), 4),
+                },
             )
-            if pds is None:
-                cash_now = round(float(player.cash or 0), 4)
-                pds = PlayerDailyState(
-                    player_id=player.id,
-                    day_number=current_day,
-                    hours_available_start=hours_before,
-                    hours_available_end=int(player.hours_available),
-                    worked_main_job=(job_category == "main"),
-                    worked_hours=int(hours_worked),
-                    gross_income_xgp=Decimal(str(round(earned_cash, 4))),
-                    did_settlement=False,
-                    stress_start=stress_before,
-                    stress_end=int(player.stress),
-                    health_start=health_before,
-                    health_end=int(player.health),
-                    cash_start=Decimal(str(balance_before)),
-                    cash_end=cash_now,
-                )
-                db.add(pds)
-            else:
-                # Update end-of-shift snapshot values.
-                if job_category == "main":
-                    pds.worked_main_job = True
-                pds.worked_hours = int(getattr(pds, "worked_hours", 0) or 0) + int(hours_worked)
-                pds.gross_income_xgp = Decimal(str(round(float(getattr(pds, "gross_income_xgp", 0) or 0) + earned_cash, 4)))
-                pds.hours_available_end = int(player.hours_available)
-                pds.stress_end = int(player.stress)
-                pds.health_end = int(player.health)
-                pds.cash_end = round(float(player.cash or 0), 4)
+            # Update end-of-shift snapshot values.
+            if job_category == "main":
+                pds.worked_main_job = True
+            pds.worked_hours = int(getattr(pds, "worked_hours", 0) or 0) + int(hours_worked)
+            pds.gross_income_xgp = Decimal(str(round(float(getattr(pds, "gross_income_xgp", 0) or 0) + earned_cash, 4)))
+            pds.hours_available_end = int(player.hours_available)
+            pds.stress_end = int(player.stress)
+            pds.health_end = int(player.health)
+            pds.cash_end = round(float(player.cash or 0), 4)
         except Exception:
             pass  # Non-critical — do not break the work transaction.
 
@@ -356,6 +348,8 @@ class WorkEngine:
                     f"Requested: {hours_worked}."
                 )
             player_main_job = normalize_main_job_key(player.main_job, allow_aliases=True)
+            if not player_main_job:
+                raise ValueError("No main job is assigned yet. Choose a job before starting a shift.")
             if player_main_job and player_main_job != canonical_job_name:
                 raise ValueError(
                     f"Your assigned main job is '{player_main_job}', not '{canonical_job_name}'."

@@ -37,7 +37,7 @@ export default function HighlightOnChangeView({
         toValue: 1,
         duration: motion.duration.base,
         easing: motion.easing.emphasized,
-        useNativeDriver: true,
+        useNativeDriver: false,
       }),
       Animated.sequence([
         Animated.timing(flash, {

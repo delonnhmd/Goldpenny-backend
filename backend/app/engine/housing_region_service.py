@@ -18,6 +18,7 @@ from app.models.macro_daily_state import MacroDailyState
 from app.models.player import Player
 from app.models.player_daily_state import PlayerDailyState
 from app.models.player_housing_state import PlayerHousingState
+from app.services.player_daily_state_service import ensure_player_daily_state
 
 MONEY_Q = Decimal("0.01")
 Q4 = Decimal("0.0001")
@@ -115,36 +116,24 @@ def _resolve_player(db: Session, player_id: str | UUID) -> Player:
 
 
 def _get_or_create_player_daily_state(db: Session, player: Player, day: int) -> PlayerDailyState:
-    pds = (
-        db.query(PlayerDailyState)
-        .filter(
-            PlayerDailyState.player_id == player.id,
-            PlayerDailyState.day_number == int(day),
-        )
-        .first()
-    )
-    if pds is not None:
-        return pds
-
     cash_now = _money(_d(player.cash_xgp))
-    pds = PlayerDailyState(
-        player_id=player.id,
+    return ensure_player_daily_state(
+        db,
+        player=player,
         day_number=int(day),
-        hours_available_start=int(player.hours_available or 24),
-        hours_available_end=int(player.hours_available or 24),
-        worked_main_job=False,
-        did_settlement=False,
-        stress_start=int(player.stress or 0),
-        stress_end=int(player.stress or 0),
-        health_start=int(player.health or 100),
-        health_end=int(player.health or 100),
-        cash_start=cash_now,
-        cash_end=cash_now,
+        defaults={
+            "hours_available_start": int(player.hours_available or 24),
+            "hours_available_end": int(player.hours_available or 24),
+            "worked_main_job": False,
+            "did_settlement": False,
+            "stress_start": int(player.stress or 0),
+            "stress_end": int(player.stress or 0),
+            "health_start": int(player.health or 100),
+            "health_end": int(player.health or 100),
+            "cash_start": cash_now,
+            "cash_end": cash_now,
+        },
     )
-    db.add(pds)
-    db.flush()
-    return pds
-
 
 def _latest_macro_for_day(db: Session, day: int) -> MacroDailyState | None:
     row = (
