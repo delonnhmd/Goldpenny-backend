@@ -144,6 +144,9 @@ function normalizeError(error: unknown): string {
   ) {
     return 'Could not start training because no certification was selected.';
   }
+  if (normalized.includes('your job data is syncing')) {
+    return 'Your job data is syncing. Please retry in a moment.';
+  }
   if (
     normalized.includes('choose a job before running work_shift')
     || normalized.includes('no main job is assigned yet')

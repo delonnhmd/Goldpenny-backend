@@ -32,6 +32,8 @@ export default function JobMarketPanel({
   const busyTraining = executingAction && busyActionKey === 'start_training';
   const currentJobProgress = jobMarket.jobs.find((job) => Boolean(job.is_current_job))?.progression || null;
   const currentJobName = jobMarket.current_job_display_name || 'No job selected';
+  const jobSyncStatus = String(jobMarket.job_sync_status || '').trim().toLowerCase();
+  const jobSyncWarningMessage = String(jobMarket.job_sync_warning_message || '').trim();
   const currentJobXp = Math.max(0, Number(currentJobProgress?.job_xp || 0));
   const currentJobXpToNext = Math.max(0, Number(currentJobProgress?.job_xp_to_next_level || 0));
   const currentJobProgressPct = currentJobXpToNext > 0
@@ -48,8 +50,12 @@ export default function JobMarketPanel({
     >
       {!jobMarket.has_main_job ? (
         <GameplayWarningBanner
-          title="No main job assigned"
-          message="You don't have a job yet. Choose a job in Job Market before starting a shift."
+          title={jobSyncStatus === 'repair_needed' ? 'Job Data Syncing' : 'No main job assigned'}
+          message={
+            jobSyncStatus === 'repair_needed'
+              ? (jobSyncWarningMessage || 'Your job data is syncing. Please retry in a moment.')
+              : "You don't have a job yet. Choose a job in Job Market before starting a shift."
+          }
           tone="warning"
         />
       ) : null}

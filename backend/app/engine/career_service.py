@@ -24,7 +24,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from uuid import UUID
 
 from sqlalchemy import func
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
 from app.engine.career_config import (
@@ -665,11 +665,22 @@ def switch_player_job(
     player.main_job = canonical_new_job_key
 
     # Step 92 safe mode: ensure independent progression row for switched job.
-    get_or_create_player_job_progression(
-        db,
-        player_id=player.id,
-        job_key=canonical_new_job_key,
-    )
+    # Older sandboxes and partially migrated environments may not have this
+    # table yet, so keep the job switch itself authoritative and non-blocking.
+    try:
+        get_or_create_player_job_progression(
+            db,
+            player_id=player.id,
+            job_key=canonical_new_job_key,
+        )
+    except (OperationalError, ProgrammingError):
+        logger.warning(
+            "career.switch_player_job progression sync skipped; table unavailable.",
+            extra={
+                "player_id": str(player.id),
+                "job_key": canonical_new_job_key,
+            },
+        )
 
     db.flush()
     logger.info(
@@ -688,8 +699,10 @@ def switch_player_job(
 
     return {
         "success": True,
+        "main_job_key": canonical_new_job_key,
         "new_job_key": canonical_new_job_key,
         "previous_job_key": old_job,
+        "current_job_label": str(getattr(cfg, "display_name", canonical_new_job_key.replace("_", " ").title())),
         "new_rank": RANK_ENTRY,
         "transferred_skill": float(_q4(transferred_skill)),
         "starting_skill": float(new_skill),

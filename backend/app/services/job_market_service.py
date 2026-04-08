@@ -967,7 +967,10 @@ def get_player_job_summary(db: Session, player_id: str | UUID) -> dict[str, Any]
             "current_job_code": normalize_main_job_key(player.main_job, allow_aliases=True),
         }
 
-    current_job_code = normalize_main_job_key(latest.current_job_code, allow_aliases=True)
+    current_job_code = (
+        normalize_main_job_key(latest.current_job_code, allow_aliases=True)
+        or normalize_main_job_key(player.main_job, allow_aliases=True)
+    )
     status = _normalize_status(latest, bool(current_job_code))
     meta = _job_meta(db, current_job_code)
     return {

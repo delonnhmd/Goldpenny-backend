@@ -34,6 +34,7 @@ from app.models.player_stock_holding import PlayerStockHolding
 from app.models.player_transaction_log import PlayerTransactionLog
 from app.models.stock_daily_price import StockDailyPrice
 from app.models.user import User
+from app.services.basket_pricing_service import BasketPricingError
 from app.services.daily_settlement_service import settle_player_day
 from app.services.day_progression_service import run_player_next_day
 from app.services.market_daily_update_service import generate_next_stock_day
@@ -262,6 +263,25 @@ class DayProgressionServiceTests(unittest.TestCase):
         cash_after = float(self.player.cash_xgp)
         self.assertNotEqual(cash_before, cash_after)
 
+    def test_day_progression_survives_basket_pricing_failure_with_fallback(self) -> None:
+        with patch(
+            "app.services.day_progression_service.compute_daily_basket_price_updates",
+            side_effect=BasketPricingError("Unexpected basket pricing compute error."),
+        ):
+            result = run_player_next_day(self.db, str(self.player.id))
+
+        self.assertEqual(result["settled_day"], 1)
+        self.assertTrue(bool(result["basket_pricing_summary"]["degraded"]))
+        self.assertEqual(result["basket_pricing_summary"]["fallback_mode"], "neutral_placeholder")
+        self.assertEqual(
+            result["daily_economy_brief"]["headline"],
+            "Economy data is temporarily unavailable",
+        )
+        self.assertIn(
+            "Work and core actions are still available.",
+            result["daily_economy_brief"]["summary_lines"],
+        )
+
     def test_settlement_records_daily_ledger_and_weekday_missed_shift_effects(self) -> None:
         self.player.main_job = "banker"
         self.db.commit()
@@ -309,7 +329,23 @@ class DayProgressionServiceTests(unittest.TestCase):
         self.player.main_job = None
         self.db.commit()
 
-        result = settle_player_day(self.db, str(self.player.id))
+        with patch(
+            "app.services.daily_settlement_service.ensure_day_dinner_resolved",
+            return_value=None,
+        ), patch(
+            "app.services.daily_settlement_service.compute_player_daily_consumption",
+            return_value={
+                "essentials_spend_xgp": Decimal("0.00"),
+                "protein_spend_xgp": Decimal("0.00"),
+                "produce_spend_xgp": Decimal("0.00"),
+                "convenience_spend_xgp": Decimal("0.00"),
+                "total_spend_xgp": Decimal("0.00"),
+                "budget_pressure_score": Decimal("0.00"),
+                "stress_spend_modifier": Decimal("0.00"),
+                "nutrition_pressure_score": Decimal("0.00"),
+            },
+        ):
+            result = settle_player_day(self.db, str(self.player.id))
         pds = (
             self.db.query(PlayerDailyState)
             .filter(

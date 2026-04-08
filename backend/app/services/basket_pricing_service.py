@@ -5,6 +5,7 @@ Computes basket daily price moves from macro + supply-chain signals.
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
@@ -20,6 +21,8 @@ from app.engine.supply_chain_service import (
 from app.models.basket_daily_price import BasketDailyPrice
 from app.models.enums import BasketType
 from app.models.macro_daily_state import MacroDailyState
+
+logger = logging.getLogger(__name__)
 
 Q4 = Decimal("0.0001")
 Q6 = Decimal("0.000001")
@@ -138,7 +141,13 @@ def _existing_basket_rows_for_day(db: Session, day: int) -> dict[str, BasketDail
         .filter(BasketDailyPrice.day == int(day))
         .all()
     )
-    return {str(row.basket_type.value): row for row in rows}
+    return {_basket_type_key(getattr(row, "basket_type", None)): row for row in rows}
+
+
+def _basket_type_key(value: object) -> str:
+    if isinstance(value, BasketType):
+        return str(value.value)
+    return str(value or "").strip().lower()
 
 
 def _specific_component(
@@ -214,7 +223,7 @@ def compute_daily_basket_price_updates(
         basket_updates: list[dict[str, Any]] = []
 
         for basket_type in BASKET_ORDER:
-            basket_key = str(basket_type.value)
+            basket_key = _basket_type_key(basket_type)
             existing_row = existing_rows.get(basket_key)
             previous_row = _previous_basket_row(db, basket_type, target_day)
 
@@ -342,4 +351,14 @@ def compute_daily_basket_price_updates(
     except Exception as exc:
         if commit:
             db.rollback()
+        logger.exception(
+            "basket_pricing.compute_failed",
+            extra={
+                "day_number": int(day or 0) if day is not None else None,
+                "as_of_date": as_of_date.isoformat() if as_of_date is not None else None,
+                "persist": bool(persist),
+                "commit": bool(commit),
+                "failure_type": exc.__class__.__name__,
+            },
+        )
         raise BasketPricingError("Unexpected basket pricing compute error.") from exc

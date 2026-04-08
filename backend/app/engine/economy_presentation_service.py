@@ -7,6 +7,7 @@ systems.
 
 from __future__ import annotations
 
+import logging
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from uuid import UUID
@@ -32,6 +33,7 @@ from app.services.daily_brief_service import build_daily_economy_brief
 GAME_EPOCH = date(2026, 1, 1)
 Q4 = Decimal("0.0001")
 MONEY_Q = Decimal("0.01")
+logger = logging.getLogger(__name__)
 
 BASKET_ORDER: tuple[BasketType, ...] = (
     BasketType.essentials,
@@ -998,7 +1000,35 @@ def build_economy_presentation_summary(
     commute = build_commute_pressure_summary(db=db, player_id=player.id, as_of_date=resolved_date)
     explainer = build_player_economy_explainer(db=db, player_id=player.id, as_of_date=resolved_date)
     teasers = build_future_opportunity_teasers(db=db, player_id=player.id, as_of_date=resolved_date)
-    daily_brief = build_daily_economy_brief(db=db, as_of_date=resolved_date, day=day)
+    degraded_sections: list[str] = []
+    try:
+        daily_brief = build_daily_economy_brief(db=db, as_of_date=resolved_date, day=day)
+    except Exception as exc:
+        logger.exception(
+            "economy_presentation.daily_brief_degraded",
+            extra={
+                "player_id": str(player.id),
+                "day_number": int(day),
+                "fallback_applied": True,
+            },
+        )
+        degraded_sections.append("daily_brief")
+        daily_brief = {
+            "day": int(day),
+            "headline": "Economy data is temporarily unavailable",
+            "summary_lines": [
+                "Work and core actions are still available.",
+                "Basket pricing is using safe fallback values right now.",
+            ],
+            "top_bottlenecks": [],
+            "top_basket_movers": [],
+            "top_job_changes": [],
+            "debug_meta": {
+                "fallback_reason": str(exc),
+                "fallback_applied": True,
+                "degraded_sections": ["basket_pricing"],
+            },
+        }
     supply_chain_summary = build_supply_chain_daily_summary(db=db, day=day, region=region_key).to_dict()
     supply_chain_story = build_supply_chain_story_summary(db=db, day=day, region=region_key).to_dict()
     settlement_summary = _settlement_digest(_latest_settlement(db, player.id, day))
@@ -1033,5 +1063,6 @@ def build_economy_presentation_summary(
             "version": "step27_v1",
             "region_key": region_key,
             "summary_source": "canonical_backend_economy",
+            "degraded_sections": degraded_sections,
         },
     }

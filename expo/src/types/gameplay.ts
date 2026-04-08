@@ -154,6 +154,7 @@ export interface WorkStateSnapshot {
   day_rollover_timezone?: string | null;
   day_rollover_time_label?: string | null;
   next_day_rollover_time?: string | null;
+  main_job_key?: string | null;
   authoritative_current_job_id?: string | null;
   current_job_display_name?: string | null;
   current_job_level?: number;
@@ -166,6 +167,10 @@ export interface WorkStateSnapshot {
   ui_job_id?: string | null;
   job_truth_mismatch_detected?: boolean;
   job_truth_sources?: Record<string, string>;
+  job_sync_status?: string | null;
+  job_sync_warning_message?: string | null;
+  job_sync_repair_source?: string | null;
+  job_sync_auto_repaired?: boolean;
   job_market?: WorkJobMarketSnapshot | null;
   shift_status: 'idle' | 'active' | 'completed' | string;
   main_shift_active_flag: boolean;
@@ -299,6 +304,8 @@ export interface WorkJobMarketSnapshot {
   current_job_key: string;
   current_job_display_name: string;
   has_main_job: boolean;
+  job_sync_status?: string | null;
+  job_sync_warning_message?: string | null;
   jobs: JobMarketJobSnapshot[];
   certifications: JobMarketCertificationSnapshot[];
   training_active: boolean;

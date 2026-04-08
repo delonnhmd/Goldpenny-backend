@@ -48,6 +48,7 @@ from app.services.city_map_service import (
 )
 from app.services.gameplay_transaction_service import record_gameplay_transaction
 from app.services.job_key_service import normalize_main_job_key, supported_main_job_keys_text
+from app.services.main_job_sync_service import inspect_and_repair_main_job_sync
 from app.services.job_progress_service import normalize_shift_type, upsert_employment_foundation, work_xp_for_hours
 from app.services.player_job_progression_service import (
     SHIFT_COMPLETION_XP_GAIN,
@@ -344,11 +345,14 @@ def _resolve_job_truth_context(
     player: Player,
     scheduled_shift_job_id: str | None,
     active_shift_job_id: str | None,
+    main_job_sync: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     latest_employment = _latest_employment_state_for_player(db, player)
     latest_career = _latest_career_state_for_player(db, player)
 
-    player_job_id = _canonical_main_job(getattr(player, "main_job", None))
+    player_job_id = _canonical_main_job(
+        (main_job_sync or {}).get("authoritative_main_job_key") or getattr(player, "main_job", None)
+    )
     scheduled_job_id = _canonical_main_job(scheduled_shift_job_id or "")
     active_job_id = _canonical_main_job(active_shift_job_id or "")
     employment_job_id = _canonical_main_job(
@@ -358,13 +362,16 @@ def _resolve_job_truth_context(
         getattr(latest_career, "current_job_key", None) if latest_career is not None else None
     )
 
-    authoritative_current_job_id = (
-        active_job_id
-        or player_job_id
-        or career_job_id
-        or employment_job_id
-        or scheduled_job_id
-    )
+    if str((main_job_sync or {}).get("sync_status") or "") == "repair_needed":
+        authoritative_current_job_id = ""
+    else:
+        authoritative_current_job_id = (
+            active_job_id
+            or player_job_id
+            or career_job_id
+            or employment_job_id
+            or scheduled_job_id
+        )
     ui_job_id = authoritative_current_job_id
     pay_calculation_job_id = active_job_id or authoritative_current_job_id
 
@@ -401,6 +408,9 @@ def _resolve_job_truth_context(
         "pay_calculation_job_id": pay_calculation_job_id or "",
         "ui_job_id": ui_job_id or "",
         "job_truth_mismatch_detected": mismatch_detected,
+        "job_sync_status": str((main_job_sync or {}).get("sync_status") or ""),
+        "job_sync_warning_message": str((main_job_sync or {}).get("sync_warning_message") or ""),
+        "job_sync_repair_source": str((main_job_sync or {}).get("repair_source") or ""),
         "job_truth_sources": {
             "player.current_job_id": player_job_id or "",
             "player_profile.selected_job": player_job_id or "",
@@ -482,7 +492,7 @@ def _build_job_market_payload(
             }
         )
 
-    canonical_current_job = _canonical_main_job(authoritative_current_job_id or getattr(player, "main_job", None))
+    canonical_current_job = _canonical_main_job(authoritative_current_job_id)
     job_rows: list[dict[str, Any]] = []
     career_progression_rows: list[dict[str, Any]] = []
     for template in JOB_MARKET_TEMPLATES:
@@ -1146,6 +1156,24 @@ def _canonical_main_job(value: object) -> str | None:
     return normalize_main_job_key(value, allow_aliases=True)
 
 
+def _apply_main_job_sync_result_to_work_state(
+    work_state: dict[str, Any],
+    main_job_sync: dict[str, Any],
+) -> dict[str, Any]:
+    if not bool(main_job_sync.get("repair_applied")):
+        return work_state
+    sync_message = "Current job data was repaired from career state."
+    work_state["job_sync_status"] = "auto_repaired"
+    work_state["job_sync_auto_repaired"] = True
+    work_state["job_sync_repair_source"] = str(main_job_sync.get("repair_source") or "")
+    work_state["job_sync_warning_message"] = sync_message
+    job_market = work_state.get("job_market")
+    if isinstance(job_market, dict):
+        job_market["job_sync_status"] = "auto_repaired"
+        job_market["job_sync_warning_message"] = sync_message
+    return work_state
+
+
 def _validate_main_shift_start(player: Player, *, job_name: str, hours_worked: int, shift_number: int) -> None:
     canonical_job_name = _canonical_main_job(job_name)
     canonical_player_job = _canonical_main_job(getattr(player, "main_job", None))
@@ -1266,7 +1294,15 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         .first()
     )
 
-    canonical_main_job = _canonical_main_job(getattr(player, "main_job", None))
+    main_job_sync = inspect_and_repair_main_job_sync(
+        db,
+        player=player,
+        trigger="build_work_state_payload",
+        apply_repair=False,
+    )
+    canonical_main_job = _canonical_main_job(
+        main_job_sync.get("authoritative_main_job_key") or getattr(player, "main_job", None)
+    )
     canonical_shift_job_name = _canonical_main_job(getattr(player, "main_shift_job_name", None) or "")
     shift_started_at = _as_houston(getattr(player, "main_shift_started_at", None))
     shift_ends_at = _as_houston(getattr(player, "main_shift_ends_at", None))
@@ -1280,6 +1316,7 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         player=player,
         scheduled_shift_job_id=_canonical_main_job(schedule["canonical_main_job"]),
         active_shift_job_id=canonical_shift_job_name if active_shift else None,
+        main_job_sync=main_job_sync,
     )
     latest_career = _latest_career_state_for_player(db, player)
     try:
@@ -1292,6 +1329,8 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         authoritative_current_job_id=str(job_truth_context.get("authoritative_current_job_id") or ""),
         progression_by_job=progression_by_job,
     )
+    job_market_payload["job_sync_status"] = str(main_job_sync.get("sync_status") or "")
+    job_market_payload["job_sync_warning_message"] = str(main_job_sync.get("sync_warning_message") or "")
     current_job_key = str(job_truth_context.get("authoritative_current_job_id") or "").strip().lower()
     current_job_progression = progression_by_job.get(current_job_key) if current_job_key else None
     if current_job_key and current_job_progression is None:
@@ -1437,6 +1476,7 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         "day_rollover_time_label": HOUSTON_DAY_RESET_LABEL,
         "next_day_rollover_time": "00:00",
         "day_settled": day_settled,
+        "main_job_key": canonical_main_job or "",
         "authoritative_current_job_id": str(job_truth_context.get("authoritative_current_job_id") or ""),
         "current_job_display_name": str(job_truth_context.get("current_job_display_name") or ""),
         "current_job_level": int(job_truth_context.get("current_job_level") or 1),
@@ -1448,6 +1488,14 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         "ui_job_id": str(job_truth_context.get("ui_job_id") or ""),
         "job_truth_mismatch_detected": bool(job_truth_context.get("job_truth_mismatch_detected")),
         "job_truth_sources": dict(job_truth_context.get("job_truth_sources") or {}),
+        "job_sync_status": str(job_truth_context.get("job_sync_status") or main_job_sync.get("sync_status") or ""),
+        "job_sync_warning_message": str(
+            job_truth_context.get("job_sync_warning_message") or main_job_sync.get("sync_warning_message") or ""
+        ),
+        "job_sync_repair_source": str(
+            job_truth_context.get("job_sync_repair_source") or main_job_sync.get("repair_source") or ""
+        ),
+        "job_sync_auto_repaired": bool(main_job_sync.get("repair_applied")),
         "job_market": job_market_payload,
         "shift_status": str(getattr(player, "main_shift_status", SHIFT_STATUS_IDLE) or SHIFT_STATUS_IDLE),
         "main_shift_active_flag": active_shift,
@@ -1538,6 +1586,10 @@ def start_main_shift(
 
     resolve_expired_shift_if_needed(db, player=player, now_houston=now)
     current_work_state = build_work_state_payload(db, player, now_houston=now)
+    if str(current_work_state.get("job_sync_status") or "") == "repair_needed":
+        raise ValueError(
+            str(current_work_state.get("job_sync_warning_message") or "Your job data is syncing. Please retry in a moment.")
+        )
     if bool(current_work_state.get("missed_shift_today")):
         raise ValueError(
             "Today's required shift window has already ended. Ride share is the available work option now."
@@ -1891,6 +1943,12 @@ def resolve_expired_shift_if_needed(
             raise ValueError("Player not found for expired-shift resolution.")
 
     now = _as_houston(now_houston) or get_houston_now()
+    main_job_sync = inspect_and_repair_main_job_sync(
+        db,
+        player=player,
+        trigger="resolve_expired_shift_if_needed",
+        apply_repair=True,
+    )
     current_day = _current_game_day_for_player(db, player)
     reset_applied = _maybe_reset_daily_counters(player, current_day)
     started_at = _as_houston(getattr(player, "main_shift_started_at", None))
@@ -1945,6 +2003,8 @@ def resolve_expired_shift_if_needed(
                 0.0,
             ),
             "main_shift_hours_today": int(getattr(player, "main_job_hours_today", 0) or 0),
+            "job_sync_status": str(main_job_sync.get("sync_status") or ""),
+            "job_sync_repair_applied": bool(main_job_sync.get("repair_applied")),
         },
     )
 
@@ -1961,6 +2021,7 @@ def resolve_expired_shift_if_needed(
             db.commit()
             db.refresh(player)
         work_state = build_work_state_payload(db, player, now_houston=now)
+        work_state = _apply_main_job_sync_result_to_work_state(work_state, main_job_sync)
         applied_days = int(rollover_result.get("applied_days") or 0)
         recap_lines = [
             "Yesterday was automatically finalized."
@@ -2021,6 +2082,7 @@ def resolve_expired_shift_if_needed(
             db.commit()
             db.refresh(player)
             finalized_state = build_work_state_payload(db, player, now_houston=now)
+        finalized_state = _apply_main_job_sync_result_to_work_state(finalized_state, main_job_sync)
         finalized_state["offline_survival_catchup"] = catchup_result
         finalized_state["auto_day_rollover"] = rollover_result
         finalized_state["auto_finalized_previous_day"] = False
@@ -2047,6 +2109,7 @@ def resolve_expired_shift_if_needed(
     )
     if (
         bool(sync_result.get("applied"))
+        or bool(main_job_sync.get("repair_applied"))
         or int(catchup_result.get("applied_days") or 0) > 0
         or bool(catchup_result.get("sync_date_updated"))
     ):
@@ -2054,6 +2117,7 @@ def resolve_expired_shift_if_needed(
         db.refresh(player)
 
     work_state = build_work_state_payload(db, player, now_houston=now)
+    work_state = _apply_main_job_sync_result_to_work_state(work_state, main_job_sync)
     work_state["offline_survival_catchup"] = catchup_result
     work_state["auto_day_rollover"] = rollover_result
     work_state["auto_finalized_previous_day"] = False

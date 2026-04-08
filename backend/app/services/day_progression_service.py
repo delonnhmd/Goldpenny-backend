@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
 from sqlalchemy import func
@@ -14,8 +15,8 @@ from app.engine.population_pressure_service import (
     update_population_pressure,
 )
 from app.models.stock_daily_price import StockDailyPrice
-from app.services.basket_pricing_service import compute_daily_basket_price_updates
-from app.services.daily_brief_service import build_daily_economy_brief
+from app.services.basket_pricing_service import BasketPricingError, compute_daily_basket_price_updates
+from app.services.daily_brief_service import DailyBriefError, build_daily_economy_brief
 from app.services.daily_settlement_service import (
     get_next_player_day,
     settle_player_day,
@@ -23,6 +24,44 @@ from app.services.daily_settlement_service import (
 from app.services.daily_brief_service import generate_player_daily_brief
 from app.services.job_market_service import compute_daily_job_market_updates
 from app.services.market_daily_update_service import generate_next_stock_day
+
+logger = logging.getLogger(__name__)
+
+
+def _fallback_basket_pricing_summary(*, day: int, reason: str) -> dict:
+    return {
+        "as_of_date": None,
+        "macro_state_id": None,
+        "day": int(day),
+        "already_processed": False,
+        "basket_updates": [],
+        "degraded": True,
+        "fallback_mode": "neutral_placeholder",
+        "debug_meta": {
+            "constants_version": "basket_pricing_v1",
+            "fallback_reason": reason,
+            "fallback_applied": True,
+        },
+    }
+
+
+def _fallback_daily_economy_brief(*, day: int, reason: str) -> dict:
+    return {
+        "day": int(day),
+        "headline": "Economy data is temporarily unavailable",
+        "summary_lines": [
+            "Work and core actions are still available.",
+            "Basket pricing used safe fallback values for this day.",
+        ],
+        "top_bottlenecks": [],
+        "top_basket_movers": [],
+        "top_job_changes": [],
+        "debug_meta": {
+            "fallback_reason": reason,
+            "fallback_applied": True,
+            "degraded_sections": ["basket_pricing"],
+        },
+    }
 
 
 def _latest_stock_day(db: Session) -> int | None:
@@ -49,22 +88,65 @@ def run_player_next_day(db: Session, player_id: str | UUID) -> dict:
     except Exception:
         pass  # event engine errors must not abort day progression
 
-    basket_pricing = compute_daily_basket_price_updates(
-        db,
-        day=target_settlement_day,
-        persist=True,
-        commit=True,
-    )
+    basket_pricing_error: str | None = None
+    try:
+        basket_pricing = compute_daily_basket_price_updates(
+            db,
+            day=target_settlement_day,
+            persist=True,
+            commit=True,
+        )
+    except BasketPricingError as exc:
+        basket_pricing_error = str(exc)
+        logger.exception(
+            "day_progression.basket_pricing_degraded",
+            extra={
+                "player_id": str(player_id),
+                "day_number": int(target_settlement_day),
+                "failing_function": "compute_daily_basket_price_updates",
+                "economy_state_used": {
+                    "market_day": int(market_day or 0),
+                    "event_result_keys": sorted(event_result.keys()),
+                },
+                "fallback_applied": True,
+            },
+        )
+        basket_pricing = _fallback_basket_pricing_summary(
+            day=target_settlement_day,
+            reason=basket_pricing_error,
+        )
     job_market = compute_daily_job_market_updates(
         db,
         day=target_settlement_day,
     )
-    economy_brief = build_daily_economy_brief(
-        db,
-        day=target_settlement_day,
-        basket_pricing_daily=basket_pricing,
-        job_market_daily=job_market,
-    )
+    if basket_pricing_error:
+        economy_brief = _fallback_daily_economy_brief(
+            day=target_settlement_day,
+            reason=basket_pricing_error,
+        )
+    else:
+        try:
+            economy_brief = build_daily_economy_brief(
+                db,
+                day=target_settlement_day,
+                basket_pricing_daily=basket_pricing,
+                job_market_daily=job_market,
+            )
+        except Exception as exc:
+            logger.exception(
+                "day_progression.daily_brief_degraded",
+                extra={
+                    "player_id": str(player_id),
+                    "day_number": int(target_settlement_day),
+                    "failing_function": "build_daily_economy_brief",
+                    "basket_pricing_fallback_applied": bool(basket_pricing_error),
+                    "fallback_applied": True,
+                },
+            )
+            economy_brief = _fallback_daily_economy_brief(
+                day=target_settlement_day,
+                reason=str(exc),
+            )
     population_refresh: dict = {}
     try:
         from datetime import date, timedelta

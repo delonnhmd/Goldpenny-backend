@@ -510,7 +510,9 @@ def _starter_daily_brief(current_job: str | None) -> str:
 
 
 def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> dict[str, Any]:
-    current_job = normalize_main_job_key((work_state or {}).get("authoritative_current_job_id") or player.main_job, allow_aliases=True) or ""
+    current_job = normalize_main_job_key((work_state or {}).get("authoritative_current_job_id"), allow_aliases=True) or ""
+    job_sync_status = str((work_state or {}).get("job_sync_status") or "").strip().lower()
+    job_sync_message = str((work_state or {}).get("job_sync_warning_message") or "").strip()
     has_job = bool(current_job)
     is_first_session = _is_new_player_first_session(player)
     as_of_date = date.today().isoformat()
@@ -689,9 +691,20 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
             {
                 "action_key": "work_shift",
                 "title": "Work Shift",
-                "description": "Complete job selection first to start earning from shifts.",
+                "description": (
+                    "Your job data is syncing. Please retry in a moment."
+                    if job_sync_status == "repair_needed"
+                    else "Complete job selection first to start earning from shifts."
+                ),
                 "status": "blocked",
-                "blockers": ["You don't have a job yet. Choose a job in Job Market to start earning."],
+                "blockers": [
+                    (
+                        job_sync_message
+                        or "Your job data is syncing. Please retry in a moment."
+                    )
+                    if job_sync_status == "repair_needed"
+                    else "You don't have a job yet. Choose a job in Job Market to start earning."
+                ],
                 "tradeoffs": [],
                 "warnings": [],
                 "confidence_level": "unknown",
@@ -830,32 +843,41 @@ def get_gameplay_dashboard(player_id: str, db: Session = Depends(get_db)) -> dic
     brief_payload: dict[str, Any] | None = None
     economy_payload: dict[str, Any] | None = None
     job_payload: dict[str, Any] | None = None
+    degraded_sections: list[str] = []
 
     try:
         brief_payload = get_player_latest_daily_brief(db, player.id)
     except Exception:
         brief_payload = None
+        degraded_sections.append("daily_brief")
 
     try:
         economy_payload = build_economy_presentation_summary(db=db, player_id=str(player.id))
     except Exception:
         economy_payload = None
+        degraded_sections.append("economy")
 
     try:
         job_payload = get_player_job_summary(db=db, player_id=str(player.id))
     except Exception:
         job_payload = None
+        degraded_sections.append("job_summary")
 
     is_first_session = _is_new_player_first_session(player)
     authoritative_job = normalize_main_job_key(
         (work_state or {}).get("authoritative_current_job_id"),
         allow_aliases=True,
     ) or ""
+    job_sync_status = str((work_state or {}).get("job_sync_status") or "").strip().lower()
     current_job = (
         authoritative_job
-        or (job_payload or {}).get("current_job_code")
-        or playable.get("latest_daily_brief", {}).get("current_job")
-        or player.main_job
+        if job_sync_status == "repair_needed"
+        else (
+            authoritative_job
+            or (job_payload or {}).get("current_job_code")
+            or playable.get("latest_daily_brief", {}).get("current_job")
+            or player.main_job
+        )
     )
     current_job = normalize_main_job_key(current_job, allow_aliases=True) or ""
     current_job_display_name = str(
@@ -927,6 +949,16 @@ def get_gameplay_dashboard(player_id: str, db: Session = Depends(get_db)) -> dic
                 "severity": "warning",
             }
         ]
+    if "economy" in degraded_sections:
+        top_risks.insert(
+            0,
+            {
+                "key": "economy_degraded",
+                "title": "Economy data is temporarily unavailable",
+                "description": "Dashboard partially loaded. Work and core actions remain available.",
+                "severity": "warning",
+            },
+        )
     if not top_opportunities:
         top_opportunities = [
             {
@@ -986,6 +1018,7 @@ def get_gameplay_dashboard(player_id: str, db: Session = Depends(get_db)) -> dic
             "authoritative_current_job_id": str((work_state or {}).get("authoritative_current_job_id") or ""),
             "source_brief_available": brief_payload is not None,
             "source_economy_available": economy_payload is not None,
+            "degraded_sections": degraded_sections,
             "work_state": work_state,
         },
     }
@@ -1018,7 +1051,7 @@ def get_gameplay_actions(player_id: str, db: Session = Depends(get_db)) -> dict[
                 "player_id": player_id,
                 "resolved_player_id": str(player.id),
                 "new_player_first_session": _is_new_player_first_session(player),
-                "has_starter_job_selected": bool((work_state or {}).get("authoritative_current_job_id") or player.main_job),
+                "has_starter_job_selected": bool((work_state or {}).get("authoritative_current_job_id")),
             },
         )
         return payload
@@ -1512,6 +1545,11 @@ def execute_gameplay_action(
                 "health_delta": 0,
                 "raw_result": {
                     **result,
+                    "main_job_key": str(result.get("main_job_key") or result.get("new_job_key") or ""),
+                    "current_job_label": str(
+                        result.get("current_job_label")
+                        or _job_display_name(str(result.get("main_job_key") or result.get("new_job_key") or ""))
+                    ),
                     "work_state": build_work_state_payload(db, player),
                     "employer_company_symbol": JOB_COMPANY_MAP.get(str(result.get("new_job_key") or ""), {}).get("symbol"),
                     "employer_company_name": JOB_COMPANY_MAP.get(str(result.get("new_job_key") or ""), {}).get("name"),
@@ -1582,7 +1620,12 @@ def execute_gameplay_action(
         shift_profile = SHIFT_PROFILES[shift_type]
         requested_hours = _safe_int(params.get("hours_worked"), int(shift_profile["hours_worked"]))
         hours_worked = max(1, min(8, requested_hours))
-        job_name = normalize_main_job_key(params.get("job_name") or player.main_job, allow_aliases=True) or ""
+        job_name = normalize_main_job_key(
+            params.get("job_name")
+            or (work_state or {}).get("authoritative_current_job_id")
+            or player.main_job,
+            allow_aliases=True,
+        ) or ""
         if not job_name:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Choose a job before running work_shift.")
         try:

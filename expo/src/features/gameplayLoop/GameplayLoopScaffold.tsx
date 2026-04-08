@@ -79,6 +79,13 @@ export default function GameplayLoopScaffold({
     navigateTo,
   } = onboarding;
   const sourceTone = loop.sourceMode === 'live' ? 'positive' : loop.sourceMode === 'mixed' ? 'warning' : 'info';
+  const degradedSections = Array.isArray(loop.dashboard?.debug_meta?.degraded_sections)
+    ? (loop.dashboard?.debug_meta?.degraded_sections as string[])
+    : [];
+  const economyModuleDegraded = degradedSections.includes('economy')
+    || loop.sourceNotes.some((note) => String(note || '').toLowerCase().startsWith('economy_summary:'));
+  const errorText = String(loop.error || '');
+  const economyOnlyFailure = errorText.toLowerCase().includes('basket pricing');
 
   useEffect(() => {
     ensureRoute(activeNavKey as OnboardingRouteKey);
@@ -318,10 +325,22 @@ export default function GameplayLoopScaffold({
               )
             ) : null}
 
+            {economyModuleDegraded ? (
+              <GameplayWarningBanner
+                title="Economy module temporarily unavailable"
+                message="Dashboard partially loaded. Work and core actions remain available."
+                tone="warning"
+              />
+            ) : null}
+
             {loop.error && !loop.bundle ? (
               <ErrorStateView
-                title="Gameplay loop unavailable"
-                message={loop.error}
+                title={economyOnlyFailure ? 'Economy module temporarily unavailable' : 'Gameplay loop unavailable'}
+                message={
+                  economyOnlyFailure
+                    ? 'Dashboard partially loaded. Work and core actions remain available. Retry when economy data recovers.'
+                    : loop.error
+                }
                 onRetry={() => {
                   void loop.refresh();
                 }}

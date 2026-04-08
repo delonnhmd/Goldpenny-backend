@@ -18,6 +18,7 @@ from app.models.player_career import PlayerCareer
 from app.models.player_daily_state import PlayerDailyState
 from app.models.player_employment_state import PlayerEmploymentState
 from app.models.user import User
+from app.services.job_key_service import supported_main_job_keys_text
 
 
 class JobSelectionFlowTests(unittest.TestCase):
@@ -134,8 +135,41 @@ class JobSelectionFlowTests(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 422)
         self.assertEqual(
             ctx.exception.detail,
-            "Invalid job key: delivery_driver. Expected one of: auto_mechanic, aircraft_mechanic, banker, chef, retail, delivery",
+            f"Invalid job key: delivery_driver. Expected one of: {supported_main_job_keys_text()}",
         )
+
+    def test_actions_fetch_repairs_missing_main_job_from_career_state(self) -> None:
+        career = PlayerCareer(
+            player_id=self.player.id,
+            current_job_key="warehouse_operator",
+        )
+        self.db.add(career)
+        self.db.commit()
+        self.db.refresh(self.player)
+
+        actions_payload = get_gameplay_actions(str(self.player.id), db=self.db)
+        self.db.refresh(self.player)
+
+        self.assertEqual(self.player.main_job, "warehouse_operator")
+        self.assertEqual(actions_payload["debug_meta"]["current_job_key"], "warehouse_operator")
+        self.assertEqual(
+            actions_payload["work_state"]["job_sync_status"],
+            "auto_repaired",
+        )
+
+        work_result = execute_gameplay_action(
+            str(self.player.id),
+            GameplayActionRequest(
+                action_key="work_shift",
+                parameters={"job_name": "warehouse_operator", "hours_worked": 6, "shift_type": "standard_shift"},
+            ),
+            db=self.db,
+        )
+        self.db.refresh(self.player)
+
+        self.assertTrue(bool(work_result["success"]))
+        self.assertEqual(self.player.main_job, "warehouse_operator")
+        self.assertTrue(bool(self.player.main_shift_active_flag))
 
 
 if __name__ == "__main__":
