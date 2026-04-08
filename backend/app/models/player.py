@@ -196,6 +196,11 @@ class Player(Base):
         back_populates="player",
         order_by="PlayerEmploymentState.created_at.desc()",
     )
+    job_progressions = relationship(
+        "PlayerJobProgression",
+        back_populates="player",
+        order_by="PlayerJobProgression.updated_at.desc()",
+    )
     settlement_logs = relationship(
         "DailySettlementLog",
         back_populates="player",

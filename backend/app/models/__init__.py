@@ -117,6 +117,7 @@ from app.models.firm_policy import FirmPolicy
 # Step 18 — Career progression models
 from app.models.player_career import PlayerCareer
 from app.models.career_progress_log import CareerProgressLog
+from app.models.player_job_progression import PlayerJobProgression
 # Step 19 — Event engine models
 from app.models.daily_economy_event import DailyEconomyEvent
 from app.models.daily_economy_event_log import DailyEconomyEventLog
@@ -256,6 +257,8 @@ __all__ = [
     # Step 19 — Event engine
     "DailyEconomyEvent",
     "DailyEconomyEventLog",
+    # Step 92 — Per-job progression tracks
+    "PlayerJobProgression",
     # Step 38 — Debt behavior meta-layer
     "PlayerDebtBehaviorState",
     "PlayerDebtTrendHistory",

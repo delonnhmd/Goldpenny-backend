@@ -862,12 +862,44 @@ def get_gameplay_dashboard(player_id: str, db: Session = Depends(get_db)) -> dic
         (work_state or {}).get("current_job_display_name")
         or _job_display_name(current_job)
     )
-    employment_state = latest_employment_state(db, player.id)
-    job_progress = build_job_progress_payload(
-        employment_state,
-        fallback_job_key=current_job or None,
-        fallback_shift_type="standard_shift",
+    current_job_progress = (
+        (work_state or {}).get("current_job_progression")
+        if isinstance((work_state or {}).get("current_job_progression"), dict)
+        else None
     )
+    if current_job_progress is not None:
+        job_progress = {
+            "job_key": str(current_job_progress.get("job_key") or current_job or ""),
+            "job_level": int(current_job_progress.get("job_level") or 1),
+            "skill_level": int(current_job_progress.get("skill_level") or current_job_progress.get("job_level") or 1),
+            "job_xp": int(current_job_progress.get("job_xp") or 0),
+            "job_xp_to_next_level": int(current_job_progress.get("job_xp_to_next_level") or 0),
+            "xp_total": int(current_job_progress.get("xp_total") or 0),
+            "max_job_level": int(current_job_progress.get("max_job_level") or 10),
+            "promotion_tier": str(current_job_progress.get("promotion_tier") or "Junior"),
+            "shifts_completed": int(current_job_progress.get("shifts_completed") or 0),
+            "monthly_pay_xgp": _safe_float(current_job_progress.get("base_salary_xgp"), 0.0),
+            "estimated_current_monthly_salary_xgp": _safe_float(
+                current_job_progress.get("estimated_current_monthly_salary_xgp"), 0.0
+            ),
+            "estimated_next_level_monthly_salary_xgp": _safe_float(
+                current_job_progress.get("estimated_next_level_monthly_salary_xgp"), 0.0
+            ),
+            "next_level_salary_increase_pct": _safe_float(
+                current_job_progress.get("next_level_salary_increase_pct"), 3.0
+            ),
+            "salary_preview_note": str(
+                current_job_progress.get("salary_preview_note")
+                or "Estimated only - live payroll remains unchanged."
+            ),
+        }
+    else:
+        employment_state = latest_employment_state(db, player.id)
+        job_progress = build_job_progress_payload(
+            employment_state,
+            fallback_job_key=current_job or None,
+            fallback_shift_type="standard_shift",
+        )
     economy_risk_overview = _build_economy_risk_overview(
         economy_payload=economy_payload,
         debt_xgp=_safe_float(playable.get("debt_xgp"), _safe_float(player.debt_xgp, 0.0)),

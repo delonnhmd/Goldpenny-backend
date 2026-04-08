@@ -54,6 +54,7 @@ from app.models.player_career import PlayerCareer
 from app.models.player_daily_state import PlayerDailyState
 from app.models.player_employment_state import PlayerEmploymentState
 from app.services.job_key_service import normalize_main_job_key, require_canonical_main_job_key
+from app.services.player_job_progression_service import get_or_create_player_job_progression
 
 MONEY_Q = Decimal("0.01")
 Q4 = Decimal("0.0001")
@@ -584,6 +585,16 @@ def complete_certification_if_eligible(db: Session, career: PlayerCareer) -> boo
         if active_track:
             completed_keys.add(active_track)
             _persist_completed_certification_keys(career, completed_keys)
+            unlocked_job_key = str(
+                (CERTIFICATION_CATALOG.get(active_track, {}) or {}).get("unlocks_job") or ""
+            ).strip().lower()
+            if unlocked_job_key:
+                # Step 92 safe mode: create progression track lazily at certification completion.
+                get_or_create_player_job_progression(
+                    db,
+                    player_id=career.player_id,
+                    job_key=unlocked_job_key,
+                )
         db.flush()
         return True
     return False
@@ -652,6 +663,13 @@ def switch_player_job(
 
     # Update player.main_job to match
     player.main_job = canonical_new_job_key
+
+    # Step 92 safe mode: ensure independent progression row for switched job.
+    get_or_create_player_job_progression(
+        db,
+        player_id=player.id,
+        job_key=canonical_new_job_key,
+    )
 
     db.flush()
     logger.info(

@@ -26,6 +26,8 @@ import {
   EndDayResponse,
   EndOfDaySummaryResponse,
   GameplayActionKey,
+  JobProgressionTrackSnapshot,
+  JobProgressionFeedbackSnapshot,
   PlayerDashboardResponse,
   PlayerNotificationItem,
   PlayerNotificationResponse,
@@ -251,6 +253,94 @@ function normalizeImpact(raw: unknown, label: string, fallbackDirection: TrendDi
   };
 }
 
+function normalizeJobProgressSnapshot(
+  raw: unknown,
+  fallbackJobKey = '',
+): WorkStateSnapshot['current_job_progression'] {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  return {
+    job_key: toString(obj.job_key, fallbackJobKey),
+    job_level: Math.max(1, Math.round(toNumber(obj.job_level ?? obj.skill_level, 1))),
+    skill_level: Math.max(1, Math.round(toNumber(obj.skill_level ?? obj.job_level, 1))),
+    xp_total: Math.max(0, Math.round(toNumber(obj.xp_total, 0))),
+    job_xp: Math.max(0, Math.round(toNumber(obj.job_xp, 0))),
+    job_xp_to_next_level: Math.max(0, Math.round(toNumber(obj.job_xp_to_next_level, 0))),
+    max_job_level: Math.max(1, Math.round(toNumber(obj.max_job_level, 10))),
+    monthly_pay_xgp: normalizeMoneyValue(
+      obj.monthly_pay_xgp ?? obj.base_salary_xgp,
+      { allowNegative: false, fallback: 0 },
+    ),
+    promotion_tier: toString(obj.promotion_tier, 'Junior'),
+    shifts_completed: Math.max(0, Math.round(toNumber(obj.shifts_completed, 0))),
+    estimated_current_monthly_salary_xgp: normalizeMoneyValue(
+      obj.estimated_current_monthly_salary_xgp,
+      { allowNegative: false, fallback: 0 },
+    ),
+    estimated_next_level_monthly_salary_xgp: normalizeMoneyValue(
+      obj.estimated_next_level_monthly_salary_xgp,
+      { allowNegative: false, fallback: 0 },
+    ),
+    next_level_salary_increase_pct: normalizeFiniteNumber(obj.next_level_salary_increase_pct, { fallback: 3 }),
+    salary_preview_note: toString(
+      obj.salary_preview_note,
+      'Estimated only - live payroll remains unchanged.',
+    ),
+    employer_company_symbol: toString(obj.employer_company_symbol, ''),
+    employer_company_name: toString(obj.employer_company_name, ''),
+    position_title: toString(obj.position_title, ''),
+    shift_type: toString(obj.shift_type, ''),
+  };
+}
+
+function normalizeJobProgressTrack(raw: unknown): JobProgressionTrackSnapshot {
+  const obj = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  return {
+    job_key: toString(obj.job_key, ''),
+    display_name: toString(obj.display_name, ''),
+    status: toString(obj.status, ''),
+    locked: Boolean(obj.locked),
+    requires_certification: Boolean(obj.requires_certification),
+    certification_key: obj.certification_key == null ? null : toString(obj.certification_key, ''),
+    certification_name: obj.certification_name == null ? null : toString(obj.certification_name, ''),
+    requirement_label: obj.requirement_label == null ? null : toString(obj.requirement_label, ''),
+    has_progression: Boolean(obj.has_progression),
+    job_level: Math.max(1, Math.round(toNumber(obj.job_level, 1))),
+    promotion_tier: toString(obj.promotion_tier, 'Junior'),
+    job_xp: Math.max(0, Math.round(toNumber(obj.job_xp, 0))),
+    job_xp_to_next_level: Math.max(0, Math.round(toNumber(obj.job_xp_to_next_level, 0))),
+    shifts_completed: Math.max(0, Math.round(toNumber(obj.shifts_completed, 0))),
+    estimated_current_monthly_salary_xgp: normalizeMoneyValue(
+      obj.estimated_current_monthly_salary_xgp,
+      { allowNegative: false, fallback: 0 },
+    ),
+    estimated_next_level_monthly_salary_xgp: normalizeMoneyValue(
+      obj.estimated_next_level_monthly_salary_xgp,
+      { allowNegative: false, fallback: 0 },
+    ),
+    next_level_salary_increase_pct: normalizeFiniteNumber(obj.next_level_salary_increase_pct, { fallback: 3 }),
+    salary_preview_note: obj.salary_preview_note == null ? null : toString(obj.salary_preview_note, ''),
+    last_worked_at: obj.last_worked_at == null ? null : toString(obj.last_worked_at, ''),
+  };
+}
+
+function normalizeJobProgressFeedback(raw: unknown): JobProgressionFeedbackSnapshot | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  return {
+    job_key: toString(obj.job_key, ''),
+    xp_gained: Math.max(0, Math.round(toNumber(obj.xp_gained, 0))),
+    level_before: Math.max(1, Math.round(toNumber(obj.level_before, 1))),
+    level_after: Math.max(1, Math.round(toNumber(obj.level_after, 1))),
+    promotion_tier_before: obj.promotion_tier_before == null ? null : toString(obj.promotion_tier_before, ''),
+    promotion_tier_after: obj.promotion_tier_after == null ? null : toString(obj.promotion_tier_after, ''),
+    leveled_up: Boolean(obj.leveled_up),
+    tier_changed: Boolean(obj.tier_changed),
+    feedback_message: obj.feedback_message == null ? null : toString(obj.feedback_message, ''),
+    progression: normalizeJobProgressSnapshot(obj.progression, toString(obj.job_key, '')),
+  };
+}
+
 function normalizeDashboard(raw: Record<string, unknown>, playerId: string): PlayerDashboardResponse {
   const stats = (raw.stats as Record<string, unknown>) || {};
   const jobProgressRaw = (raw.job_progress && typeof raw.job_progress === 'object')
@@ -338,21 +428,10 @@ function normalizeDashboard(raw: Record<string, unknown>, playerId: string): Pla
         reason: toString(item.reason || item.description || 'Recommended action'),
       };
     }),
-    job_progress: jobProgressRaw
-      ? {
-        job_key: toString(jobProgressRaw.job_key || stats.current_job || ''),
-        job_level: Math.max(1, Math.min(40, toNumber(jobProgressRaw.job_level ?? jobProgressRaw.skill_level, 1))),
-        skill_level: Math.max(1, Math.min(40, toNumber(jobProgressRaw.skill_level ?? jobProgressRaw.job_level, 1))),
-        job_xp: Math.max(0, Math.round(toNumber(jobProgressRaw.job_xp, 0))),
-        job_xp_to_next_level: Math.max(0, Math.round(toNumber(jobProgressRaw.job_xp_to_next_level, 0))),
-        max_job_level: Math.max(1, Math.round(toNumber(jobProgressRaw.max_job_level, 40))),
-        monthly_pay_xgp: normalizeMoneyValue(jobProgressRaw.monthly_pay_xgp, { allowNegative: false, fallback: 0 }),
-        employer_company_symbol: toString(jobProgressRaw.employer_company_symbol, ''),
-        employer_company_name: toString(jobProgressRaw.employer_company_name, ''),
-        position_title: toString(jobProgressRaw.position_title, ''),
-        shift_type: toString(jobProgressRaw.shift_type, ''),
-      }
-      : null,
+    job_progress: normalizeJobProgressSnapshot(
+      jobProgressRaw,
+      toString(stats.current_job || ''),
+    ),
     work_state: workState,
     debug_meta: (raw.debug_meta as Record<string, unknown>) || {},
   };
@@ -468,6 +547,9 @@ function normalizeJobMarket(raw: unknown): WorkStateSnapshot['job_market'] {
         training_in_progress: Boolean(row.training_in_progress),
         training_days_completed: Math.max(0, Math.round(toNumber(row.training_days_completed, 0))),
         training_days_required: Math.max(0, Math.round(toNumber(row.training_days_required, 0))),
+        progression: normalizeJobProgressSnapshot(row.progression, toString(row.job_key, '')),
+        is_locked: Boolean(row.is_locked),
+        is_unlocked: Boolean(row.is_unlocked),
       };
     })
     : [];
@@ -503,6 +585,9 @@ function normalizeJobMarket(raw: unknown): WorkStateSnapshot['job_market'] {
     completed_certification_keys: Array.isArray(obj.completed_certification_keys)
       ? (obj.completed_certification_keys as unknown[]).map((entry) => toString(entry, '')).filter(Boolean)
       : [],
+    career_progression: Array.isArray(obj.career_progression)
+      ? (obj.career_progression as unknown[]).map((entry) => normalizeJobProgressTrack(entry))
+      : [],
   };
 }
 
@@ -523,6 +608,14 @@ function normalizeWorkState(raw: unknown, playerId: string): WorkStateSnapshot |
     authoritative_current_job_id: obj.authoritative_current_job_id == null ? null : toString(obj.authoritative_current_job_id, ''),
     current_job_display_name: obj.current_job_display_name == null ? null : toString(obj.current_job_display_name, ''),
     current_job_level: Math.max(1, Math.round(toNumber(obj.current_job_level, 1))),
+    current_job_progression: normalizeJobProgressSnapshot(
+      obj.current_job_progression,
+      toString(obj.authoritative_current_job_id ?? obj.active_shift_job_id ?? obj.scheduled_shift_job_id ?? '', ''),
+    ),
+    career_job_progression: Array.isArray(obj.career_job_progression)
+      ? (obj.career_job_progression as unknown[]).map((entry) => normalizeJobProgressTrack(entry))
+      : [],
+    job_progression_feedback: normalizeJobProgressFeedback(obj.job_progression_feedback),
     scheduled_shift_job_id: obj.scheduled_shift_job_id == null ? null : toString(obj.scheduled_shift_job_id, ''),
     active_shift_job_id: obj.active_shift_job_id == null ? null : toString(obj.active_shift_job_id, ''),
     pay_calculation_job_id: obj.pay_calculation_job_id == null ? null : toString(obj.pay_calculation_job_id, ''),

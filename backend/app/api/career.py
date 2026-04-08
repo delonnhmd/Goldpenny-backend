@@ -34,10 +34,12 @@ from app.engine.career_service import (
     start_certification_track,
     switch_player_job,
 )
+from app.services.player_job_progression_service import progression_lookup_map
 from app.schemas.career import (
     CertificationProgressResponse,
     CertificationStartRequest,
     JobSwitchRequest,
+    PlayerJobProgressionListResponse,
     PlayerCareerDailyResponse,
     PlayerCareerHistoryResponse,
     PlayerCareerSnapshot,
@@ -102,6 +104,33 @@ def get_career_history(
     except CareerError as exc:
         raise _map_career_error(exc)
     return PlayerCareerHistoryResponse(**history)
+
+
+@router.get(
+    "/player/{player_id}/job-progression",
+    response_model=PlayerJobProgressionListResponse,
+    summary="Get per-job progression tracks for a player",
+)
+def get_job_progression_list(
+    player_id: str,
+    db: Session = Depends(get_db),
+) -> PlayerJobProgressionListResponse:
+    """Return independent progression rows for jobs this player has started."""
+    try:
+        snapshot = get_player_career_snapshot(db, player_id)
+        progression_map = progression_lookup_map(db, player_id=player_id)
+    except CareerError as exc:
+        raise _map_career_error(exc)
+
+    progressions = sorted(
+        list(progression_map.values()),
+        key=lambda row: str(row.get("job_key") or ""),
+    )
+    return PlayerJobProgressionListResponse(
+        player_id=str(snapshot.get("player_id") or player_id),
+        current_job_key=str(snapshot.get("current_job_key") or "") or None,
+        progressions=progressions,
+    )
 
 
 @router.post(

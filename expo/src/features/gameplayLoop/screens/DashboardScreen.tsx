@@ -592,24 +592,27 @@ export default function DashboardScreen() {
     || (currentJobKey ? currentJobKey.replace(/_/g, ' ') : 'No job selected'),
   ).trim();
   const jobProgress = loop.dashboard?.job_progress || null;
-  const jobLevelMax = Math.max(1, Number(jobProgress?.max_job_level || 40));
+  const currentJobProgression = workState?.current_job_progression || jobProgress || null;
+  const progressionFeedback = workState?.job_progression_feedback || null;
+  const jobLevelMax = Math.max(1, Number(currentJobProgression?.max_job_level || 10));
   const jobLevel = Math.max(
     1,
     Math.min(
       jobLevelMax,
-      Number(workState?.current_job_level || jobProgress?.job_level || jobProgress?.skill_level || 1),
+      Number(workState?.current_job_level || currentJobProgression?.job_level || currentJobProgression?.skill_level || 1),
     ),
   );
-  const jobXp = Math.max(0, Number(jobProgress?.job_xp || 0));
-  const jobXpToNext = Math.max(0, Number(jobProgress?.job_xp_to_next_level || 0));
-  const monthlyPay = Number(jobProgress?.monthly_pay_xgp || 0);
-  const estimatedHourlyPay = monthlyPay > 0 ? monthlyPay / 30 / 8 : 0;
+  const jobXp = Math.max(0, Number(currentJobProgression?.job_xp || 0));
+  const jobXpToNext = Math.max(0, Number(currentJobProgression?.job_xp_to_next_level || 0));
+  const promotionTier = String(currentJobProgression?.promotion_tier || 'Junior');
+  const projectedNextMonthlyPay = Number(currentJobProgression?.estimated_next_level_monthly_salary_xgp || 0);
+  const projectedSalaryIncreasePct = Number(currentJobProgression?.next_level_salary_increase_pct || 3);
   const jobLevelDetail = jobLevel >= jobLevelMax
     ? `Level cap reached (${jobLevelMax})`
     : `${Math.round(jobXp)} / ${Math.round(jobXpToNext)} XP to next`;
   const employerLabel = String(
-    jobProgress?.position_title
-    || jobProgress?.employer_company_name
+    currentJobProgression?.position_title
+    || currentJobProgression?.employer_company_name
     || '',
   ).trim();
   const hasStarterJobSelected = Boolean(
@@ -919,9 +922,15 @@ export default function DashboardScreen() {
         } else if (finalizedState?.shift_status === 'completed') {
           const earnedCash = Number(finalizedState.last_completed_shift?.earned_cash_xgp || 0);
           const xpGained = Number(finalizedState.last_completed_shift?.xp_gained || 0);
+          const progressionMsg = String(
+            finalizedState?.job_progression_feedback?.feedback_message
+            || '',
+          ).trim();
           setLoopFeedback({
             tone: 'success',
-            message: `Shift completed. Earned ${formatMoney(earnedCash)} and ${Math.round(xpGained)} XP.`,
+            message: progressionMsg
+              ? `Shift completed. Earned ${formatMoney(earnedCash)} and ${Math.round(xpGained)} work XP. ${progressionMsg}.`
+              : `Shift completed. Earned ${formatMoney(earnedCash)} and ${Math.round(xpGained)} work XP.`,
           });
         }
       } catch (error) {
@@ -1405,7 +1414,13 @@ export default function DashboardScreen() {
             label="Job level"
             value={`Lv ${jobLevel}/${jobLevelMax}`}
             tone={jobLevel >= jobLevelMax ? 'positive' : 'info'}
-            note={jobLevelDetail}
+            note={`${promotionTier} · ${jobLevelDetail}`}
+          />
+          <GameplayStatCard
+            label="Salary preview"
+            value={projectedNextMonthlyPay > 0 ? formatMoney(projectedNextMonthlyPay) : '--'}
+            tone="info"
+            note={`Estimated next level (+${Math.round(projectedSalaryIncreasePct)}%). Live payroll unchanged.`}
           />
           <GameplayStatCard
             label="Demand today"
@@ -1452,7 +1467,11 @@ export default function DashboardScreen() {
         ) : backendShiftCompleted && lastCompletedShift ? (
           <GameplayWarningBanner
             title="Shift completed"
-            message={`Earned ${formatMoney(lastCompletedShift.earned_cash_xgp)} | XP +${Math.round(lastCompletedShift.xp_gained)} | Ride share ${rideshareStatusLabel.toLowerCase()}.`}
+            message={
+              progressionFeedback?.feedback_message
+                ? `Earned ${formatMoney(lastCompletedShift.earned_cash_xgp)} | Work XP +${Math.round(lastCompletedShift.xp_gained)} | ${progressionFeedback.feedback_message} | Ride share ${rideshareStatusLabel.toLowerCase()}.`
+                : `Earned ${formatMoney(lastCompletedShift.earned_cash_xgp)} | Work XP +${Math.round(lastCompletedShift.xp_gained)} | Ride share ${rideshareStatusLabel.toLowerCase()}.`
+            }
             tone="info"
           />
         ) : clockInBlocker ? (

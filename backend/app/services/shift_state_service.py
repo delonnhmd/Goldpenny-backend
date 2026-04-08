@@ -49,6 +49,12 @@ from app.services.city_map_service import (
 from app.services.gameplay_transaction_service import record_gameplay_transaction
 from app.services.job_key_service import normalize_main_job_key, supported_main_job_keys_text
 from app.services.job_progress_service import normalize_shift_type, upsert_employment_foundation, work_xp_for_hours
+from app.services.player_job_progression_service import (
+    SHIFT_COMPLETION_XP_GAIN,
+    award_completed_shift_xp,
+    progression_lookup_map,
+    safe_default_progression_for_job,
+)
 from app.services.player_daily_state_service import ensure_player_daily_state
 from app.services.player_transaction_log_service import record_player_transaction
 
@@ -437,7 +443,9 @@ def _build_job_market_payload(
     player: Player,
     career: PlayerCareer | None,
     authoritative_current_job_id: str | None,
+    progression_by_job: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    progression_by_job = progression_by_job or {}
     active_training_track = str(getattr(career, "certification_track_key", "") or "").strip().lower()
     active_training_completed = bool(getattr(career, "certification_completed", False))
     training_active = bool(active_training_track and not active_training_completed)
@@ -476,6 +484,7 @@ def _build_job_market_payload(
 
     canonical_current_job = _canonical_main_job(authoritative_current_job_id or getattr(player, "main_job", None))
     job_rows: list[dict[str, Any]] = []
+    career_progression_rows: list[dict[str, Any]] = []
     for template in JOB_MARKET_TEMPLATES:
         job_key = str(template.get("job_key") or "")
         cert_key = str(template.get("certification_key") or "").strip().lower() or None
@@ -516,6 +525,13 @@ def _build_job_market_payload(
             else (int(cert_meta.get("required_days") or 0) if certification_completed and cert_key else 0)
         )
         training_days_required = int(cert_meta.get("required_days") or 0) if cert_key else 0
+        training_in_progress = bool(training_active and cert_key and active_training_track == cert_key)
+
+        progression_snapshot = progression_by_job.get(job_key)
+        if progression_snapshot is None and (is_current or training_in_progress):
+            progression_snapshot = safe_default_progression_for_job(job_key)
+        if is_future_unlock and not training_in_progress and job_key not in progression_by_job:
+            progression_snapshot = None
 
         job_rows.append(
             {
@@ -534,9 +550,47 @@ def _build_job_market_payload(
                 "requirement_label": requirement_label,
                 "can_start_training": can_start_training,
                 "can_switch": can_switch,
-                "training_in_progress": bool(training_active and cert_key and active_training_track == cert_key),
+                "training_in_progress": training_in_progress,
                 "training_days_completed": training_days_completed,
                 "training_days_required": training_days_required,
+                "progression": progression_snapshot,
+                "is_locked": bool(status == "locked"),
+                "is_unlocked": bool(status in {"available", "current"}),
+            }
+        )
+        career_progression_rows.append(
+            {
+                "job_key": job_key,
+                "display_name": str(template.get("display_name") or _job_display_name(job_key)),
+                "status": status,
+                "locked": bool(status == "locked"),
+                "requires_certification": bool(cert_key),
+                "certification_key": cert_key,
+                "certification_name": required_track_name or None,
+                "requirement_label": requirement_label,
+                "has_progression": bool(progression_snapshot),
+                "job_level": int((progression_snapshot or {}).get("job_level") or 1),
+                "promotion_tier": str((progression_snapshot or {}).get("promotion_tier") or "Junior"),
+                "job_xp": int((progression_snapshot or {}).get("job_xp") or 0),
+                "job_xp_to_next_level": int((progression_snapshot or {}).get("job_xp_to_next_level") or 0),
+                "shifts_completed": int((progression_snapshot or {}).get("shifts_completed") or 0),
+                "estimated_current_monthly_salary_xgp": round(
+                    _safe_float((progression_snapshot or {}).get("estimated_current_monthly_salary_xgp"), 0.0),
+                    2,
+                ),
+                "estimated_next_level_monthly_salary_xgp": round(
+                    _safe_float((progression_snapshot or {}).get("estimated_next_level_monthly_salary_xgp"), 0.0),
+                    2,
+                ),
+                "next_level_salary_increase_pct": round(
+                    _safe_float((progression_snapshot or {}).get("next_level_salary_increase_pct"), 3.0),
+                    2,
+                ),
+                "salary_preview_note": str(
+                    (progression_snapshot or {}).get("salary_preview_note")
+                    or "Estimated only - live payroll remains unchanged."
+                ),
+                "last_worked_at": (progression_snapshot or {}).get("last_worked_at"),
             }
         )
 
@@ -557,6 +611,7 @@ def _build_job_market_payload(
         "training_days_required": int(training_required if training_active else 0),
         "training_days_remaining": int(max(0, training_required - training_progress)) if training_active else 0,
         "completed_certification_keys": sorted(completed_cert_keys),
+        "career_progression": career_progression_rows,
     }
 
 
@@ -1227,11 +1282,21 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         active_shift_job_id=canonical_shift_job_name if active_shift else None,
     )
     latest_career = _latest_career_state_for_player(db, player)
+    try:
+        progression_by_job = progression_lookup_map(db, player_id=player.id)
+    except Exception:
+        progression_by_job = {}
     job_market_payload = _build_job_market_payload(
         player=player,
         career=latest_career,
         authoritative_current_job_id=str(job_truth_context.get("authoritative_current_job_id") or ""),
+        progression_by_job=progression_by_job,
     )
+    current_job_key = str(job_truth_context.get("authoritative_current_job_id") or "").strip().lower()
+    current_job_progression = progression_by_job.get(current_job_key) if current_job_key else None
+    if current_job_key and current_job_progression is None:
+        current_job_progression = safe_default_progression_for_job(current_job_key)
+    career_job_progression = list(job_market_payload.get("career_progression") or [])
     if bool(job_truth_context.get("job_truth_mismatch_detected")):
         logger.warning(
             "shift.job_truth_mismatch_detected",
@@ -1375,6 +1440,8 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         "authoritative_current_job_id": str(job_truth_context.get("authoritative_current_job_id") or ""),
         "current_job_display_name": str(job_truth_context.get("current_job_display_name") or ""),
         "current_job_level": int(job_truth_context.get("current_job_level") or 1),
+        "current_job_progression": current_job_progression,
+        "career_job_progression": career_job_progression,
         "scheduled_shift_job_id": str(job_truth_context.get("scheduled_shift_job_id") or ""),
         "active_shift_job_id": str(job_truth_context.get("active_shift_job_id") or ""),
         "pay_calculation_job_id": str(job_truth_context.get("pay_calculation_job_id") or ""),
@@ -1757,6 +1824,18 @@ def finalize_active_main_shift(
             shift_type=getattr(player, "main_shift_shift_type", None),
             grant_work_xp=xp_gained,
         )
+    progression_feedback: dict[str, Any] | None = None
+    try:
+        progression_feedback = award_completed_shift_xp(
+            db,
+            player_id=player.id,
+            job_key=job_name,
+            xp_gain=SHIFT_COMPLETION_XP_GAIN,
+            worked_at=now,
+        )
+    except Exception:
+        # Safe-mode guarantee: never block payroll/shift finalization on progression write failures.
+        progression_feedback = None
     sync_shift_day_rules_if_needed(
         db,
         player=player,
@@ -1768,6 +1847,8 @@ def finalize_active_main_shift(
     db.refresh(player)
 
     work_state = build_work_state_payload(db, player, now_houston=now)
+    if progression_feedback is not None:
+        work_state["job_progression_feedback"] = progression_feedback
     logger.info(
         "shift.finalize_active_main_shift completed.",
         extra={

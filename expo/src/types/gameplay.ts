@@ -35,14 +35,56 @@ export interface JobProgressSnapshot {
   job_key: string;
   job_level: number;
   skill_level: number;
+  xp_total?: number;
   job_xp: number;
   job_xp_to_next_level: number;
   max_job_level: number;
   monthly_pay_xgp: number;
+  promotion_tier?: string;
+  shifts_completed?: number;
+  estimated_current_monthly_salary_xgp?: number;
+  estimated_next_level_monthly_salary_xgp?: number;
+  next_level_salary_increase_pct?: number;
+  salary_preview_note?: string;
   employer_company_symbol?: string | null;
   employer_company_name?: string | null;
   position_title?: string | null;
   shift_type?: string | null;
+}
+
+export interface JobProgressionTrackSnapshot {
+  job_key: string;
+  display_name?: string | null;
+  status?: 'locked' | 'available' | 'current' | string;
+  locked?: boolean;
+  requires_certification?: boolean;
+  certification_key?: string | null;
+  certification_name?: string | null;
+  requirement_label?: string | null;
+  has_progression?: boolean;
+  job_level: number;
+  promotion_tier: string;
+  job_xp: number;
+  job_xp_to_next_level: number;
+  shifts_completed: number;
+  estimated_current_monthly_salary_xgp: number;
+  estimated_next_level_monthly_salary_xgp: number;
+  next_level_salary_increase_pct: number;
+  salary_preview_note?: string | null;
+  last_worked_at?: string | null;
+}
+
+export interface JobProgressionFeedbackSnapshot {
+  job_key: string;
+  xp_gained: number;
+  level_before: number;
+  level_after: number;
+  promotion_tier_before?: string | null;
+  promotion_tier_after?: string | null;
+  leveled_up: boolean;
+  tier_changed?: boolean;
+  feedback_message?: string | null;
+  progression?: JobProgressSnapshot | null;
 }
 
 export interface CompletedShiftSnapshot {
@@ -115,6 +157,9 @@ export interface WorkStateSnapshot {
   authoritative_current_job_id?: string | null;
   current_job_display_name?: string | null;
   current_job_level?: number;
+  current_job_progression?: JobProgressSnapshot | null;
+  career_job_progression?: JobProgressionTrackSnapshot[];
+  job_progression_feedback?: JobProgressionFeedbackSnapshot | null;
   scheduled_shift_job_id?: string | null;
   active_shift_job_id?: string | null;
   pay_calculation_job_id?: string | null;
@@ -233,6 +278,9 @@ export interface JobMarketJobSnapshot {
   training_in_progress?: boolean;
   training_days_completed?: number;
   training_days_required?: number;
+  progression?: JobProgressSnapshot | null;
+  is_locked?: boolean;
+  is_unlocked?: boolean;
 }
 
 export interface JobMarketCertificationSnapshot {
@@ -260,6 +308,7 @@ export interface WorkJobMarketSnapshot {
   training_days_required?: number;
   training_days_remaining?: number;
   completed_certification_keys?: string[];
+  career_progression?: JobProgressionTrackSnapshot[];
 }
 
 export interface EconomySignalChip {

@@ -103,3 +103,27 @@ class CertificationStartRequest(BaseModel):
 class TrainingLogRequest(BaseModel):
     training_hours: float = Field(gt=0.0, le=4.0)
     as_of_date: Optional[str] = None
+
+
+class JobProgressionItem(BaseModel):
+    job_key: str
+    job_level: int
+    skill_level: int
+    xp_total: int
+    job_xp: int
+    job_xp_to_next_level: int
+    max_job_level: int
+    promotion_tier: str
+    shifts_completed: int
+    last_worked_at: Optional[str] = None
+    base_salary_xgp: float
+    estimated_current_monthly_salary_xgp: float
+    estimated_next_level_monthly_salary_xgp: float
+    next_level_salary_increase_pct: float
+    salary_preview_note: str
+
+
+class PlayerJobProgressionListResponse(BaseModel):
+    player_id: str
+    current_job_key: Optional[str]
+    progressions: list[JobProgressionItem]
