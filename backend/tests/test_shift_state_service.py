@@ -468,10 +468,9 @@ class ShiftStateServiceTests(unittest.TestCase):
         self.assertEqual(str(work_state.get("salary_payment_status")), "failed")
         self.assertFalse(bool(work_state.get("salary_transaction_confirmed")))
 
-    def test_rideshare_stays_locked_until_scheduled_shift_end_after_work(self) -> None:
+    def test_completed_shift_unlocks_rideshare_before_scheduled_shift_window_end(self) -> None:
         shift_start = self._houston_datetime(2026, 1, 1, 9, 0)
-        before_unlock = self._houston_datetime(2026, 1, 1, 15, 30)
-        after_unlock = self._houston_datetime(2026, 1, 1, 19, 0)
+        post_shift = self._houston_datetime(2026, 1, 1, 15, 30)
 
         start_main_shift(
             self.db,
@@ -482,14 +481,86 @@ class ShiftStateServiceTests(unittest.TestCase):
             now_houston=shift_start,
         )
 
-        locked_state = resolve_expired_shift_if_needed(self.db, player=self.player, now_houston=before_unlock)
-        unlocked_state = resolve_expired_shift_if_needed(self.db, player=self.player, now_houston=after_unlock)
+        with patch("app.services.shift_state_service.get_houston_now", return_value=post_shift):
+            payload = get_gameplay_actions(str(self.player.id), db=self.db)
+        self.db.refresh(self.player)
 
-        self.assertTrue(bool(locked_state.get("shift_completed_today")))
-        self.assertFalse(bool(locked_state.get("rideshare_unlocked")))
-        self.assertFalse(bool(locked_state.get("rideshare_available")))
-        self.assertTrue(bool(unlocked_state.get("rideshare_unlocked")))
-        self.assertTrue(bool(unlocked_state.get("rideshare_available")))
+        work_state = payload.get("work_state") or {}
+        available_keys = {str(item.get("action_key")) for item in payload.get("available_actions", [])}
+
+        self.assertFalse(bool(self.player.main_shift_active_flag))
+        self.assertTrue(bool(work_state.get("shift_completed_today")))
+        self.assertFalse(bool(work_state.get("is_on_shift")))
+        self.assertEqual(str(work_state.get("work_status")), "off_shift_after_work")
+        self.assertEqual(str(work_state.get("current_action_state")), "off_shift_after_work")
+        self.assertTrue(bool(work_state.get("rideshare_unlocked")))
+        self.assertTrue(bool(work_state.get("rideshare_available")))
+        self.assertTrue(bool(work_state.get("can_rideshare")))
+        self.assertIsNone(work_state.get("rideshare_block_reason"))
+        self.assertEqual(int(work_state.get("trips_today") or 0), 0)
+        self.assertEqual(int(work_state.get("trips_remaining") or 0), 6)
+        self.assertEqual(int(work_state.get("remaining_time_units") or 0), 10)
+        self.assertIn("side_income", available_keys)
+
+    def test_completed_shift_reports_time_blocker_when_no_time_remains(self) -> None:
+        shift_start = self._houston_datetime(2026, 1, 1, 9, 0)
+        post_shift = self._houston_datetime(2026, 1, 1, 15, 30)
+
+        start_main_shift(
+            self.db,
+            player=self.player,
+            job_name="banker",
+            shift_type="standard_shift",
+            hours_worked=6,
+            now_houston=shift_start,
+        )
+
+        resolve_expired_shift_if_needed(self.db, player=self.player, now_houston=post_shift)
+        self.player.hours_available = 0
+        self.db.commit()
+        self.db.refresh(self.player)
+
+        blocked_state = build_work_state_payload(self.db, self.player, now_houston=post_shift)
+
+        self.assertEqual(str(blocked_state.get("work_status")), "off_shift_after_work")
+        self.assertFalse(bool(blocked_state.get("rideshare_available")))
+        self.assertEqual(str(blocked_state.get("rideshare_block_reason")), "Not enough time left today for rideshare.")
+        self.assertEqual(str((blocked_state.get("rideshare_state") or {}).get("status") or ""), "not_enough_time")
+        self.assertEqual(int(blocked_state.get("remaining_time_units") or 0), 0)
+
+    def test_post_shift_rideshare_reports_health_and_stress_blockers(self) -> None:
+        shift_start = self._houston_datetime(2026, 1, 1, 9, 0)
+        post_shift = self._houston_datetime(2026, 1, 1, 15, 30)
+
+        start_main_shift(
+            self.db,
+            player=self.player,
+            job_name="banker",
+            shift_type="standard_shift",
+            hours_worked=6,
+            now_houston=shift_start,
+        )
+
+        resolve_expired_shift_if_needed(self.db, player=self.player, now_houston=post_shift)
+
+        self.player.stress = 96
+        self.db.commit()
+        self.db.refresh(self.player)
+        stress_blocked_state = build_work_state_payload(self.db, self.player, now_houston=post_shift)
+
+        self.assertFalse(bool(stress_blocked_state.get("rideshare_available")))
+        self.assertEqual(str(stress_blocked_state.get("rideshare_block_reason")), "Unavailable: stress too high (96/100).")
+        self.assertEqual(str((stress_blocked_state.get("rideshare_state") or {}).get("status") or ""), "stress_high")
+
+        self.player.stress = 12
+        self.player.health = 12
+        self.db.commit()
+        self.db.refresh(self.player)
+        health_blocked_state = build_work_state_payload(self.db, self.player, now_houston=post_shift)
+
+        self.assertFalse(bool(health_blocked_state.get("rideshare_available")))
+        self.assertEqual(str(health_blocked_state.get("rideshare_block_reason")), "Unavailable: health too low (12/100).")
+        self.assertEqual(str((health_blocked_state.get("rideshare_state") or {}).get("status") or ""), "health_low")
 
     def test_weekday_missed_shift_logs_penalty_and_unlock_event(self) -> None:
         after_shift = self._houston_datetime(2026, 1, 1, 19, 5)

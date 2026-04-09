@@ -223,6 +223,12 @@ function sanitizeRideShareReason(reason: string | null | undefined): string {
   return normalized;
 }
 
+function stripUnavailablePrefix(reason: string | null | undefined): string {
+  const normalized = String(reason || '').trim();
+  if (!normalized) return '';
+  return normalized.replace(/^Unavailable:\s*/i, '').trim();
+}
+
 function sanitizeSalaryText(value: string | null | undefined, fallback: string): string {
   const normalized = String(value || fallback).replace(/Â·/g, '-').trim();
   return normalized || fallback;
@@ -426,11 +432,16 @@ export default function DashboardScreen() {
     workState?.dinner_reminder_message || 'Dinner not completed. Eat now to avoid health loss.',
   );
   const dinnerResolvedToday = Boolean(workState?.dinner_resolved_today);
-  const backendShiftActive = Boolean(workState?.main_shift_active_flag);
+  const backendShiftActive = Boolean(workState?.is_on_shift ?? workState?.main_shift_active_flag);
+  const workStatus = String(
+    workState?.work_status
+    || workState?.current_action_state
+    || (backendShiftActive ? 'on_shift' : 'off_shift'),
+  ).trim();
   const backendShiftCompleted = Boolean(
     workState
-    && workState.shift_status === 'completed'
-    && !workState.main_shift_active_flag
+    && (workStatus === 'off_shift_after_work' || workState.shift_status === 'completed')
+    && !backendShiftActive
     && Number(workState.main_shift_hours_today || 0) > 0,
   );
   const backendShiftEndsAtMs = workState?.shift_ends_at ? new Date(workState.shift_ends_at).getTime() : Number.NaN;
@@ -444,6 +455,11 @@ export default function DashboardScreen() {
     || (workState?.shift_ends_at ? `${formatHoustonNow(new Date(workState.shift_ends_at))} CT` : '5:00 PM CT'),
   );
   const scheduledShiftWindowLabel = shiftWindowLabel(workState);
+  const shiftEndedLabel = String(
+    workState?.shift_completed_time_label
+    || workState?.shift_end_time_label
+    || '',
+  ).trim();
   const lastCompletedShift = workState?.last_completed_shift || null;
   const salaryEarnedToday = Number(workState?.salary_earned_today || 0);
   const salaryEarnedYesterday = Number(workState?.salary_earned_yesterday || 0);
@@ -451,6 +467,18 @@ export default function DashboardScreen() {
   const salaryPaymentStatus = String(workState?.salary_payment_status || '').toLowerCase();
   const salaryStatusLabel = sanitizeSalaryText(workState?.salary_status_label, 'No salary posted');
   const salaryStatusMessage = sanitizeSalaryText(workState?.salary_status_message, 'No salary posted yet.');
+  const rideshareBlockReason = sanitizeRideShareReason(
+    workState?.rideshare_block_reason
+    || workState?.rideshare_state?.block_reason
+    || (!workState?.rideshare_state?.can_rideshare ? workState?.rideshare_state?.reason : ''),
+  );
+  const postShiftBannerMessage = backendShiftCompleted
+    ? (
+      workState?.rideshare_state?.can_rideshare
+        ? 'Shift completed · You are now off shift. Ride share available now.'
+        : `Shift completed · Rideshare blocked: ${stripUnavailablePrefix(rideshareBlockReason) || 'Unavailable right now.'}`
+    )
+    : '';
   const currentSalaryAudit = workState?.current_shift_salary_audit || null;
   const lastSalaryPosted = workState?.last_salary_posted || null;
   const recentSalaryAudits = Array.isArray(workState?.recent_salary_audits)
@@ -602,8 +630,11 @@ export default function DashboardScreen() {
     if (loop.dailySession.sessionStatus !== 'active') return 'Day ended';
     if (!sideIncomeAction) return 'Ride share action unavailable right now.';
     if (!rideshareState) return 'Ride share status syncing...';
-    return sanitizeRideShareReason(rideshareState.reason || (rideshareState.can_rideshare ? 'Ride Share is available now.' : 'Ride share unavailable right now.'));
-  }, [loop.dailySession.sessionStatus, rideshareState, sideIncomeAction]);
+    if (!rideshareState.can_rideshare) {
+      return rideshareBlockReason;
+    }
+    return sanitizeRideShareReason(rideshareState.reason || 'Ride Share is available now.');
+  }, [loop.dailySession.sessionStatus, rideshareBlockReason, rideshareState, sideIncomeAction]);
   const busyActionKey = canonicalDashboardActionKey(String(loop.busyActionKey || ''));
   const runningSideIncome = loop.executingAction && busyActionKey === 'side_income';
   const runningWorkAction = loop.executingAction && busyActionKey === 'work_shift';
@@ -614,10 +645,10 @@ export default function DashboardScreen() {
     if (autoClockingOut) return 'Auto-finalizing shift. Ride share unlocks after sync.';
     if (runningSideIncome || loop.executingAction) return 'Another action is running.';
     if (!rideshareState) return 'Ride share status syncing...';
-    if (!rideshareState.can_rideshare) return sanitizeRideShareReason(rideshareState.reason);
+    if (!rideshareState.can_rideshare) return rideshareBlockReason;
     if (requestedTrips > rideshareRemainingTrips) {
       if (rideshareRemainingTrips <= 0) {
-        return sanitizeRideShareReason(rideshareState.reason || 'Daily ride share limit reached.');
+        return rideshareBlockReason || sanitizeRideShareReason(rideshareState.reason || 'Daily ride share limit reached.');
       }
       return `Only ${rideshareRemainingTrips} ${rideshareRemainingTrips === 1 ? 'trip' : 'trips'} remaining today.`;
     }
@@ -631,6 +662,7 @@ export default function DashboardScreen() {
     loop.executingAction,
     rideshareHoursRemainingToday,
     rideshareRemainingTrips,
+    rideshareBlockReason,
     rideshareState,
     runningSideIncome,
     sideIncomeAction,
@@ -1014,11 +1046,19 @@ export default function DashboardScreen() {
             finalizedState?.job_progression_feedback?.feedback_message
             || '',
           ).trim();
+          const finalizedRideshareReason = sanitizeRideShareReason(
+            finalizedState?.rideshare_block_reason
+            || finalizedState?.rideshare_state?.block_reason
+            || (!finalizedState?.rideshare_state?.can_rideshare ? finalizedState?.rideshare_state?.reason : ''),
+          );
+          const postShiftMessage = finalizedState?.rideshare_state?.can_rideshare
+            ? 'Shift completed. You are now off shift. Ride share available now.'
+            : `Shift completed. You are now off shift. Rideshare blocked: ${stripUnavailablePrefix(finalizedRideshareReason) || 'Unavailable right now.'}.`;
           setLoopFeedback({
             tone: 'success',
             message: progressionMsg
-              ? `Shift completed. Earned ${formatMoney(earnedCash)} and ${Math.round(xpGained)} work XP. ${progressionMsg}.`
-              : `Shift completed. Earned ${formatMoney(earnedCash)} and ${Math.round(xpGained)} work XP.`,
+              ? `${postShiftMessage} Earned ${formatMoney(earnedCash)} and ${Math.round(xpGained)} work XP. ${progressionMsg}.`
+              : `${postShiftMessage} Earned ${formatMoney(earnedCash)} and ${Math.round(xpGained)} work XP.`,
           });
         }
       } catch (error) {
@@ -1057,7 +1097,7 @@ export default function DashboardScreen() {
     if (!sideIncomeAction) {
       loop.setFeedback({
         tone: 'error',
-        message: 'Ride share is not unlocked yet.',
+        message: rideshareBlockReason || 'Ride share is not unlocked yet.',
       });
       return;
     }
@@ -1470,13 +1510,23 @@ export default function DashboardScreen() {
           />
           <GameplayStatCard
             label="Shift status"
-            value={autoClockingOut ? 'Auto-finalizing' : backendShiftActive ? 'Active' : backendShiftCompleted ? 'Completed' : canClockIn ? 'Ready' : 'Off shift'}
+            value={
+              autoClockingOut
+                ? 'Auto-finalizing'
+                : backendShiftActive
+                  ? 'Active'
+                  : backendShiftCompleted
+                    ? 'Off shift after work'
+                    : canClockIn
+                      ? 'Ready'
+                      : 'Off shift'
+            }
             tone={backendShiftActive || autoClockingOut ? 'warning' : backendShiftCompleted ? 'positive' : canClockIn ? 'positive' : 'neutral'}
             note={
               backendShiftActive || autoClockingOut
                 ? `Ends ${shiftEndLabel}`
                 : backendShiftCompleted
-                  ? salaryStatusMessage
+                  ? `${shiftEndedLabel ? `Ended ${shiftEndedLabel} · ` : ''}${postShiftBannerMessage}`
                   : `Window: ${scheduledShiftWindowLabel}`
             }
           />
@@ -1589,8 +1639,8 @@ export default function DashboardScreen() {
             title="Shift completed"
             message={
               progressionFeedback?.feedback_message
-                ? `Earned ${formatMoney(lastCompletedShift.earned_cash_xgp)} | Work XP +${Math.round(lastCompletedShift.xp_gained)} | ${progressionFeedback.feedback_message} | Ride share ${rideshareStatusLabel.toLowerCase()}.`
-                : `Earned ${formatMoney(lastCompletedShift.earned_cash_xgp)} | Work XP +${Math.round(lastCompletedShift.xp_gained)} | Ride share ${rideshareStatusLabel.toLowerCase()}.`
+                ? `${postShiftBannerMessage} Earned ${formatMoney(lastCompletedShift.earned_cash_xgp)} | Work XP +${Math.round(lastCompletedShift.xp_gained)} | ${progressionFeedback.feedback_message}.`
+                : `${postShiftBannerMessage} Earned ${formatMoney(lastCompletedShift.earned_cash_xgp)} | Work XP +${Math.round(lastCompletedShift.xp_gained)}.`
             }
             tone="info"
           />
@@ -1720,6 +1770,18 @@ export default function DashboardScreen() {
               title="Rideshare running"
               message="Processing trip bundle and updating cash, stress, health, and time."
               tone="info"
+            />
+          ) : backendShiftCompleted ? (
+            <GameplayWarningBanner
+              title="Post-shift status"
+              message={postShiftBannerMessage}
+              tone={rideshareAvailable ? 'info' : 'warning'}
+            />
+          ) : !rideshareAvailable ? (
+            <GameplayWarningBanner
+              title="Rideshare blocked"
+              message={rideshareBlockReason}
+              tone={backendShiftActive || autoClockingOut ? 'info' : 'warning'}
             />
           ) : null}
 

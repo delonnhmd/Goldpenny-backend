@@ -141,12 +141,15 @@ export interface ShiftSalaryAuditSnapshot {
 
 export interface RideshareStateSnapshot {
   can_rideshare: boolean;
-  status: 'available' | 'shift_active' | 'limit_reached' | 'not_enough_time' | 'location_restricted' | string;
+  status: 'available' | 'shift_active' | 'limit_reached' | 'not_enough_time' | 'location_restricted' | 'health_low' | 'stress_high' | string;
   reason: string;
+  block_reason?: string | null;
   trips_today: number;
   max_trips: number;
   remaining_trips: number;
+  trips_remaining?: number;
   hours_remaining_today: number;
+  remaining_time_units?: number;
   mode: 'morning_peak' | 'midday' | 'evening_peak' | 'night' | string;
   time_cost_per_trip_units?: number;
   current_location_key?: string;
@@ -217,11 +220,16 @@ export interface WorkStateSnapshot {
   job_sync_repair_source?: string | null;
   job_sync_auto_repaired?: boolean;
   job_market?: WorkJobMarketSnapshot | null;
+  active_shift_id?: string | null;
   shift_status: 'idle' | 'active' | 'completed' | string;
   main_shift_active_flag: boolean;
+  is_on_shift?: boolean;
+  work_status?: 'on_shift' | 'off_shift' | 'off_shift_after_work' | string | null;
+  current_action_state?: 'on_shift' | 'off_shift' | 'off_shift_after_work' | string | null;
   shift_started_at?: string | null;
   shift_ends_at?: string | null;
   shift_completed_at?: string | null;
+  shift_ended_at?: string | null;
   shift_start_time_label?: string | null;
   shift_end_time_label?: string | null;
   shift_completed_time_label?: string | null;
@@ -291,11 +299,17 @@ export interface WorkStateSnapshot {
   dinner_reminder_message?: string | null;
   night_eat_reminder_shown?: boolean;
   last_completed_shift: CompletedShiftSnapshot;
+  can_rideshare?: boolean;
   rideshare_state?: RideshareStateSnapshot | null;
+  rideshare_block_reason?: string | null;
   rideshare_unlocked: boolean;
   rideshare_available: boolean;
   rideshare_unlock_time_label?: string | null;
+  trips_today?: number;
+  trips_remaining?: number;
+  remaining_time_units?: number;
   remaining_side_income_hours_today: number;
+  action_state_refreshed_at?: string | null;
   auto_day_rollover?: {
     applied_days: number;
     missed_days: number;

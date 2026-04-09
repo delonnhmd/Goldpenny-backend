@@ -588,7 +588,12 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
             )
         )
     )
-    backend_rideshare_reason = str(rideshare_state.get("reason") or "").strip()
+    backend_rideshare_reason = str(
+        work_state.get("rideshare_block_reason")
+        or rideshare_state.get("block_reason")
+        or rideshare_state.get("reason")
+        or ""
+    ).strip()
     if backend_rideshare_reason:
         rideshare_unlock_reason = backend_rideshare_reason
 
@@ -856,6 +861,16 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
             "work_state": work_state,
             "rideshare_available": rideshare_available,
             "rideshare_state": rideshare_state,
+            "can_rideshare": bool(work_state.get("can_rideshare", rideshare_available)),
+            "rideshare_block_reason": backend_rideshare_reason or None,
+            "trips_today": int(work_state.get("trips_today") or rideshare_state.get("trips_today") or 0),
+            "trips_remaining": int(work_state.get("trips_remaining") or rideshare_state.get("remaining_trips") or 0),
+            "remaining_time_units": int(work_state.get("remaining_time_units") or work_state.get("hours_available") or 0),
+            "current_location": {
+                "key": str(work_state.get("current_location_key") or ""),
+                "label": str(work_state.get("current_location_label") or ""),
+                "region": str(work_state.get("current_location_region") or ""),
+            },
         },
     }
 
