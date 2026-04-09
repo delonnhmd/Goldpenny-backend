@@ -137,6 +137,8 @@ def _run_schema_migrations() -> None:
         "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS shift_start TIMESTAMPTZ",
         "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS shift_end TIMESTAMPTZ",
         "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS salary_earned NUMERIC(14,4) NOT NULL DEFAULT 0",
+        "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS salary_transaction_id TEXT",
+        "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS salary_posted_at TIMESTAMPTZ",
         "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS missed_penalty NUMERIC(14,4) NOT NULL DEFAULT 0",
         "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS meals_recorded INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE player_daily_states ADD COLUMN IF NOT EXISTS survival_penalty_applied BOOLEAN NOT NULL DEFAULT FALSE",

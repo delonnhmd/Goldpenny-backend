@@ -468,6 +468,55 @@ function normalizeCompletedShift(raw: unknown): CompletedShiftSnapshot {
     xp_gained: Math.max(0, Math.round(toNumber(obj.xp_gained, 0))),
     stress_change: clampDeltaRange(obj.stress_change, { min: -100, max: 100, fallback: 0 }),
     health_change: clampDeltaRange(obj.health_change, { min: -100, max: 100, fallback: 0 }),
+    salary_payment_status: obj.salary_payment_status == null ? null : toString(obj.salary_payment_status, ''),
+    salary_transaction_id: obj.salary_transaction_id == null ? null : toString(obj.salary_transaction_id, ''),
+    salary_posted_at: obj.salary_posted_at == null ? null : toString(obj.salary_posted_at, ''),
+    transaction_confirmed: Boolean(obj.transaction_confirmed),
+    job_key: obj.job_key == null ? null : toString(obj.job_key, ''),
+    job_display_name: obj.job_display_name == null ? null : toString(obj.job_display_name, ''),
+  };
+}
+
+function normalizeShiftSalaryAudit(raw: unknown): WorkStateSnapshot['current_shift_salary_audit'] {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  return {
+    audit_id: toString(obj.audit_id, ''),
+    player_id: toString(obj.player_id, ''),
+    day_number: normalizeCurrentDay(obj.day_number, 0),
+    shift_token: toString(obj.shift_token, ''),
+    shift_id: toString(obj.shift_id, ''),
+    job_key: toString(obj.job_key, ''),
+    job_display_name: toString(obj.job_display_name, ''),
+    shift_started_at: obj.shift_started_at == null ? null : toString(obj.shift_started_at, ''),
+    shift_ends_at: obj.shift_ends_at == null ? null : toString(obj.shift_ends_at, ''),
+    shift_completed_at: obj.shift_completed_at == null ? null : toString(obj.shift_completed_at, ''),
+    shift_type: obj.shift_type == null ? null : toString(obj.shift_type, ''),
+    shift_number: Math.max(0, Math.round(toNumber(obj.shift_number, 0))),
+    hours_worked: Math.max(0, Math.round(toNumber(obj.hours_worked, 0))),
+    trigger: obj.trigger == null ? null : toString(obj.trigger, ''),
+    payment_status: toString(obj.payment_status, ''),
+    failure_reason: obj.failure_reason == null ? null : toString(obj.failure_reason, ''),
+    base_monthly_salary: normalizeMoneyValue(obj.base_monthly_salary, { allowNegative: false, fallback: 0 }),
+    pay_snapshot_used: normalizeMoneyValue(obj.pay_snapshot_used, { allowNegative: false, fallback: 0 }),
+    base_hourly_pay: normalizeMoneyValue(obj.base_hourly_pay, { allowNegative: false, fallback: 0 }),
+    productivity_multiplier: normalizeFiniteNumber(obj.productivity_multiplier, { fallback: 1 }),
+    income_multiplier: normalizeFiniteNumber(obj.income_multiplier, { fallback: 1 }),
+    job_level_multiplier: normalizeFiniteNumber(obj.job_level_multiplier, { fallback: 1 }),
+    gross_shift_pay: normalizeMoneyValue(obj.gross_shift_pay, { allowNegative: false, fallback: 0 }),
+    final_salary_paid: normalizeMoneyValue(obj.final_salary_paid, { allowNegative: false, fallback: 0 }),
+    xp_gained: Math.max(0, Math.round(toNumber(obj.xp_gained, 0))),
+    stress_change: clampDeltaRange(obj.stress_change, { min: -100, max: 100, fallback: 0 }),
+    health_change: clampDeltaRange(obj.health_change, { min: -100, max: 100, fallback: 0 }),
+    fatigue_change: normalizeFiniteNumber(obj.fatigue_change, { fallback: 0 }),
+    overtime_penalty_applied: Boolean(obj.overtime_penalty_applied),
+    salary_transaction_id: obj.salary_transaction_id == null ? null : toString(obj.salary_transaction_id, ''),
+    xgp_transaction_id: obj.xgp_transaction_id == null ? null : toString(obj.xgp_transaction_id, ''),
+    player_transaction_log_id: obj.player_transaction_log_id == null ? null : toString(obj.player_transaction_log_id, ''),
+    salary_posted_at: obj.salary_posted_at == null ? null : toString(obj.salary_posted_at, ''),
+    cash_before: normalizeMoneyValue(obj.cash_before, { allowNegative: true, fallback: 0 }),
+    cash_after: normalizeMoneyValue(obj.cash_after, { allowNegative: true, fallback: 0 }),
+    transaction_confirmed: Boolean(obj.transaction_confirmed),
   };
 }
 
@@ -673,6 +722,20 @@ function normalizeWorkState(raw: unknown, playerId: string): WorkStateSnapshot |
     pay_model: toString(obj.pay_model, ''),
     pay_model_label: toString(obj.pay_model_label, ''),
     salary_pending_until_completion: Boolean(obj.salary_pending_until_completion),
+    salary_payment_status: obj.salary_payment_status == null ? null : toString(obj.salary_payment_status, ''),
+    salary_status_label: obj.salary_status_label == null ? null : toString(obj.salary_status_label, '').replace(/Â·/g, '-'),
+    salary_status_message: obj.salary_status_message == null ? null : toString(obj.salary_status_message, '').replace(/Â·/g, '-'),
+    salary_posting_pending: Boolean(obj.salary_posting_pending),
+    salary_transaction_id: obj.salary_transaction_id == null ? null : toString(obj.salary_transaction_id, ''),
+    salary_posted_at: obj.salary_posted_at == null ? null : toString(obj.salary_posted_at, ''),
+    salary_transaction_confirmed: Boolean(obj.salary_transaction_confirmed),
+    current_shift_salary_audit: normalizeShiftSalaryAudit(obj.current_shift_salary_audit),
+    last_salary_posted: normalizeShiftSalaryAudit(obj.last_salary_posted),
+    recent_salary_audits: Array.isArray(obj.recent_salary_audits)
+      ? (obj.recent_salary_audits as unknown[])
+        .map((entry) => normalizeShiftSalaryAudit(entry))
+        .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+      : [],
     missed_penalty_today: normalizeMoneyValue(obj.missed_penalty_today, { allowNegative: false, fallback: 0 }),
     missed_shift_today: Boolean(obj.missed_shift_today),
     missed_shift_health_delta: clampDeltaRange(obj.missed_shift_health_delta, { min: -100, max: 100, fallback: 0 }),

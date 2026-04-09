@@ -68,6 +68,8 @@ class PlayerDailyState(Base):
     shift_start = Column(DateTime(timezone=True), nullable=True)
     shift_end = Column(DateTime(timezone=True), nullable=True)
     salary_earned = Column(Numeric(14, 4), nullable=False, default=0)
+    salary_transaction_id = Column(Text, nullable=True)
+    salary_posted_at = Column(DateTime(timezone=True), nullable=True)
     missed_penalty = Column(Numeric(14, 4), nullable=False, default=0)
     meals_recorded = Column(Integer, nullable=False, default=0)
     survival_penalty_applied = Column(Boolean, nullable=False, default=False)

@@ -406,6 +406,39 @@ def _sync_player_work_state(db: Session, player: Player) -> dict[str, Any]:
     return resolve_expired_shift_if_needed(db, player=player)
 
 
+def _log_salary_ui_payload_rendered(*, route: str, player: Player, work_state: dict[str, Any] | None) -> None:
+    payload = work_state or {}
+    salary_audit = payload.get("current_shift_salary_audit") if isinstance(payload.get("current_shift_salary_audit"), dict) else {}
+    logger.info(
+        "shift.salary_ui_payload_rendered",
+        extra={
+            "route": route,
+            "player_id": str(player.id),
+            "shift_id": str(salary_audit.get("shift_id") or ""),
+            "day_number": int(payload.get("current_game_day") or 0),
+            "job_key": str(
+                payload.get("authoritative_current_job_id")
+                or payload.get("active_shift_job_id")
+                or payload.get("scheduled_shift_job_id")
+                or ""
+            ),
+            "salary_amount": _safe_float(
+                salary_audit.get("final_salary_paid"),
+                _safe_float(payload.get("salary_earned_today"), 0.0),
+            ),
+            "cash_before": _safe_float(salary_audit.get("cash_before"), 0.0),
+            "cash_after": _safe_float(salary_audit.get("cash_after"), 0.0),
+            "transaction_id": str(
+                payload.get("salary_transaction_id")
+                or salary_audit.get("salary_transaction_id")
+                or ""
+            ),
+            "failure_reason": str(salary_audit.get("failure_reason") or ""),
+            "salary_payment_status": str(payload.get("salary_payment_status") or ""),
+        },
+    )
+
+
 def _assert_no_active_main_shift(work_state: dict[str, Any], *, action_key: str) -> None:
     if not bool(work_state.get("main_shift_active_flag")):
         return
@@ -1022,6 +1055,11 @@ def get_gameplay_dashboard(player_id: str, db: Session = Depends(get_db)) -> dic
             "work_state": work_state,
         },
     }
+    _log_salary_ui_payload_rendered(
+        route="/gameplay/player/{player_id}/dashboard",
+        player=player,
+        work_state=work_state,
+    )
     logger.info(
         "gameplay.dashboard resolved.",
         extra={
@@ -1044,6 +1082,11 @@ def get_gameplay_actions(player_id: str, db: Session = Depends(get_db)) -> dict[
     try:
         player = _resolve_player(db, player_id)
         work_state = _sync_player_work_state(db, player)
+        _log_salary_ui_payload_rendered(
+            route="/gameplay/player/{player_id}/actions",
+            player=player,
+            work_state=work_state,
+        )
         payload = _build_action_hub_payload(player, work_state=work_state)
         logger.info(
             "gameplay.actions resolved player action hub.",
@@ -1075,6 +1118,11 @@ def get_gameplay_action_hub_alias(player_id: str, db: Session = Depends(get_db))
 def get_gameplay_work_state(player_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     player = _resolve_player(db, player_id)
     work_state = _sync_player_work_state(db, player)
+    _log_salary_ui_payload_rendered(
+        route="/gameplay/player/{player_id}/work-state",
+        player=player,
+        work_state=work_state,
+    )
     logger.info(
         "gameplay.work_state resolved.",
         extra={
@@ -1096,6 +1144,11 @@ def post_gameplay_finalize_work_state(player_id: str, db: Session = Depends(get_
         player=player,
         trigger="frontend_finalize_request",
         require_expired=True,
+    )
+    _log_salary_ui_payload_rendered(
+        route="/gameplay/player/{player_id}/work-state/finalize",
+        player=player,
+        work_state=work_state,
     )
     logger.info(
         "gameplay.work_state finalize request handled.",

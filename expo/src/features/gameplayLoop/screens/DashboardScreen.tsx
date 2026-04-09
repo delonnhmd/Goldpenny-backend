@@ -223,6 +223,54 @@ function sanitizeRideShareReason(reason: string | null | undefined): string {
   return normalized;
 }
 
+function sanitizeSalaryText(value: string | null | undefined, fallback: string): string {
+  const normalized = String(value || fallback).replace(/Â·/g, '-').trim();
+  return normalized || fallback;
+}
+
+function ledgerActivitySummary(entry: { category?: string; description?: string; amount?: number }): {
+  title: string;
+  detail: string;
+  category: TimelineNote['category'];
+} {
+  const categoryKey = String(entry.category || '').toLowerCase();
+  const amount = Number(entry.amount || 0);
+  const amountLabel = `${amount > 0 ? '+' : ''}${formatMoney(amount)}`;
+  if (categoryKey === 'salary') {
+    return {
+      title: 'Salary income',
+      detail: `${amountLabel} posted from main job salary.`,
+      category: 'work',
+    };
+  }
+  if (categoryKey === 'ride_share') {
+    return {
+      title: 'Rideshare income',
+      detail: `${amountLabel} from ride share trips.`,
+      category: 'rideshare',
+    };
+  }
+  if (categoryKey.includes('food') || categoryKey.includes('meal') || categoryKey.includes('dinner')) {
+    return {
+      title: 'Food expense',
+      detail: `${amountLabel} for meal spending.`,
+      category: 'meal',
+    };
+  }
+  if (categoryKey.includes('debt')) {
+    return {
+      title: 'Debt payment',
+      detail: `${amountLabel} applied to debt obligations.`,
+      category: 'finance',
+    };
+  }
+  return {
+    title: String(entry.description || 'Ledger update'),
+    detail: `${amountLabel} (${categoryKey.replace(/_/g, ' ') || 'general'})`,
+    category: 'system',
+  };
+}
+
 const INTERACTION_DIAGNOSTICS_ENABLED =
   __DEV__
   || process.env.EXPO_PUBLIC_INTERACTION_DIAGNOSTICS === 'true'
@@ -400,6 +448,31 @@ export default function DashboardScreen() {
   const salaryEarnedToday = Number(workState?.salary_earned_today || 0);
   const salaryEarnedYesterday = Number(workState?.salary_earned_yesterday || 0);
   const workPayModelLabel = String(workState?.pay_model_label || 'Paid daily after shift completion');
+  const salaryPaymentStatus = String(workState?.salary_payment_status || '').toLowerCase();
+  const salaryStatusLabel = sanitizeSalaryText(workState?.salary_status_label, 'No salary posted');
+  const salaryStatusMessage = sanitizeSalaryText(workState?.salary_status_message, 'No salary posted yet.');
+  const currentSalaryAudit = workState?.current_shift_salary_audit || null;
+  const lastSalaryPosted = workState?.last_salary_posted || null;
+  const recentSalaryAudits = Array.isArray(workState?.recent_salary_audits)
+    ? workState.recent_salary_audits
+    : [];
+  const salaryStatusTone: 'neutral' | 'info' | 'warning' | 'danger' | 'positive' = (
+    salaryPaymentStatus === 'posted'
+      ? 'positive'
+      : salaryPaymentStatus === 'failed'
+        ? 'danger'
+        : salaryPaymentStatus === 'pending'
+          ? 'warning'
+          : workState?.missed_shift_today
+            ? 'warning'
+            : 'neutral'
+  );
+  const lastSalaryPostedLabel = lastSalaryPosted
+    ? `${lastSalaryPosted.final_salary_paid > 0 ? '+' : ''}${formatMoney(lastSalaryPosted.final_salary_paid)}`
+    : '--';
+  const lastSalaryPostedNote = lastSalaryPosted
+    ? `Job: ${lastSalaryPosted.job_display_name || lastSalaryPosted.job_key || 'Current job'} | ${lastSalaryPosted.transaction_confirmed ? 'Transaction confirmed' : 'Awaiting confirmation'}`
+    : 'No completed salary posting yet.';
   const currentHoustonTimeLabel = String(
     workState?.current_houston_time_label
     || `${formatHoustonNow(houstonNow)} CT`,
@@ -421,13 +494,7 @@ export default function DashboardScreen() {
     : 'Moderate';
   const workIncomeVisibilityLabel = backendShiftActive
     ? 'Shift active - salary pending until completion.'
-    : workState?.missed_shift_today
-      ? 'Missed shift - no salary earned today.'
-      : workState?.is_weekend
-        ? 'Weekend - no required main shift.'
-        : salaryEarnedToday > 0
-          ? `Worked today - salary +${formatMoney(salaryEarnedToday)}.`
-          : 'No salary earned today.';
+    : salaryStatusMessage;
 
   useEffect(() => {
     setAutoClockingOut(false);
@@ -745,12 +812,25 @@ export default function DashboardScreen() {
     };
   }), [loop.dailySession.actionsTakenToday]);
 
+  const ledgerTimeline = useMemo(() => (loop.dailyActivity?.transactions || []).map((entry) => {
+    const summary = ledgerActivitySummary(entry);
+    return {
+      id: `ledger_${entry.id}`,
+      timestampIso: entry.timestamp || new Date().toISOString(),
+      title: summary.title,
+      detail: summary.detail,
+      category: summary.category,
+    };
+  }), [loop.dailyActivity?.transactions]);
+
   const todaysActivity = useMemo(() => {
-    const merged = [...timelineNotes, ...actionTimeline];
+    const merged = ledgerTimeline.length > 0
+      ? [...timelineNotes, ...ledgerTimeline]
+      : [...timelineNotes, ...actionTimeline];
     return merged.sort(
       (a, b) => new Date(a.timestampIso).getTime() - new Date(b.timestampIso).getTime(),
     );
-  }, [actionTimeline, timelineNotes]);
+  }, [actionTimeline, ledgerTimeline, timelineNotes]);
 
   const actionHubForDisplay = useMemo(() => {
     if (!loop.actionHub) return null;
@@ -918,6 +998,14 @@ export default function DashboardScreen() {
           setLoopFeedback({
             tone: 'info',
             message: 'Timer reached zero. Shift finalization is still in progress.',
+          });
+        } else if (String(finalizedState?.salary_payment_status || '').toLowerCase() === 'failed') {
+          setLoopFeedback({
+            tone: 'error',
+            message: sanitizeSalaryText(
+              finalizedState?.salary_status_message,
+              'Shift completed, but salary could not be posted yet.',
+            ),
           });
         } else if (finalizedState?.shift_status === 'completed') {
           const earnedCash = Number(finalizedState.last_completed_shift?.earned_cash_xgp || 0);
@@ -1388,7 +1476,7 @@ export default function DashboardScreen() {
               backendShiftActive || autoClockingOut
                 ? `Ends ${shiftEndLabel}`
                 : backendShiftCompleted
-                  ? `Completed ${workState?.shift_completed_time_label || 'this shift'}`
+                  ? salaryStatusMessage
                   : `Window: ${scheduledShiftWindowLabel}`
             }
           />
@@ -1403,6 +1491,26 @@ export default function DashboardScreen() {
             value={salaryEarnedToday > 0 ? `+${formatMoney(salaryEarnedToday)}` : 'No salary yet'}
             tone={salaryEarnedToday > 0 ? 'positive' : backendShiftActive ? 'warning' : 'neutral'}
             note={workIncomeVisibilityLabel}
+          />
+          <GameplayStatCard
+            label="Payment status"
+            value={salaryStatusLabel}
+            tone={salaryStatusTone}
+            note={
+              currentSalaryAudit?.failure_reason
+                ? currentSalaryAudit.failure_reason
+                : salaryStatusMessage
+            }
+          />
+          <GameplayStatCard
+            label="Last salary"
+            value={lastSalaryPostedLabel}
+            tone={lastSalaryPosted?.transaction_confirmed ? 'positive' : 'neutral'}
+            note={
+              lastSalaryPosted?.salary_posted_at
+                ? `${lastSalaryPostedNote} | ${formatHoustonTimestamp(lastSalaryPosted.salary_posted_at)}`
+                : lastSalaryPostedNote
+            }
           />
           <GameplayStatCard
             label="Pay model"
@@ -1458,6 +1566,18 @@ export default function DashboardScreen() {
             message={`Clocked in as ${currentJobDisplayName} - shift ends at ${shiftEndLabel}.`}
             tone="info"
           />
+        ) : salaryPaymentStatus === 'failed' ? (
+          <GameplayWarningBanner
+            title="Salary posting failed"
+            message={currentSalaryAudit?.failure_reason || salaryStatusMessage}
+            tone="warning"
+          />
+        ) : salaryPaymentStatus === 'pending' && !backendShiftActive ? (
+          <GameplayWarningBanner
+            title="Salary posting pending"
+            message={salaryStatusMessage}
+            tone="warning"
+          />
         ) : autoClockingOut ? (
           <GameplayWarningBanner
             title="Auto-finalizing"
@@ -1484,6 +1604,44 @@ export default function DashboardScreen() {
         <Text style={styles.helperText}>
           Payroll model: {workPayModelLabel}. Salary transactions are posted to Daily Activity and transaction history.
         </Text>
+        {recentSalaryAudits.length > 0 ? (
+          <View style={styles.salaryAuditList}>
+            {recentSalaryAudits.map((audit) => (
+              <View key={audit.audit_id || audit.shift_token} style={styles.salaryAuditRow}>
+                <View style={styles.salaryAuditCopy}>
+                  <Text style={styles.salaryAuditTitle}>
+                    Day {audit.day_number} - {audit.job_display_name || audit.job_key || 'Main job'}
+                  </Text>
+                  <Text style={styles.salaryAuditDetail}>
+                    {sanitizeSalaryText(
+                      audit.payment_status === 'posted'
+                        ? `Salary posted +${formatMoney(audit.final_salary_paid)}`
+                        : audit.payment_status === 'failed'
+                          ? 'Salary posting failed'
+                          : 'Salary pending verification',
+                      'Salary update',
+                    )}
+                  </Text>
+                </View>
+                <Text style={[
+                  styles.salaryAuditAmount,
+                  audit.payment_status === 'posted'
+                    ? styles.salaryAuditAmountPositive
+                    : audit.payment_status === 'failed'
+                      ? styles.salaryAuditAmountNegative
+                      : styles.salaryAuditAmountNeutral,
+                ]}
+                >
+                  {audit.payment_status === 'posted'
+                    ? `+${formatMoney(audit.final_salary_paid)}`
+                    : audit.payment_status === 'failed'
+                      ? 'Failed'
+                      : 'Pending'}
+                </Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
         {workState?.missed_shift_today ? (
           <PulseAlertView active tone="warning" strength="soft" intervalMs={2300}>
             <GameplayWarningBanner
@@ -2024,6 +2182,42 @@ const styles = StyleSheet.create({
   },
   activityEmpty: {
     ...theme.typography.bodySm,
+    color: theme.color.textSecondary,
+  },
+  salaryAuditList: {
+    gap: theme.spacing.sm,
+    marginTop: theme.spacing.sm,
+  },
+  salaryAuditRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: theme.spacing.md,
+    justifyContent: 'space-between',
+  },
+  salaryAuditCopy: {
+    flex: 1,
+    gap: theme.spacing.xxs,
+  },
+  salaryAuditTitle: {
+    ...theme.typography.bodySm,
+    color: theme.color.textPrimary,
+    fontWeight: '700',
+  },
+  salaryAuditDetail: {
+    ...theme.typography.caption,
+    color: theme.color.textSecondary,
+  },
+  salaryAuditAmount: {
+    ...theme.typography.bodySm,
+    fontWeight: '700',
+  },
+  salaryAuditAmountPositive: {
+    color: theme.color.positive,
+  },
+  salaryAuditAmountNegative: {
+    color: theme.color.danger,
+  },
+  salaryAuditAmountNeutral: {
     color: theme.color.textSecondary,
   },
   buttonRow: {

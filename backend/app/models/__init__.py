@@ -75,6 +75,7 @@ from app.models.basket_daily_price import BasketDailyPrice
 from app.models.stock_daily_price import StockDailyPrice
 from app.models.stock_trade_log import StockTradeLog
 from app.models.gameplay_transaction import GameplayTransaction
+from app.models.shift_salary_audit_log import ShiftSalaryAuditLog
 from app.models.player_transaction_log import PlayerTransactionLog
 from app.models.job_definition_db import JobDefinition as JobDefinitionDB
 from app.models.player_employment_state import PlayerEmploymentState
@@ -224,6 +225,7 @@ __all__ = [
     "StockDailyPrice",
     "StockTradeLog",
     "GameplayTransaction",
+    "ShiftSalaryAuditLog",
     "PlayerTransactionLog",
     "JobDefinitionDB",
     "PlayerEmploymentState",

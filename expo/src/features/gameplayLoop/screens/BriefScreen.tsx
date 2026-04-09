@@ -50,6 +50,10 @@ export default function BriefScreen() {
   const payModelLabel = String(workState?.pay_model_label || 'Paid daily after shift completion');
   const missedShiftHealthDelta = workState?.missed_shift_health_delta ?? -5;
   const missedShiftStressDelta = workState?.missed_shift_stress_delta ?? 6;
+  const salaryPaymentStatus = String(workState?.salary_payment_status || '').toLowerCase();
+  const salaryStatusLabel = String(workState?.salary_status_label || 'No salary posted').replace(/Â·/g, '-');
+  const salaryStatusMessage = String(workState?.salary_status_message || 'No salary posted yet.').replace(/Â·/g, '-');
+  const lastSalaryPosted = workState?.last_salary_posted || null;
 
   const primaryLabel = hasSummary || summaryMissingAfterSettlement
     ? 'Start Next Day'
@@ -181,9 +185,17 @@ export default function BriefScreen() {
         {workedToday ? (
           <GameplayCompactMetricRows
             items={[
-              { label: 'Status', value: 'Worked', tone: 'positive' },
+              {
+                label: 'Status',
+                value: salaryStatusLabel,
+                tone: salaryPaymentStatus === 'failed' ? 'danger' : salaryPaymentStatus === 'pending' ? 'warning' : 'positive',
+              },
               { label: 'Window', value: shiftWindow, tone: 'neutral' },
-              { label: 'Earned', value: `+${formatMoney(salaryEarned)}`, tone: 'positive' },
+              {
+                label: 'Earned',
+                value: salaryEarned > 0 ? `+${formatMoney(salaryEarned)}` : 'Pending',
+                tone: salaryEarned > 0 ? 'positive' : salaryPaymentStatus === 'failed' ? 'danger' : 'warning',
+              },
             ]}
           />
         ) : weekend ? (
@@ -238,6 +250,11 @@ export default function BriefScreen() {
               value: salaryEarnedYesterday > 0 ? `+${formatMoney(salaryEarnedYesterday)}` : '--',
               tone: salaryEarnedYesterday > 0 ? 'positive' : 'neutral',
             },
+            {
+              label: 'Last salary',
+              value: lastSalaryPosted ? `+${formatMoney(lastSalaryPosted.final_salary_paid)}` : '--',
+              tone: lastSalaryPosted?.transaction_confirmed ? 'positive' : 'neutral',
+            },
           ]}
         />
         {missedToday ? (
@@ -246,7 +263,7 @@ export default function BriefScreen() {
           </Text>
         ) : workedToday ? (
           <Text style={styles.statusCaption}>
-            Salary now appears directly in the ledger, so the brief shows exactly what the shift paid.
+            {salaryStatusMessage}
           </Text>
         ) : weekend ? (
           <Text style={styles.statusCaption}>

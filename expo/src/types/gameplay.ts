@@ -92,6 +92,51 @@ export interface CompletedShiftSnapshot {
   xp_gained: number;
   stress_change: number;
   health_change: number;
+  salary_payment_status?: string | null;
+  salary_transaction_id?: string | null;
+  salary_posted_at?: string | null;
+  transaction_confirmed?: boolean;
+  job_key?: string | null;
+  job_display_name?: string | null;
+}
+
+export interface ShiftSalaryAuditSnapshot {
+  audit_id: string;
+  player_id: string;
+  day_number: number;
+  shift_token: string;
+  shift_id: string;
+  job_key: string;
+  job_display_name: string;
+  shift_started_at?: string | null;
+  shift_ends_at?: string | null;
+  shift_completed_at?: string | null;
+  shift_type?: string | null;
+  shift_number: number;
+  hours_worked: number;
+  trigger?: string | null;
+  payment_status: string;
+  failure_reason?: string | null;
+  base_monthly_salary: number;
+  pay_snapshot_used: number;
+  base_hourly_pay: number;
+  productivity_multiplier: number;
+  income_multiplier: number;
+  job_level_multiplier: number;
+  gross_shift_pay: number;
+  final_salary_paid: number;
+  xp_gained: number;
+  stress_change: number;
+  health_change: number;
+  fatigue_change: number;
+  overtime_penalty_applied: boolean;
+  salary_transaction_id?: string | null;
+  xgp_transaction_id?: string | null;
+  player_transaction_log_id?: string | null;
+  salary_posted_at?: string | null;
+  cash_before: number;
+  cash_after: number;
+  transaction_confirmed: boolean;
 }
 
 export interface RideshareStateSnapshot {
@@ -208,6 +253,16 @@ export interface WorkStateSnapshot {
   pay_model?: 'daily_after_shift_completion' | string;
   pay_model_label?: string;
   salary_pending_until_completion?: boolean;
+  salary_payment_status?: string | null;
+  salary_status_label?: string | null;
+  salary_status_message?: string | null;
+  salary_posting_pending?: boolean;
+  salary_transaction_id?: string | null;
+  salary_posted_at?: string | null;
+  salary_transaction_confirmed?: boolean;
+  current_shift_salary_audit?: ShiftSalaryAuditSnapshot | null;
+  last_salary_posted?: ShiftSalaryAuditSnapshot | null;
+  recent_salary_audits?: ShiftSalaryAuditSnapshot[];
   missed_penalty_today?: number;
   missed_shift_today?: boolean;
   missed_shift_health_delta?: number;

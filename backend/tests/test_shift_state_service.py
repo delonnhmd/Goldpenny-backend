@@ -25,6 +25,7 @@ from app.models.player import Player
 from app.models.player_daily_state import PlayerDailyState
 from app.models.player_employment_state import PlayerEmploymentState
 from app.models.player_transaction_log import PlayerTransactionLog
+from app.models.shift_salary_audit_log import ShiftSalaryAuditLog
 from app.models.side_income_action import SideIncomeAction
 from app.models.user import User
 from app.models.xgp_transaction import XGPTransaction
@@ -57,6 +58,7 @@ class ShiftStateServiceTests(unittest.TestCase):
                 ContributionEvent.__table__,
                 PlayerTransactionLog.__table__,
                 GameplayTransaction.__table__,
+                ShiftSalaryAuditLog.__table__,
             ],
         )
         self.db = self.SessionLocal()
@@ -197,6 +199,7 @@ class ShiftStateServiceTests(unittest.TestCase):
         contributions_after_first = self.db.query(ContributionEvent).count()
         tx_logs_after_first = self.db.query(PlayerTransactionLog).count()
         gameplay_tx_after_first = self.db.query(GameplayTransaction).count()
+        audit_rows_after_first = self.db.query(ShiftSalaryAuditLog).count()
 
         second = resolve_expired_shift_if_needed(self.db, player=self.player, now_houston=after_shift)
         self.db.refresh(self.player)
@@ -209,6 +212,7 @@ class ShiftStateServiceTests(unittest.TestCase):
         self.assertEqual(self.db.query(ContributionEvent).count(), contributions_after_first)
         self.assertEqual(self.db.query(PlayerTransactionLog).count(), tx_logs_after_first)
         self.assertEqual(self.db.query(GameplayTransaction).count(), gameplay_tx_after_first)
+        self.assertEqual(self.db.query(ShiftSalaryAuditLog).count(), audit_rows_after_first)
 
     def test_main_shift_hours_do_not_consume_side_income_cap(self) -> None:
         shift_start = self._houston_datetime(2026, 1, 1, 12, 0)
@@ -377,6 +381,92 @@ class ShiftStateServiceTests(unittest.TestCase):
         )
         assert salary_txn is not None
         self.assertIn("Main job salary for Day 1", str(salary_txn.description))
+
+    def test_completed_shift_posts_salary_audit_and_cash_delta_matches_ledger(self) -> None:
+        shift_start = self._houston_datetime(2026, 1, 1, 12, 0)
+        after_shift = self._houston_datetime(2026, 1, 1, 19, 0)
+        starting_cash = Decimal(str(self.player.cash))
+        start_main_shift(
+            self.db,
+            player=self.player,
+            job_name="banker",
+            shift_type="standard_shift",
+            hours_worked=6,
+            now_houston=shift_start,
+        )
+
+        work_state = resolve_expired_shift_if_needed(self.db, player=self.player, now_houston=after_shift)
+        self.db.refresh(self.player)
+
+        audit = self.db.query(ShiftSalaryAuditLog).order_by(ShiftSalaryAuditLog.created_at.asc()).first()
+        salary_txn = (
+            self.db.query(GameplayTransaction)
+            .filter(
+                GameplayTransaction.player_id == self.player.id,
+                GameplayTransaction.day == 1,
+                GameplayTransaction.category == "salary",
+            )
+            .order_by(GameplayTransaction.timestamp.asc())
+            .first()
+        )
+
+        assert audit is not None
+        assert salary_txn is not None
+        audit_paid = Decimal(str(audit.final_salary_paid))
+        audit_cash_before = Decimal(str(audit.cash_before))
+        audit_cash_after = Decimal(str(audit.cash_after))
+
+        self.assertEqual(str(audit.payment_status), "posted")
+        self.assertEqual(str(audit.salary_transaction_id), str(salary_txn.id))
+        self.assertEqual(str(audit.job_key), "banker")
+        self.assertEqual(audit_cash_before, starting_cash)
+        self.assertEqual(audit_cash_before + audit_paid, audit_cash_after)
+        self.assertEqual(Decimal(str(self.player.cash)), audit_cash_after)
+        self.assertEqual(Decimal(str(salary_txn.amount)), audit_paid)
+        self.assertTrue(bool(work_state.get("salary_transaction_confirmed")))
+        self.assertEqual(str(work_state.get("salary_payment_status")), "posted")
+        self.assertIsNotNone(work_state.get("current_shift_salary_audit"))
+        self.assertIsNotNone(work_state.get("last_salary_posted"))
+
+    def test_salary_post_failure_preserves_failed_audit_without_cash_mutation(self) -> None:
+        shift_start = self._houston_datetime(2026, 1, 1, 12, 0)
+        after_shift = self._houston_datetime(2026, 1, 1, 19, 0)
+        starting_cash = Decimal(str(self.player.cash))
+        start_main_shift(
+            self.db,
+            player=self.player,
+            job_name="banker",
+            shift_type="standard_shift",
+            hours_worked=6,
+            now_houston=shift_start,
+        )
+
+        with patch(
+            "app.services.shift_state_service.record_gameplay_transaction",
+            side_effect=RuntimeError("salary ledger unavailable"),
+        ):
+            work_state = resolve_expired_shift_if_needed(self.db, player=self.player, now_houston=after_shift)
+
+        self.db.refresh(self.player)
+        audit = self.db.query(ShiftSalaryAuditLog).order_by(ShiftSalaryAuditLog.created_at.asc()).first()
+        pds = (
+            self.db.query(PlayerDailyState)
+            .filter(
+                PlayerDailyState.player_id == self.player.id,
+                PlayerDailyState.day_number == 1,
+            )
+            .first()
+        )
+
+        assert audit is not None
+        assert pds is not None
+        self.assertEqual(str(audit.payment_status), "failed")
+        self.assertIn("salary ledger unavailable", str(audit.failure_reason))
+        self.assertEqual(Decimal(str(self.player.cash)), starting_cash)
+        self.assertEqual(self.db.query(GameplayTransaction).count(), 0)
+        self.assertEqual(str(getattr(pds, "salary_transaction_id", "") or ""), "")
+        self.assertEqual(str(work_state.get("salary_payment_status")), "failed")
+        self.assertFalse(bool(work_state.get("salary_transaction_confirmed")))
 
     def test_rideshare_stays_locked_until_scheduled_shift_end_after_work(self) -> None:
         shift_start = self._houston_datetime(2026, 1, 1, 9, 0)

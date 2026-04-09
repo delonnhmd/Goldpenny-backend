@@ -31,6 +31,7 @@ from app.models.player import Player
 from app.models.player_career import PlayerCareer
 from app.models.player_daily_state import PlayerDailyState
 from app.models.player_employment_state import PlayerEmploymentState
+from app.models.shift_salary_audit_log import ShiftSalaryAuditLog
 from app.models.side_income_action import SideIncomeAction
 from app.models.xgp_transaction import XGPTransaction
 from app.services.dinner_survival_service import (
@@ -65,6 +66,9 @@ HOUSTON_TZ = pytz.timezone("America/Chicago")
 SHIFT_STATUS_IDLE = "idle"
 SHIFT_STATUS_ACTIVE = "active"
 SHIFT_STATUS_COMPLETED = "completed"
+SALARY_PAYMENT_STATUS_PENDING = "pending"
+SALARY_PAYMENT_STATUS_POSTED = "posted"
+SALARY_PAYMENT_STATUS_FAILED = "failed"
 RIDESHARE_DAILY_CAP = 6
 GAME_EPOCH = date(2026, 1, 1)
 MISSED_SHIFT_HEALTH_DELTA = -5
@@ -294,6 +298,212 @@ def _is_table_available(db: Session, table_name: str) -> bool:
 
     table_cache[normalized_name] = available
     return available
+
+
+def _build_shift_salary_token(
+    *,
+    player_id: UUID,
+    day_number: int,
+    job_key: str,
+    shift_number: int,
+    hours_worked: int,
+    shift_started_at: datetime | None,
+) -> str:
+    started_marker = (_as_houston(shift_started_at) or get_houston_now()).isoformat()
+    return (
+        f"{player_id}:{int(day_number)}:{str(job_key or '').strip().lower()}:"
+        f"{int(shift_number)}:{int(hours_worked)}:{started_marker}"
+    )
+
+
+def _serialize_shift_salary_audit(row: ShiftSalaryAuditLog | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "audit_id": str(row.id),
+        "player_id": str(row.player_id),
+        "day_number": int(getattr(row, "day_number", 0) or 0),
+        "shift_token": str(getattr(row, "shift_token", "") or ""),
+        "shift_id": str(getattr(row, "shift_id", "") or ""),
+        "job_key": str(getattr(row, "job_key", "") or ""),
+        "job_display_name": str(getattr(row, "job_display_name", "") or ""),
+        "shift_started_at": _as_houston(getattr(row, "shift_started_at", None)).isoformat()
+        if getattr(row, "shift_started_at", None)
+        else None,
+        "shift_ends_at": _as_houston(getattr(row, "shift_ends_at", None)).isoformat()
+        if getattr(row, "shift_ends_at", None)
+        else None,
+        "shift_completed_at": _as_houston(getattr(row, "shift_completed_at", None)).isoformat()
+        if getattr(row, "shift_completed_at", None)
+        else None,
+        "shift_type": str(getattr(row, "shift_type", "") or ""),
+        "shift_number": int(getattr(row, "shift_number", 0) or 0),
+        "hours_worked": int(getattr(row, "hours_worked", 0) or 0),
+        "trigger": str(getattr(row, "trigger", "") or ""),
+        "payment_status": str(getattr(row, "payment_status", "") or ""),
+        "failure_reason": str(getattr(row, "failure_reason", "") or ""),
+        "base_monthly_salary": round(_safe_float(getattr(row, "base_monthly_salary", 0), 0.0), 4),
+        "pay_snapshot_used": round(_safe_float(getattr(row, "pay_snapshot_used", 0), 0.0), 4),
+        "base_hourly_pay": round(_safe_float(getattr(row, "base_hourly_pay", 0), 0.0), 4),
+        "productivity_multiplier": round(_safe_float(getattr(row, "productivity_multiplier", 1), 1.0), 4),
+        "income_multiplier": round(_safe_float(getattr(row, "income_multiplier", 1), 1.0), 4),
+        "job_level_multiplier": round(_safe_float(getattr(row, "job_level_multiplier", 1), 1.0), 4),
+        "gross_shift_pay": round(_safe_float(getattr(row, "gross_shift_pay", 0), 0.0), 4),
+        "final_salary_paid": round(_safe_float(getattr(row, "final_salary_paid", 0), 0.0), 4),
+        "xp_gained": int(getattr(row, "xp_gained", 0) or 0),
+        "stress_change": int(getattr(row, "stress_change", 0) or 0),
+        "health_change": int(getattr(row, "health_change", 0) or 0),
+        "fatigue_change": round(_safe_float(getattr(row, "fatigue_change", 0), 0.0), 4),
+        "overtime_penalty_applied": bool(getattr(row, "overtime_penalty_applied", False)),
+        "salary_transaction_id": str(getattr(row, "salary_transaction_id", "") or ""),
+        "xgp_transaction_id": str(getattr(row, "xgp_transaction_id", "") or ""),
+        "player_transaction_log_id": str(getattr(row, "player_transaction_log_id", "") or ""),
+        "salary_posted_at": _as_houston(getattr(row, "salary_posted_at", None)).isoformat()
+        if getattr(row, "salary_posted_at", None)
+        else None,
+        "cash_before": round(_safe_float(getattr(row, "cash_before", 0), 0.0), 4),
+        "cash_after": round(_safe_float(getattr(row, "cash_after", 0), 0.0), 4),
+        "transaction_confirmed": bool(getattr(row, "salary_transaction_id", None)),
+    }
+
+
+def _latest_shift_salary_audit_for_player(
+    db: Session,
+    *,
+    player_id: UUID,
+    day_number: int | None = None,
+) -> ShiftSalaryAuditLog | None:
+    if not _is_table_available(db, "shift_salary_audit_logs"):
+        return None
+    query = db.query(ShiftSalaryAuditLog).filter(ShiftSalaryAuditLog.player_id == player_id)
+    if day_number is not None:
+        query = query.filter(ShiftSalaryAuditLog.day_number == int(day_number))
+    return (
+        query.order_by(
+            ShiftSalaryAuditLog.shift_completed_at.desc(),
+            ShiftSalaryAuditLog.created_at.desc(),
+        )
+        .first()
+    )
+
+
+def _latest_posted_shift_salary_audit_for_player(db: Session, *, player_id: UUID) -> ShiftSalaryAuditLog | None:
+    if not _is_table_available(db, "shift_salary_audit_logs"):
+        return None
+    return (
+        db.query(ShiftSalaryAuditLog)
+        .filter(
+            ShiftSalaryAuditLog.player_id == player_id,
+            ShiftSalaryAuditLog.payment_status == SALARY_PAYMENT_STATUS_POSTED,
+        )
+        .order_by(
+            ShiftSalaryAuditLog.salary_posted_at.desc(),
+            ShiftSalaryAuditLog.created_at.desc(),
+        )
+        .first()
+    )
+
+
+def _list_recent_shift_salary_audits_for_player(
+    db: Session,
+    *,
+    player_id: UUID,
+    limit: int = 3,
+) -> list[dict[str, Any]]:
+    if not _is_table_available(db, "shift_salary_audit_logs"):
+        return []
+    rows = (
+        db.query(ShiftSalaryAuditLog)
+        .filter(ShiftSalaryAuditLog.player_id == player_id)
+        .order_by(
+            ShiftSalaryAuditLog.shift_completed_at.desc(),
+            ShiftSalaryAuditLog.created_at.desc(),
+        )
+        .limit(max(1, int(limit)))
+        .all()
+    )
+    return [item for item in (_serialize_shift_salary_audit(row) for row in rows) if item is not None]
+
+
+def _salary_status_from_audit(
+    *,
+    active_shift: bool,
+    missed_shift_today: bool,
+    current_day_audit: dict[str, Any] | None,
+) -> tuple[str, str, str]:
+    if active_shift:
+        return (
+            SALARY_PAYMENT_STATUS_PENDING,
+            "Shift active · Salary pending until completion",
+            "Salary pending until the active shift completes.",
+        )
+    if current_day_audit:
+        payment_status = str(current_day_audit.get("payment_status") or "").strip().lower()
+        amount = _safe_float(current_day_audit.get("final_salary_paid"), 0.0)
+        if payment_status == SALARY_PAYMENT_STATUS_PENDING:
+            return (
+                SALARY_PAYMENT_STATUS_PENDING,
+                "Shift completed - Salary pending verification",
+                "Shift completed, but salary is still pending posting.",
+            )
+        if payment_status == SALARY_PAYMENT_STATUS_POSTED:
+            return (
+                SALARY_PAYMENT_STATUS_POSTED,
+                "Shift completed · Salary posted",
+                f"Shift completed · Salary +{amount:.2f} XGP posted",
+            )
+        if payment_status == SALARY_PAYMENT_STATUS_FAILED:
+            return (
+                SALARY_PAYMENT_STATUS_FAILED,
+                "Shift completed · Salary calculation failed",
+                "Shift completed, but salary could not be posted yet.",
+            )
+    if missed_shift_today:
+        return (
+            "missed",
+            "Missed shift · No salary earned",
+            "Missed shift · No salary earned",
+        )
+    return ("none", "No salary posted", "No salary posted yet.")
+
+
+def _salary_total_for_day(
+    db: Session,
+    *,
+    player_id: UUID,
+    day_number: int,
+    fallback_amount: float = 0.0,
+) -> float:
+    if not _is_table_available(db, "gameplay_transactions"):
+        return _safe_float(fallback_amount, 0.0)
+    total = (
+        db.query(func.coalesce(func.sum(GameplayTransaction.amount), 0))
+        .filter(
+            GameplayTransaction.player_id == player_id,
+            GameplayTransaction.day == max(1, int(day_number)),
+            GameplayTransaction.type == "income",
+            GameplayTransaction.category == "salary",
+        )
+        .scalar()
+    )
+    resolved_total = _safe_float(total, 0.0)
+    if resolved_total > 0:
+        return resolved_total
+    return _safe_float(fallback_amount, 0.0)
+
+
+def _get_gameplay_transaction_by_id(
+    db: Session,
+    *,
+    transaction_id: str | None,
+) -> GameplayTransaction | None:
+    raw_id = str(transaction_id or "").strip()
+    if not raw_id or not _is_table_available(db, "gameplay_transactions"):
+        return None
+    try:
+        return db.query(GameplayTransaction).filter(GameplayTransaction.id == UUID(raw_id)).first()
+    except Exception:
+        return None
 
 
 def _job_display_name(job_key: str | None) -> str:
@@ -1174,6 +1384,646 @@ def _apply_main_job_sync_result_to_work_state(
     return work_state
 
 
+def _build_shift_salary_snapshot(
+    player: Player,
+    *,
+    current_day: int,
+    now_houston: datetime,
+    trigger: str,
+) -> dict[str, Any]:
+    shift_started_at = _as_houston(getattr(player, "main_shift_started_at", None)) or now_houston
+    shift_ends_at = _as_houston(getattr(player, "main_shift_ends_at", None))
+    job_key = _canonical_main_job(
+        getattr(player, "main_shift_job_name", None) or getattr(player, "main_job", None) or ""
+    ) or ""
+    hours_worked = max(1, int(getattr(player, "main_shift_hours", 0) or 0))
+    shift_number = max(1, int(getattr(player, "main_shift_number", 1) or 1))
+    shift_type = str(getattr(player, "main_shift_shift_type", None) or "standard_shift")
+    job_def = resolve_job_definition(job_key)
+    if job_def is None:
+        raise ValueError(f"Cannot finalize unknown active main shift job '{job_key}'.")
+
+    base_monthly_salary = _q4(Decimal(str(job_def.monthly_salary or 0)))
+    pay_snapshot_used = _q4(base_monthly_salary)
+    base_hourly_pay = _q4(base_monthly_salary / Decimal("30") / Decimal("8"))
+    productivity_multiplier = _q4(Decimal(str(_productivity(player, shift_number=shift_number))))
+    job_level_multiplier = _q4(Decimal("1"))
+    gross_shift_pay = _q4(
+        base_hourly_pay
+        * Decimal(str(hours_worked))
+        * productivity_multiplier
+        * job_level_multiplier
+    )
+    income_multiplier = _q4(Decimal(str(apply_income_multiplier(1.0))))
+    final_salary_paid = _q4(gross_shift_pay * income_multiplier)
+    overtime_penalty = bool(int(player.total_hours_worked_today or 0) > 8)
+    stress_change = int(
+        apply_stress_sensitivity(
+            _stress_change(
+                job_def.base_stress,
+                hours_worked=hours_worked,
+                shift_number=shift_number,
+                overtime_penalty=overtime_penalty,
+            )
+        )
+    )
+    health_delta = -int(
+        apply_health_decay_rate(
+            _health_loss(
+                hours_worked=hours_worked,
+                shift_number=shift_number,
+                overtime_penalty=overtime_penalty,
+            )
+        )
+    )
+    fatigue_change = _q4(
+        Decimal(str(_fatigue_change(hours_worked=hours_worked, shift_number=shift_number)))
+    )
+    cash_before = _q4(getattr(player, "cash", 0))
+    shift_token = _build_shift_salary_token(
+        player_id=player.id,
+        day_number=current_day,
+        job_key=job_key,
+        shift_number=shift_number,
+        hours_worked=hours_worked,
+        shift_started_at=shift_started_at,
+    )
+    return {
+        "player_id": player.id,
+        "current_day": int(current_day),
+        "shift_token": shift_token,
+        "job_key": job_key,
+        "job_display_name": str(
+            getattr(job_def, "title", None)
+            or getattr(job_def, "display_name", None)
+            or _job_display_name(job_key)
+        ),
+        "shift_started_at": shift_started_at,
+        "shift_ends_at": shift_ends_at,
+        "shift_completed_at": now_houston,
+        "shift_type": shift_type,
+        "shift_number": int(shift_number),
+        "hours_worked": int(hours_worked),
+        "trigger": str(trigger or ""),
+        "base_monthly_salary": base_monthly_salary,
+        "pay_snapshot_used": pay_snapshot_used,
+        "base_hourly_pay": base_hourly_pay,
+        "productivity_multiplier": productivity_multiplier,
+        "income_multiplier": income_multiplier,
+        "job_level_multiplier": job_level_multiplier,
+        "gross_shift_pay": gross_shift_pay,
+        "final_salary_paid": final_salary_paid,
+        "xp_gained": int(work_xp_for_hours(hours_worked)),
+        "stress_change": int(stress_change),
+        "health_change": int(health_delta),
+        "fatigue_change": fatigue_change,
+        "overtime_penalty_applied": bool(overtime_penalty),
+        "cash_before": cash_before,
+    }
+
+
+def _shift_salary_snapshot_from_audit(audit_row: ShiftSalaryAuditLog) -> dict[str, Any]:
+    return {
+        "player_id": getattr(audit_row, "player_id"),
+        "current_day": int(getattr(audit_row, "day_number", 0) or 0),
+        "shift_token": str(getattr(audit_row, "shift_token", "") or ""),
+        "job_key": str(getattr(audit_row, "job_key", "") or ""),
+        "job_display_name": str(getattr(audit_row, "job_display_name", "") or ""),
+        "shift_started_at": _as_houston(getattr(audit_row, "shift_started_at", None)),
+        "shift_ends_at": _as_houston(getattr(audit_row, "shift_ends_at", None)),
+        "shift_completed_at": _as_houston(getattr(audit_row, "shift_completed_at", None)) or get_houston_now(),
+        "shift_type": str(getattr(audit_row, "shift_type", "") or ""),
+        "shift_number": int(getattr(audit_row, "shift_number", 0) or 0),
+        "hours_worked": int(getattr(audit_row, "hours_worked", 0) or 0),
+        "trigger": str(getattr(audit_row, "trigger", "") or ""),
+        "base_monthly_salary": _q4(getattr(audit_row, "base_monthly_salary", 0)),
+        "pay_snapshot_used": _q4(getattr(audit_row, "pay_snapshot_used", 0)),
+        "base_hourly_pay": _q4(getattr(audit_row, "base_hourly_pay", 0)),
+        "productivity_multiplier": _q4(getattr(audit_row, "productivity_multiplier", 1)),
+        "income_multiplier": _q4(getattr(audit_row, "income_multiplier", 1)),
+        "job_level_multiplier": _q4(getattr(audit_row, "job_level_multiplier", 1)),
+        "gross_shift_pay": _q4(getattr(audit_row, "gross_shift_pay", 0)),
+        "final_salary_paid": _q4(getattr(audit_row, "final_salary_paid", 0)),
+        "xp_gained": int(getattr(audit_row, "xp_gained", 0) or 0),
+        "stress_change": int(getattr(audit_row, "stress_change", 0) or 0),
+        "health_change": int(getattr(audit_row, "health_change", 0) or 0),
+        "fatigue_change": _q4(getattr(audit_row, "fatigue_change", 0)),
+        "overtime_penalty_applied": bool(getattr(audit_row, "overtime_penalty_applied", False)),
+        "cash_before": _q4(getattr(audit_row, "cash_before", 0)),
+        "shift_id": str(getattr(audit_row, "shift_id", "") or ""),
+    }
+
+
+def _get_shift_salary_audit_by_token(db: Session, *, shift_token: str) -> ShiftSalaryAuditLog | None:
+    if not _is_table_available(db, "shift_salary_audit_logs"):
+        return None
+    return (
+        db.query(ShiftSalaryAuditLog)
+        .filter(ShiftSalaryAuditLog.shift_token == str(shift_token or "").strip())
+        .first()
+    )
+
+
+def _upsert_shift_salary_audit_row(
+    db: Session,
+    *,
+    snapshot: dict[str, Any],
+    payment_status: str,
+    failure_reason: str | None = None,
+    shift_id: str | None = None,
+    salary_transaction_id: str | None = None,
+    xgp_transaction_id: str | None = None,
+    player_transaction_log_id: str | None = None,
+    salary_posted_at: datetime | None = None,
+    cash_before: Decimal | None = None,
+    cash_after: Decimal | None = None,
+) -> ShiftSalaryAuditLog | None:
+    if not _is_table_available(db, "shift_salary_audit_logs"):
+        return None
+    row = _get_shift_salary_audit_by_token(db, shift_token=str(snapshot.get("shift_token") or ""))
+    if row is None:
+        row = ShiftSalaryAuditLog(
+            player_id=snapshot["player_id"],
+            shift_token=str(snapshot.get("shift_token") or ""),
+        )
+    row.day_number = int(snapshot.get("current_day") or 0)
+    row.shift_id = shift_id or str(getattr(row, "shift_id", "") or "") or None
+    row.job_key = str(snapshot.get("job_key") or "")
+    row.job_display_name = str(snapshot.get("job_display_name") or "")
+    row.shift_started_at = _as_houston(snapshot.get("shift_started_at"))
+    row.shift_ends_at = _as_houston(snapshot.get("shift_ends_at"))
+    row.shift_completed_at = _as_houston(snapshot.get("shift_completed_at"))
+    row.shift_type = str(snapshot.get("shift_type") or "")
+    row.shift_number = int(snapshot.get("shift_number") or 0)
+    row.hours_worked = int(snapshot.get("hours_worked") or 0)
+    row.trigger = str(snapshot.get("trigger") or "")
+    row.payment_status = str(payment_status or SALARY_PAYMENT_STATUS_PENDING)
+    row.failure_reason = str(failure_reason or "").strip() or None
+    row.base_monthly_salary = _q4(snapshot.get("base_monthly_salary", 0))
+    row.pay_snapshot_used = _q4(snapshot.get("pay_snapshot_used", 0))
+    row.base_hourly_pay = _q4(snapshot.get("base_hourly_pay", 0))
+    row.productivity_multiplier = _q4(snapshot.get("productivity_multiplier", 1))
+    row.income_multiplier = _q4(snapshot.get("income_multiplier", 1))
+    row.job_level_multiplier = _q4(snapshot.get("job_level_multiplier", 1))
+    row.gross_shift_pay = _q4(snapshot.get("gross_shift_pay", 0))
+    row.final_salary_paid = _q4(snapshot.get("final_salary_paid", 0))
+    row.xp_gained = int(snapshot.get("xp_gained") or 0)
+    row.stress_change = int(snapshot.get("stress_change") or 0)
+    row.health_change = int(snapshot.get("health_change") or 0)
+    row.fatigue_change = _q4(snapshot.get("fatigue_change", 0))
+    row.overtime_penalty_applied = bool(snapshot.get("overtime_penalty_applied"))
+    row.salary_transaction_id = str(salary_transaction_id or getattr(row, "salary_transaction_id", "") or "") or None
+    row.xgp_transaction_id = str(xgp_transaction_id or getattr(row, "xgp_transaction_id", "") or "") or None
+    row.player_transaction_log_id = str(
+        player_transaction_log_id or getattr(row, "player_transaction_log_id", "") or ""
+    ) or None
+    row.salary_posted_at = _as_houston(salary_posted_at or getattr(row, "salary_posted_at", None))
+    row.cash_before = _q4(cash_before if cash_before is not None else snapshot.get("cash_before", 0))
+    row.cash_after = _q4(
+        cash_after
+        if cash_after is not None
+        else getattr(row, "cash_after", None)
+        if getattr(row, "cash_after", None) is not None
+        else snapshot.get("cash_before", 0)
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def _record_completed_shift_pending_salary(
+    db: Session,
+    *,
+    player: Player,
+    snapshot: dict[str, Any],
+) -> ShiftSalaryAuditLog | None:
+    existing_audit = _get_shift_salary_audit_by_token(db, shift_token=str(snapshot.get("shift_token") or ""))
+    if existing_audit is not None:
+        return existing_audit
+
+    action = JobAction(
+        player_id=player.id,
+        job_name=str(snapshot.get("job_key") or ""),
+        job_type="main",
+        shift_number=int(snapshot.get("shift_number") or 1),
+        day=int(snapshot.get("current_day") or 1),
+        hours_worked=int(snapshot.get("hours_worked") or 0),
+        base_hourly_pay=float(_q4(snapshot.get("base_hourly_pay", 0))),
+        productivity=float(_q4(snapshot.get("productivity_multiplier", 1))),
+        earned_cash=_money(snapshot.get("final_salary_paid", 0)),
+        stress_change=int(snapshot.get("stress_change") or 0),
+        health_change=int(snapshot.get("health_change") or 0),
+        fatigue_change=float(_q4(snapshot.get("fatigue_change", 0))),
+        overtime_penalty_applied=bool(snapshot.get("overtime_penalty_applied")),
+        hours_remaining_after=int(player.hours_available or 0),
+    )
+    db.add(action)
+    db.flush()
+
+    if str(snapshot.get("job_key") or "") and getattr(player, "main_job", None) != snapshot.get("job_key"):
+        player.main_job = str(snapshot.get("job_key") or "")
+    player.main_shift_active_flag = False
+    player.main_shift_status = SHIFT_STATUS_COMPLETED
+    player.main_shift_completed_at = _as_houston(snapshot.get("shift_completed_at"))
+    player.main_shift_last_cash_xgp = Decimal("0.0000")
+    player.main_shift_last_xp_gained = 0
+    player.main_shift_last_stress_delta = 0
+    player.main_shift_last_health_delta = 0
+    pds = _get_or_create_player_daily_state_in_txn(
+        db,
+        player,
+        day_number=int(snapshot.get("current_day") or 1),
+    )
+    pds.worked_main_job = True
+    pds.did_work = True
+    pds.shift_start = _as_houston(snapshot.get("shift_started_at")) or pds.shift_start
+    pds.shift_end = _as_houston(snapshot.get("shift_completed_at")) or pds.shift_end
+    pds.worked_hours = max(
+        int(getattr(pds, "worked_hours", 0) or 0),
+        int(snapshot.get("hours_worked") or 0),
+    )
+    pds.hours_available_end = int(player.hours_available or 0)
+
+    audit_row = _upsert_shift_salary_audit_row(
+        db,
+        snapshot=snapshot,
+        payment_status=SALARY_PAYMENT_STATUS_PENDING,
+        shift_id=str(action.id),
+        cash_before=_q4(getattr(player, "cash", 0)),
+        cash_after=_q4(getattr(player, "cash", 0)),
+    )
+    db.commit()
+    db.refresh(player)
+    return audit_row
+
+
+def _post_shift_salary_from_audit(
+    db: Session,
+    *,
+    player: Player,
+    audit_row: ShiftSalaryAuditLog,
+    trigger: str,
+    now_houston: datetime,
+) -> ShiftSalaryAuditLog:
+    if str(getattr(audit_row, "payment_status", "") or "").strip().lower() == SALARY_PAYMENT_STATUS_POSTED:
+        return audit_row
+    if not _is_table_available(db, "gameplay_transactions"):
+        raise ValueError("Shift salary could not be posted because gameplay transaction ledger is unavailable.")
+
+    snapshot = _shift_salary_snapshot_from_audit(audit_row)
+    pds = _get_or_create_player_daily_state_in_txn(
+        db,
+        player,
+        day_number=int(snapshot.get("current_day") or 1),
+    )
+    existing_salary_tx_id = str(
+        getattr(pds, "salary_transaction_id", None)
+        or getattr(audit_row, "salary_transaction_id", None)
+        or ""
+    ).strip()
+    if existing_salary_tx_id:
+        existing_gameplay_tx = _get_gameplay_transaction_by_id(db, transaction_id=existing_salary_tx_id)
+        if existing_gameplay_tx is None:
+            raise ValueError(
+                f"Salary transaction {existing_salary_tx_id} is missing from gameplay ledger."
+            )
+        existing_amount = _q4(getattr(existing_gameplay_tx, "amount", 0))
+        pds.salary_earned = _q4(existing_amount)
+        pds.salary_transaction_id = existing_salary_tx_id
+        pds.salary_posted_at = _as_houston(getattr(existing_gameplay_tx, "timestamp", None)) or getattr(
+            pds, "salary_posted_at", None
+        )
+        updated_audit = _upsert_shift_salary_audit_row(
+            db,
+            snapshot=snapshot,
+            payment_status=SALARY_PAYMENT_STATUS_POSTED,
+            shift_id=str(getattr(audit_row, "shift_id", "") or ""),
+            salary_transaction_id=existing_salary_tx_id,
+            salary_posted_at=pds.salary_posted_at,
+            cash_before=_q4(getattr(audit_row, "cash_before", getattr(player, "cash", 0))),
+            cash_after=_q4(getattr(player, "cash", 0)),
+        )
+        db.commit()
+        db.refresh(player)
+        return updated_audit or audit_row
+
+    shift_id = str(getattr(audit_row, "shift_id", "") or "")
+    action = None
+    if shift_id:
+        action = db.query(JobAction).filter(JobAction.id == UUID(shift_id)).first()
+    if action is None:
+        action = JobAction(
+            player_id=player.id,
+            job_name=str(snapshot.get("job_key") or ""),
+            job_type="main",
+            shift_number=int(snapshot.get("shift_number") or 1),
+            day=int(snapshot.get("current_day") or 1),
+            hours_worked=int(snapshot.get("hours_worked") or 0),
+            base_hourly_pay=float(_q4(snapshot.get("base_hourly_pay", 0))),
+            productivity=float(_q4(snapshot.get("productivity_multiplier", 1))),
+            earned_cash=_money(snapshot.get("final_salary_paid", 0)),
+            stress_change=int(snapshot.get("stress_change") or 0),
+            health_change=int(snapshot.get("health_change") or 0),
+            fatigue_change=float(_q4(snapshot.get("fatigue_change", 0))),
+            overtime_penalty_applied=bool(snapshot.get("overtime_penalty_applied")),
+            hours_remaining_after=int(player.hours_available or 0),
+        )
+        db.add(action)
+        db.flush()
+        shift_id = str(action.id)
+
+    balance_before = _q4(getattr(player, "cash", 0))
+    final_salary_paid = _q4(snapshot.get("final_salary_paid", 0))
+    player.cash = _money(balance_before + final_salary_paid)
+    player.stress = _clamp_int(int(player.stress or 0) + int(snapshot.get("stress_change") or 0), 0, 100)
+    player.health = _clamp_int(int(player.health or 0) + int(snapshot.get("health_change") or 0), 0, 100)
+    player.fatigue = max(
+        0.0,
+        min(100.0, float(player.fatigue or 0) + float(_safe_float(snapshot.get("fatigue_change"), 0.0))),
+    )
+    player.main_shift_active_flag = False
+    player.main_shift_status = SHIFT_STATUS_COMPLETED
+    player.main_shift_completed_at = _as_houston(snapshot.get("shift_completed_at")) or now_houston
+    player.main_shift_last_cash_xgp = final_salary_paid
+    player.main_shift_last_xp_gained = int(snapshot.get("xp_gained") or 0)
+    player.main_shift_last_stress_delta = int(snapshot.get("stress_change") or 0)
+    player.main_shift_last_health_delta = int(snapshot.get("health_change") or 0)
+    balance_after = _q4(getattr(player, "cash", 0))
+
+    logger.info(
+        "shift.salary_calculated",
+        extra={
+            "player_id": str(player.id),
+            "shift_id": shift_id,
+            "day_number": int(snapshot.get("current_day") or 1),
+            "job_key": str(snapshot.get("job_key") or ""),
+            "salary_amount": float(final_salary_paid),
+            "cash_before": float(balance_before),
+            "cash_after": float(balance_after),
+            "trigger": str(trigger or ""),
+        },
+    )
+
+    xgp_tx = XGPTransaction(
+        player_id=player.id,
+        transaction_type="job_income",
+        direction="in",
+        amount=final_salary_paid,
+        balance_before=balance_before,
+        balance_after=balance_after,
+        reference_type="job_action",
+        reference_id=shift_id,
+        description=f"Main job income - {snapshot.get('job_key')} shift {snapshot.get('shift_number')}",
+    )
+    db.add(xgp_tx)
+    db.flush()
+
+    player_tx = record_player_transaction(
+        db,
+        player=player,
+        day=int(snapshot.get("current_day") or 1),
+        transaction_type="wage_income",
+        category="work",
+        quantity=int(snapshot.get("hours_worked") or 0),
+        unit_price=_q4(snapshot.get("base_hourly_pay", 0)),
+        gross_amount=final_salary_paid,
+        fee_amount=0,
+        net_cash_delta=final_salary_paid,
+        resulting_cash_balance=balance_after,
+        metadata={
+            "job_name": str(snapshot.get("job_key") or ""),
+            "job_type": "main",
+            "shift_number": int(snapshot.get("shift_number") or 1),
+            "productivity": float(_q4(snapshot.get("productivity_multiplier", 1))),
+            "trigger": trigger,
+            "main_shift_status": SHIFT_STATUS_COMPLETED,
+            "houston_finalized_at": now_houston.isoformat(),
+            "salary_audit_shift_token": str(snapshot.get("shift_token") or ""),
+        },
+    )
+    db.flush()
+
+    gameplay_tx = record_gameplay_transaction(
+        db,
+        player=player,
+        day=int(snapshot.get("current_day") or 1),
+        transaction_type="income",
+        category="salary",
+        amount=final_salary_paid,
+        description=(
+            f"Main job salary for Day {int(snapshot.get('current_day') or 1)} "
+            f"({str(snapshot.get('job_display_name') or _job_display_name(snapshot.get('job_key')) )})"
+        ),
+    )
+    db.flush()
+    logger.info(
+        "shift.salary_transaction_created",
+        extra={
+            "player_id": str(player.id),
+            "shift_id": shift_id,
+            "day_number": int(snapshot.get("current_day") or 1),
+            "job_key": str(snapshot.get("job_key") or ""),
+            "salary_amount": float(final_salary_paid),
+            "transaction_id": str(gameplay_tx.id),
+            "cash_before": float(balance_before),
+            "cash_after": float(balance_after),
+        },
+    )
+
+    contribution = ContributionEvent(
+        player_id=player.id,
+        event_type="job_work",
+        xgp_value=final_salary_paid,
+        event_units=float(int(snapshot.get("hours_worked") or 0)),
+        metadata_json=json.dumps(
+            {
+                "job_id": str(snapshot.get("job_key") or ""),
+                "job_type": "main",
+                "day_number": int(snapshot.get("current_day") or 1),
+                "shift_number": int(snapshot.get("shift_number") or 1),
+                "productivity_multiplier": float(_q4(snapshot.get("productivity_multiplier", 1))),
+                "base_hourly_pay": float(_q4(snapshot.get("base_hourly_pay", 0))),
+                "overtime_penalty": bool(snapshot.get("overtime_penalty_applied")),
+                "trigger": trigger,
+                "houston_finalized_at": now_houston.isoformat(),
+                "salary_audit_shift_token": str(snapshot.get("shift_token") or ""),
+            }
+        ),
+    )
+    db.add(contribution)
+
+    pds.worked_main_job = True
+    pds.did_work = True
+    pds.shift_start = _as_houston(snapshot.get("shift_started_at")) or now_houston
+    pds.shift_end = now_houston
+    pds.worked_hours = max(
+        int(getattr(pds, "worked_hours", 0) or 0),
+        int(snapshot.get("hours_worked") or 0),
+    )
+    pds.salary_earned = _q4(Decimal(str(getattr(pds, "salary_earned", 0) or 0)) + final_salary_paid)
+    pds.salary_transaction_id = str(gameplay_tx.id)
+    pds.salary_posted_at = now_houston
+    pds.missed_penalty = Decimal("0")
+    pds.gross_income_xgp = _q4(Decimal(str(getattr(pds, "gross_income_xgp", 0) or 0)) + final_salary_paid)
+    pds.hours_available_end = int(player.hours_available or 0)
+    pds.stress_end = int(player.stress or 0)
+    pds.health_end = int(player.health or 0)
+    pds.cash_end = balance_after
+
+    try:
+        player.lifetime_xgp_earned = round(float(player.lifetime_xgp_earned or 0.0) + float(final_salary_paid), 4)
+    except AttributeError:
+        pass
+
+    logger.info(
+        "shift.cash_updated_after_salary",
+        extra={
+            "player_id": str(player.id),
+            "shift_id": shift_id,
+            "day_number": int(snapshot.get("current_day") or 1),
+            "job_key": str(snapshot.get("job_key") or ""),
+            "salary_amount": float(final_salary_paid),
+            "transaction_id": str(gameplay_tx.id),
+            "cash_before": float(balance_before),
+            "cash_after": float(balance_after),
+        },
+    )
+
+    if _is_table_available(db, "player_employment_states") and _is_table_available(db, "stock_daily_prices"):
+        upsert_employment_foundation(
+            db,
+            player=player,
+            settled_day=max(1, _safe_int(getattr(player, "last_settled_day", None), 0) + 1),
+            job_key=str(snapshot.get("job_key") or ""),
+            shift_type=snapshot.get("shift_type"),
+            grant_work_xp=int(snapshot.get("xp_gained") or 0),
+        )
+    try:
+        award_completed_shift_xp(
+            db,
+            player_id=player.id,
+            job_key=str(snapshot.get("job_key") or ""),
+            xp_gain=SHIFT_COMPLETION_XP_GAIN,
+            worked_at=now_houston,
+        )
+    except Exception:
+        pass
+    sync_shift_day_rules_if_needed(
+        db,
+        player=player,
+        day_number=int(snapshot.get("current_day") or 1),
+        now_houston=now_houston,
+    )
+    updated_audit = _upsert_shift_salary_audit_row(
+        db,
+        snapshot=snapshot,
+        payment_status=SALARY_PAYMENT_STATUS_POSTED,
+        shift_id=shift_id,
+        salary_transaction_id=str(gameplay_tx.id),
+        xgp_transaction_id=str(xgp_tx.id),
+        player_transaction_log_id=str(player_tx.id),
+        salary_posted_at=now_houston,
+        cash_before=balance_before,
+        cash_after=balance_after,
+    )
+    db.commit()
+    db.refresh(player)
+    return updated_audit or audit_row
+
+
+def _mark_shift_salary_post_failed(
+    db: Session,
+    *,
+    player_id: UUID,
+    snapshot: dict[str, Any],
+    reason: str,
+) -> ShiftSalaryAuditLog | None:
+    db.rollback()
+    player = db.query(Player).filter(Player.id == player_id).first()
+    if player is None:
+        return None
+    player.main_shift_active_flag = False
+    player.main_shift_status = SHIFT_STATUS_COMPLETED
+    player.main_shift_completed_at = _as_houston(snapshot.get("shift_completed_at")) or get_houston_now()
+    if str(snapshot.get("job_key") or "") and getattr(player, "main_job", None) != snapshot.get("job_key"):
+        player.main_job = str(snapshot.get("job_key") or "")
+    pds = _get_or_create_player_daily_state_in_txn(
+        db,
+        player,
+        day_number=int(snapshot.get("current_day") or 1),
+    )
+    pds.shift_start = _as_houston(snapshot.get("shift_started_at")) or pds.shift_start
+    pds.shift_end = _as_houston(snapshot.get("shift_completed_at")) or pds.shift_end
+    audit_row = _upsert_shift_salary_audit_row(
+        db,
+        snapshot=snapshot,
+        payment_status=SALARY_PAYMENT_STATUS_FAILED,
+        failure_reason=reason,
+        cash_before=_q4(getattr(player, "cash", 0)),
+        cash_after=_q4(getattr(player, "cash", 0)),
+    )
+    db.commit()
+    db.refresh(player)
+    return audit_row
+
+
+def _retry_pending_shift_salary_if_needed(
+    db: Session,
+    *,
+    player: Player,
+    day_number: int,
+    now_houston: datetime,
+) -> ShiftSalaryAuditLog | None:
+    audit_row = _latest_shift_salary_audit_for_player(db, player_id=player.id, day_number=day_number)
+    if audit_row is None:
+        return None
+    payment_status = str(getattr(audit_row, "payment_status", "") or "").strip().lower()
+    if payment_status == SALARY_PAYMENT_STATUS_POSTED:
+        return audit_row
+    if bool(getattr(player, "main_shift_active_flag", False)):
+        return audit_row
+    if str(getattr(player, "main_shift_status", "") or "").strip().lower() != SHIFT_STATUS_COMPLETED:
+        return audit_row
+    try:
+        repaired = _post_shift_salary_from_audit(
+            db,
+            player=player,
+            audit_row=audit_row,
+            trigger="salary_retry_sync",
+            now_houston=now_houston,
+        )
+        logger.info(
+            "shift.salary_retry_succeeded",
+            extra={
+                "player_id": str(player.id),
+                "shift_id": str(getattr(repaired, "shift_id", "") or ""),
+                "day_number": int(day_number),
+                "job_key": str(getattr(repaired, "job_key", "") or ""),
+                "salary_amount": float(_safe_float(getattr(repaired, "final_salary_paid", 0), 0.0)),
+                "transaction_id": str(getattr(repaired, "salary_transaction_id", "") or ""),
+            },
+        )
+        return repaired
+    except Exception as exc:
+        failed = _mark_shift_salary_post_failed(
+            db,
+            player_id=player.id,
+            snapshot=_shift_salary_snapshot_from_audit(audit_row),
+            reason=str(exc),
+        )
+        logger.warning(
+            "shift.salary_retry_failed",
+            extra={
+                "player_id": str(player.id),
+                "shift_id": str(getattr(audit_row, "shift_id", "") or ""),
+                "day_number": int(day_number),
+                "job_key": str(getattr(audit_row, "job_key", "") or ""),
+                "failure_reason": str(exc),
+            },
+        )
+        return failed
+
+
 def _validate_main_shift_start(player: Player, *, job_name: str, hours_worked: int, shift_number: int) -> None:
     canonical_job_name = _canonical_main_job(job_name)
     canonical_player_job = _canonical_main_job(getattr(player, "main_job", None))
@@ -1384,18 +2234,32 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
     )
     recovery_hours_today = _safe_float(getattr(pds, "recovery_hours_today", getattr(pds, "recovery_hours", 0)) if pds is not None else 0, 0.0)
     total_time_used_today = _safe_float(getattr(pds, "total_time_used_today", getattr(pds, "total_hours_used", 0)) if pds is not None else 0, 0.0)
-    salary_earned_today = _safe_float(getattr(pds, "salary_earned", 0) if pds is not None else 0, 0.0)
-    salary_earned_yesterday = _safe_float(
-        (
-            db.query(PlayerDailyState.salary_earned)
-            .filter(
-                PlayerDailyState.player_id == player.id,
-                PlayerDailyState.day_number == max(1, current_day - 1),
-            )
-            .scalar()
-        ),
-        0.0,
-    ) if current_day > 1 else 0.0
+    salary_earned_today = _salary_total_for_day(
+        db,
+        player_id=player.id,
+        day_number=current_day,
+        fallback_amount=_safe_float(getattr(pds, "salary_earned", 0) if pds is not None else 0, 0.0),
+    )
+    salary_earned_yesterday = (
+        _salary_total_for_day(
+            db,
+            player_id=player.id,
+            day_number=max(1, current_day - 1),
+            fallback_amount=_safe_float(
+                (
+                    db.query(PlayerDailyState.salary_earned)
+                    .filter(
+                        PlayerDailyState.player_id == player.id,
+                        PlayerDailyState.day_number == max(1, current_day - 1),
+                    )
+                    .scalar()
+                ),
+                0.0,
+            ),
+        )
+        if current_day > 1
+        else 0.0
+    )
 
     completed_shift_confirmed = bool(
         not active_shift
@@ -1464,6 +2328,55 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
     remaining_side_cap = max(0.0, float(rideshare_state.get("remaining_trips") or 0.0))
     did_work_today = _did_work_for_day(player, pds, current_day=current_day, active_shift=active_shift)
     missed_shift_today = bool(getattr(pds, "missed_shift", False)) if pds is not None else False
+    current_day_salary_audit = _serialize_shift_salary_audit(
+        _latest_shift_salary_audit_for_player(db, player_id=player.id, day_number=current_day)
+    )
+    did_work_today = bool(did_work_today or current_day_salary_audit)
+    last_salary_posted = _serialize_shift_salary_audit(
+        _latest_posted_shift_salary_audit_for_player(db, player_id=player.id)
+    )
+    recent_salary_audits = _list_recent_shift_salary_audits_for_player(db, player_id=player.id, limit=3)
+    salary_payment_status, salary_status_label, salary_status_message = _salary_status_from_audit(
+        active_shift=active_shift,
+        missed_shift_today=missed_shift_today,
+        current_day_audit=current_day_salary_audit,
+    )
+    current_salary_transaction_id = str((current_day_salary_audit or {}).get("salary_transaction_id") or "").strip()
+    current_salary_posted_at = (current_day_salary_audit or {}).get("salary_posted_at")
+    salary_transaction_confirmed = bool(current_salary_transaction_id)
+    last_completed_shift_payload = {
+        "earned_cash_xgp": round(
+            _safe_float(
+                (current_day_salary_audit or {}).get("final_salary_paid"),
+                _safe_float(getattr(player, "main_shift_last_cash_xgp", 0), 0.0),
+            ),
+            4,
+        ),
+        "xp_gained": int(
+            (current_day_salary_audit or {}).get("xp_gained")
+            or getattr(player, "main_shift_last_xp_gained", 0)
+            or 0
+        ),
+        "stress_change": int(
+            (current_day_salary_audit or {}).get("stress_change")
+            or getattr(player, "main_shift_last_stress_delta", 0)
+            or 0
+        ),
+        "health_change": int(
+            (current_day_salary_audit or {}).get("health_change")
+            or getattr(player, "main_shift_last_health_delta", 0)
+            or 0
+        ),
+        "salary_payment_status": salary_payment_status,
+        "salary_transaction_id": current_salary_transaction_id,
+        "salary_posted_at": current_salary_posted_at,
+        "transaction_confirmed": salary_transaction_confirmed,
+        "job_key": str((current_day_salary_audit or {}).get("job_key") or resolved_shift_job_name or ""),
+        "job_display_name": str(
+            (current_day_salary_audit or {}).get("job_display_name")
+            or _job_display_name(resolved_shift_job_name)
+        ),
+    }
 
     return {
         "player_id": str(player.id),
@@ -1533,6 +2446,18 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         "pay_model": "daily_after_shift_completion",
         "pay_model_label": "Paid daily after shift completion",
         "salary_pending_until_completion": bool(active_shift),
+        "salary_payment_status": salary_payment_status,
+        "salary_status_label": salary_status_label,
+        "salary_status_message": salary_status_message,
+        "salary_posting_pending": bool(
+            not active_shift and salary_payment_status == SALARY_PAYMENT_STATUS_PENDING
+        ),
+        "salary_transaction_id": current_salary_transaction_id,
+        "salary_posted_at": current_salary_posted_at,
+        "salary_transaction_confirmed": salary_transaction_confirmed,
+        "current_shift_salary_audit": current_day_salary_audit,
+        "last_salary_posted": last_salary_posted,
+        "recent_salary_audits": recent_salary_audits,
         "missed_penalty_today": round(_safe_float(getattr(pds, "missed_penalty", 0) if pds is not None else 0, 0.0), 4),
         "missed_shift_today": missed_shift_today,
         "missed_shift_health_delta": MISSED_SHIFT_HEALTH_DELTA if missed_shift_today else 0,
@@ -1553,12 +2478,7 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         "needs_dinner_reminder": needs_dinner_reminder,
         "dinner_reminder_message": dinner_reminder_message,
         "night_eat_reminder_shown": bool(getattr(pds, "night_eat_reminder_shown", False)) if pds is not None else False,
-        "last_completed_shift": {
-            "earned_cash_xgp": round(_safe_float(getattr(player, "main_shift_last_cash_xgp", 0), 0.0), 4),
-            "xp_gained": int(getattr(player, "main_shift_last_xp_gained", 0) or 0),
-            "stress_change": int(getattr(player, "main_shift_last_stress_delta", 0) or 0),
-            "health_change": int(getattr(player, "main_shift_last_health_delta", 0) or 0),
-        },
+        "last_completed_shift": last_completed_shift_payload,
         "rideshare_state": rideshare_state,
         "rideshare_unlocked": rideshare_unlocked,
         "rideshare_available": rideshare_available,
@@ -1678,6 +2598,21 @@ def start_main_shift(
 
     work_state = build_work_state_payload(db, player, now_houston=now)
     logger.info(
+        "shift.shift_started",
+        extra={
+            "player_id": str(player.id),
+            "shift_id": None,
+            "day_number": int(current_day),
+            "job_key": normalized_job,
+            "salary_amount": 0.0,
+            "cash_before": float(cash_before),
+            "cash_after": float(_q4(getattr(player, "cash", 0))),
+            "transaction_id": None,
+            "shift_started_at": work_state.get("shift_started_at"),
+            "shift_ends_at": work_state.get("shift_ends_at"),
+        },
+    )
+    logger.info(
         "shift.start_main_shift succeeded.",
         extra={
             "player_id": str(player.id),
@@ -1717,190 +2652,69 @@ def finalize_active_main_shift(
     shift_ends_at = _as_houston(getattr(player, "main_shift_ends_at", None))
     if require_expired and shift_ends_at is not None and now < shift_ends_at:
         return build_work_state_payload(db, player, now_houston=now)
-
-    job_name = _canonical_main_job(
-        getattr(player, "main_shift_job_name", None) or getattr(player, "main_job", None) or ""
-    ) or ""
-    hours_worked = max(1, int(getattr(player, "main_shift_hours", 0) or 0))
-    shift_number = max(1, int(getattr(player, "main_shift_number", 1) or 1))
-    job_def = resolve_job_definition(job_name)
-    if job_def is None:
-        raise ValueError(f"Cannot finalize unknown active main shift job '{job_name}'.")
-    if job_name and getattr(player, "main_job", None) != job_name:
-        player.main_job = job_name
-
-    base_hourly_pay = job_def.monthly_salary / 30 / 8
-    productivity = _productivity(player, shift_number=shift_number)
-    earned_cash_raw = base_hourly_pay * hours_worked * productivity
-    overtime_penalty = int(player.total_hours_worked_today or 0) > 8
-    stress_change = _stress_change(job_def.base_stress, hours_worked=hours_worked, shift_number=shift_number, overtime_penalty=overtime_penalty)
-    health_loss = _health_loss(hours_worked=hours_worked, shift_number=shift_number, overtime_penalty=overtime_penalty)
-    fatigue_delta = _fatigue_change(hours_worked=hours_worked, shift_number=shift_number)
-
-    earned_cash = apply_income_multiplier(earned_cash_raw)
-    stress_change = apply_stress_sensitivity(stress_change)
-    health_loss = apply_health_decay_rate(health_loss)
-    health_delta = -int(health_loss)
-    xp_gained = work_xp_for_hours(hours_worked)
-
-    balance_before = _money(getattr(player, "cash", 0))
-    stress_before = int(player.stress or 0)
-    health_before = int(player.health or 0)
-
-    player.cash = balance_before + Decimal(str(earned_cash))
-    player.stress = _clamp_int(stress_before + int(stress_change), 0, 100)
-    player.health = _clamp_int(health_before + health_delta, 0, 100)
-    player.fatigue = max(0.0, min(100.0, float(player.fatigue or 0) + float(fatigue_delta)))
-    player.main_shift_active_flag = False
-    player.main_shift_status = SHIFT_STATUS_COMPLETED
-    player.main_shift_completed_at = now
-    player.main_shift_last_cash_xgp = _q4(earned_cash)
-    player.main_shift_last_xp_gained = int(xp_gained)
-    player.main_shift_last_stress_delta = int(stress_change)
-    player.main_shift_last_health_delta = int(health_delta)
-
-    action = JobAction(
-        player_id=player.id,
-        job_name=job_name,
-        job_type="main",
-        shift_number=shift_number,
-        day=current_day,
-        hours_worked=hours_worked,
-        base_hourly_pay=round(base_hourly_pay, 4),
-        productivity=round(productivity, 4),
-        earned_cash=_money(earned_cash),
-        stress_change=int(stress_change),
-        health_change=int(health_delta),
-        fatigue_change=round(float(fatigue_delta), 4),
-        overtime_penalty_applied=bool(overtime_penalty),
-        hours_remaining_after=int(player.hours_available or 0),
+    snapshot = _build_shift_salary_snapshot(
+        player,
+        current_day=current_day,
+        now_houston=now,
+        trigger=trigger,
     )
-    db.add(action)
-    db.flush()
-
-    balance_after = _money(getattr(player, "cash", 0))
-    xgp_tx = XGPTransaction(
-        player_id=player.id,
-        transaction_type="job_income",
-        direction="in",
-        amount=_q4(earned_cash),
-        balance_before=balance_before,
-        balance_after=balance_after,
-        reference_type="job_action",
-        reference_id=str(action.id),
-        description=f"Main job income - {job_name} shift {shift_number}",
-    )
-    db.add(xgp_tx)
-
-    record_player_transaction(
-        db,
-        player=player,
-        day=current_day,
-        transaction_type="wage_income",
-        category="work",
-        quantity=hours_worked,
-        unit_price=round(base_hourly_pay, 4),
-        gross_amount=_q4(earned_cash),
-        fee_amount=0,
-        net_cash_delta=_q4(earned_cash),
-        resulting_cash_balance=balance_after,
-        metadata={
-            "job_name": job_name,
-            "job_type": "main",
-            "shift_number": shift_number,
-            "productivity": round(productivity, 4),
-            "trigger": trigger,
-            "main_shift_status": SHIFT_STATUS_COMPLETED,
-            "houston_finalized_at": now.isoformat(),
-        },
-    )
-    record_gameplay_transaction(
-        db,
-        player=player,
-        day=current_day,
-        transaction_type="income",
-        category="salary",
-        amount=_q4(earned_cash),
-        description=(
-            f"Main job salary for Day {int(current_day)} "
-            f"({str(getattr(job_def, 'title', None) or getattr(job_def, 'display_name', None) or job_name.replace('_', ' ').title())})"
-        ),
-    )
-
-    contribution = ContributionEvent(
-        player_id=player.id,
-        event_type="job_work",
-        xgp_value=_q4(earned_cash),
-        event_units=float(hours_worked),
-        metadata_json=json.dumps(
-            {
-                "job_id": job_name,
-                "job_type": "main",
-                "day_number": current_day,
-                "shift_number": shift_number,
-                "productivity_multiplier": round(productivity, 4),
-                "base_hourly_pay": round(base_hourly_pay, 4),
-                "overtime_penalty": bool(overtime_penalty),
-                "trigger": trigger,
-                "houston_finalized_at": now.isoformat(),
-            }
-        ),
-    )
-    db.add(contribution)
-
-    pds = _get_or_create_player_daily_state_in_txn(db, player, day_number=current_day)
-    pds.worked_main_job = True
-    pds.did_work = True
-    pds.shift_start = _as_houston(getattr(player, "main_shift_started_at", None)) or now
-    pds.shift_end = now
-    pds.worked_hours = int(getattr(pds, "worked_hours", 0) or 0) + hours_worked
-    pds.salary_earned = _q4(Decimal(str(getattr(pds, "salary_earned", 0) or 0)) + Decimal(str(earned_cash)))
-    pds.missed_penalty = Decimal("0")
-    pds.gross_income_xgp = _q4(Decimal(str(getattr(pds, "gross_income_xgp", 0) or 0)) + Decimal(str(earned_cash)))
-    pds.hours_available_end = int(player.hours_available or 0)
-    pds.stress_end = int(player.stress or 0)
-    pds.health_end = int(player.health or 0)
-    pds.cash_end = _q4(getattr(player, "cash", 0))
-
     try:
-        player.lifetime_xgp_earned = round(float(player.lifetime_xgp_earned or 0.0) + float(earned_cash), 4)
-    except AttributeError:
-        pass
-
-    if _is_table_available(db, "player_employment_states") and _is_table_available(db, "stock_daily_prices"):
-        upsert_employment_foundation(
+        audit_row = _record_completed_shift_pending_salary(
             db,
             player=player,
-            settled_day=max(1, _safe_int(getattr(player, "last_settled_day", None), 0) + 1),
-            job_key=job_name,
-            shift_type=getattr(player, "main_shift_shift_type", None),
-            grant_work_xp=xp_gained,
+            snapshot=snapshot,
         )
-    progression_feedback: dict[str, Any] | None = None
-    try:
-        progression_feedback = award_completed_shift_xp(
+        if audit_row is None:
+            raise ValueError("Shift salary audit log could not be created.")
+        logger.info(
+            "shift.shift_completed",
+            extra={
+                "player_id": str(player.id),
+                "shift_id": str(getattr(audit_row, "shift_id", "") or ""),
+                "day_number": int(snapshot.get("current_day") or 1),
+                "job_key": str(snapshot.get("job_key") or ""),
+                "salary_amount": float(_safe_float(snapshot.get("final_salary_paid"), 0.0)),
+                "cash_before": float(_safe_float(snapshot.get("cash_before"), 0.0)),
+                "cash_after": float(_safe_float(snapshot.get("cash_before"), 0.0)),
+                "transaction_id": None,
+                "trigger": trigger,
+            },
+        )
+        refreshed_player = db.query(Player).filter(Player.id == player.id).first() or player
+        posted_audit = _post_shift_salary_from_audit(
+            db,
+            player=refreshed_player,
+            audit_row=audit_row,
+            trigger=trigger,
+            now_houston=now,
+        )
+        player = refreshed_player
+    except Exception as exc:
+        failed_audit = _mark_shift_salary_post_failed(
             db,
             player_id=player.id,
-            job_key=job_name,
-            xp_gain=SHIFT_COMPLETION_XP_GAIN,
-            worked_at=now,
+            snapshot=snapshot,
+            reason=str(exc),
         )
-    except Exception:
-        # Safe-mode guarantee: never block payroll/shift finalization on progression write failures.
-        progression_feedback = None
-    sync_shift_day_rules_if_needed(
-        db,
-        player=player,
-        day_number=current_day,
-        now_houston=now,
-    )
-
-    db.commit()
-    db.refresh(player)
+        logger.exception(
+            "shift.salary_post_failed",
+            extra={
+                "player_id": str(player.id),
+                "shift_id": str((failed_audit and getattr(failed_audit, "shift_id", "")) or ""),
+                "day_number": int(snapshot.get("current_day") or 1),
+                "job_key": str(snapshot.get("job_key") or ""),
+                "salary_amount": float(_safe_float(snapshot.get("final_salary_paid"), 0.0)),
+                "cash_before": float(_safe_float(snapshot.get("cash_before"), 0.0)),
+                "cash_after": float(_safe_float(getattr(player, "cash", 0), 0.0)),
+                "transaction_id": str((failed_audit and getattr(failed_audit, "salary_transaction_id", "")) or ""),
+                "failure_reason": str(exc),
+                "trigger": trigger,
+            },
+        )
+        work_state = build_work_state_payload(db, player, now_houston=now)
+        return work_state
 
     work_state = build_work_state_payload(db, player, now_houston=now)
-    if progression_feedback is not None:
-        work_state["job_progression_feedback"] = progression_feedback
     logger.info(
         "shift.finalize_active_main_shift completed.",
         extra={
@@ -1921,6 +2735,7 @@ def finalize_active_main_shift(
             "pay_calculation_job_id": work_state.get("pay_calculation_job_id"),
             "ui_job_id": work_state.get("ui_job_id"),
             "job_truth_mismatch_detected": bool(work_state.get("job_truth_mismatch_detected")),
+            "salary_transaction_id": str(getattr(posted_audit, "salary_transaction_id", "") or ""),
             "trigger": trigger,
         },
     )
@@ -1955,6 +2770,17 @@ def resolve_expired_shift_if_needed(
     ends_at = _as_houston(getattr(player, "main_shift_ends_at", None))
     active_shift = bool(getattr(player, "main_shift_active_flag", False) and getattr(player, "main_shift_status", "") == SHIFT_STATUS_ACTIVE)
     expired = bool(active_shift and ends_at and now >= ends_at)
+    if (
+        not active_shift
+        and str(getattr(player, "main_shift_status", "") or "").strip().lower() == SHIFT_STATUS_COMPLETED
+    ):
+        _retry_pending_shift_salary_if_needed(
+            db,
+            player=player,
+            day_number=current_day,
+            now_houston=now,
+        )
+        db.refresh(player)
 
     preview_state = None
     try:
