@@ -6,6 +6,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 import pytz
+from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -788,6 +789,115 @@ class ShiftStateServiceTests(unittest.TestCase):
         ]
         self.assertTrue(blocked_work)
         self.assertIn("rideshare only", str(blocked_work[0].get("blockers", [""])[0]).lower())
+
+    def test_recovery_actions_do_not_cross_block_each_other_before_category_cap(self) -> None:
+        after_shift = self._houston_datetime(2026, 1, 1, 19, 0)
+
+        with patch("app.services.shift_state_service.get_houston_now", return_value=after_shift):
+            first_rest = execute_gameplay_action(
+                str(self.player.id),
+                GameplayActionRequest(action_key="rest", parameters={}),
+                db=self.db,
+            )
+            second_rest = execute_gameplay_action(
+                str(self.player.id),
+                GameplayActionRequest(action_key="rest", parameters={}),
+                db=self.db,
+            )
+            state_after_rest = build_work_state_payload(self.db, self.player, now_houston=after_shift)
+            movie_state = next(
+                item
+                for item in list((state_after_rest.get("recovery_state") or {}).get("actions") or [])
+                if str(item.get("action_key")) == "watch_movie"
+            )
+            first_movie = execute_gameplay_action(
+                str(self.player.id),
+                GameplayActionRequest(action_key="watch_movie", parameters={}),
+                db=self.db,
+            )
+
+        self.assertTrue(bool(first_rest["success"]))
+        self.assertTrue(bool(second_rest["success"]))
+        self.assertTrue(bool(movie_state.get("available")))
+        self.assertIsNone(movie_state.get("block_reason"))
+        self.assertTrue(bool(first_movie["success"]))
+        self.assertEqual(str(first_movie.get("action_key")), "watch_movie")
+
+        recovery_state = ((first_movie.get("raw_result") or {}).get("work_state") or {}).get("recovery_state") or {}
+        action_map = {
+            str(item.get("action_key")): item
+            for item in list(recovery_state.get("actions") or [])
+        }
+
+        self.assertEqual(int(recovery_state.get("category_used") or 0), 3)
+        self.assertEqual(int(recovery_state.get("category_remaining") or 0), 1)
+        self.assertEqual(str((action_map.get("rest") or {}).get("block_reason") or ""), "Rest daily limit reached")
+        self.assertEqual(str((action_map.get("watch_movie") or {}).get("block_reason") or ""), "Watch Movie daily limit reached")
+
+        with patch("app.services.shift_state_service.get_houston_now", return_value=after_shift):
+            with self.assertRaises(HTTPException) as exc:
+                execute_gameplay_action(
+                    str(self.player.id),
+                    GameplayActionRequest(action_key="watch_movie", parameters={}),
+                    db=self.db,
+                )
+
+        self.assertEqual(str(exc.exception.detail), "Watch Movie daily limit reached")
+
+    def test_recovery_category_cap_blocks_fifth_action_but_dinner_stays_available(self) -> None:
+        after_shift = self._houston_datetime(2026, 1, 1, 19, 0)
+        self.player.stress = 40
+        self.db.commit()
+        self.db.refresh(self.player)
+
+        with patch("app.services.shift_state_service.get_houston_now", return_value=after_shift):
+            execute_gameplay_action(
+                str(self.player.id),
+                GameplayActionRequest(action_key="rest", parameters={}),
+                db=self.db,
+            )
+            execute_gameplay_action(
+                str(self.player.id),
+                GameplayActionRequest(action_key="rest", parameters={}),
+                db=self.db,
+            )
+            execute_gameplay_action(
+                str(self.player.id),
+                GameplayActionRequest(action_key="read_book", parameters={}),
+                db=self.db,
+            )
+            execute_gameplay_action(
+                str(self.player.id),
+                GameplayActionRequest(action_key="jogging", parameters={}),
+                db=self.db,
+            )
+            capped_state = build_work_state_payload(self.db, self.player, now_houston=after_shift)
+
+        recovery_state = capped_state.get("recovery_state") or {}
+        action_map = {
+            str(item.get("action_key")): item
+            for item in list(recovery_state.get("actions") or [])
+        }
+        meal_action = recovery_state.get("meal_action") or {}
+
+        self.assertEqual(int(recovery_state.get("category_used") or 0), 4)
+        self.assertEqual(int(recovery_state.get("category_remaining") or 0), 0)
+        self.assertFalse(bool((action_map.get("watch_tv") or {}).get("available")))
+        self.assertEqual(str((action_map.get("watch_tv") or {}).get("block_reason") or ""), "Recovery category limit reached")
+        self.assertTrue(bool(meal_action.get("available")))
+        self.assertIsNone(meal_action.get("block_reason"))
+
+        with patch("app.services.shift_state_service.get_houston_now", return_value=after_shift):
+            dinner = execute_gameplay_action(
+                str(self.player.id),
+                GameplayActionRequest(action_key="eat_meal", parameters={"meal_type": "dinner"}),
+                db=self.db,
+            )
+
+        self.assertTrue(bool(dinner["success"]))
+        self.assertEqual(int(dinner.get("time_cost_units") or 0), 0)
+        self.assertEqual(int(dinner.get("stress_delta") or 0), -2)
+        self.assertEqual(int(dinner.get("health_delta") or 0), 2)
 
     def test_debt_payment_is_repeatable_but_request_replay_is_idempotent(self) -> None:
         self.player.cash = Decimal("183.00")

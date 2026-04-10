@@ -186,6 +186,46 @@ export interface RideshareStateSnapshot {
   estimated_pay_max_per_trip?: number;
 }
 
+export interface RecoveryActionStateSnapshot {
+  action_key: string;
+  title: string;
+  used: number;
+  daily_cap: number;
+  remaining: number;
+  counts_toward_category: boolean;
+  time_cost_units: number;
+  stress_delta: number;
+  health_delta: number;
+  available: boolean;
+  block_reason?: string | null;
+}
+
+export interface RecoverySummarySnapshot {
+  points: number;
+  stress_delta: number;
+  status?: 'pending' | 'applied' | 'none' | string;
+  pure_off_hours?: number;
+  rideshare_hours?: number;
+  pure_blocks?: number;
+  rideshare_blocks?: number;
+  daily_cap?: number;
+  window_hours?: number;
+  tier?: 'none' | 'moderate' | 'heavy' | string;
+  is_weekend?: boolean;
+}
+
+export interface RecoveryStateSnapshot {
+  category_key: string;
+  category_label: string;
+  category_cap: number;
+  category_used: number;
+  category_remaining: number;
+  actions: RecoveryActionStateSnapshot[];
+  meal_action?: RecoveryActionStateSnapshot | null;
+  passive_off_hours_recovery?: RecoverySummarySnapshot | null;
+  weekend_recovery?: RecoverySummarySnapshot | null;
+}
+
 export interface CityMapNodeSnapshot {
   key: string;
   label: string;
@@ -330,6 +370,7 @@ export interface WorkStateSnapshot {
   last_completed_shift: CompletedShiftSnapshot;
   can_rideshare?: boolean;
   rideshare_state?: RideshareStateSnapshot | null;
+  recovery_state?: RecoveryStateSnapshot | null;
   rideshare_block_reason?: string | null;
   rideshare_unlocked: boolean;
   rideshare_available: boolean;

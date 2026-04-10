@@ -142,8 +142,8 @@ def apply_manual_meal_action(
             description=f"Dinner covered by debt for Day {int(day_number)} (+{debt_added:.2f} debt)",
         )
 
-    player.health = _clamp_int(health_before + 5, 0, 100)
-    player.stress = _clamp_int(stress_before - 3, 0, 100)
+    player.health = _clamp_int(health_before + 2, 0, 100)
+    player.stress = _clamp_int(stress_before - 2, 0, 100)
 
     pds.meals_recorded = int(getattr(pds, "meals_recorded", 0) or 0) + 1
     if normalized_meal == "dinner":

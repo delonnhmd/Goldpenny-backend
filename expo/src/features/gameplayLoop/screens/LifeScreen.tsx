@@ -105,7 +105,7 @@ export default function LifeScreen() {
       <GameplaySummaryCard
         eyebrow="Food"
         title="Eat a Meal"
-        subtitle="Each meal costs 6 XGP, restores +5 health, and reduces stress by 3."
+        subtitle="Each meal costs 6 XGP, restores +2 health, and reduces stress by 2."
       >
         {cash < 6 ? (
           <GameplayWarningBanner

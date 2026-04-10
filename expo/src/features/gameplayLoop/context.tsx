@@ -720,7 +720,7 @@ export function GameplayLoopProvider({
     const action: DailyActionItem = {
       action_key: 'eat_meal',
       title: `Eat ${mealType.charAt(0).toUpperCase() + mealType.slice(1)}`,
-      description: `Eat ${mealType} to restore health and reduce stress (-6 XGP).`,
+      description: `Eat ${mealType} for +2 health and -2 stress (-6 XGP).`,
       status: 'available',
       blockers: [],
       warnings: [],

@@ -23,6 +23,10 @@ from app.models.player import Player
 from app.models.player_business import PlayerBusiness
 from app.models.player_daily_state import PlayerDailyState
 from app.models.user import User
+from app.services.recovery_service import (
+    compute_passive_off_hours_recovery,
+    compute_weekend_recovery_bonus,
+)
 
 
 class LifeBalanceServiceTests(unittest.TestCase):
@@ -158,6 +162,63 @@ class LifeBalanceServiceTests(unittest.TestCase):
         self.assertGreater(stressed["stress_delta"], rested["stress_delta"])
         self.assertGreaterEqual(stressed["stress_after"], 0)
         self.assertLessEqual(stressed["stress_after"], 100)
+
+    def test_stress_update_applies_passive_and_weekend_recovery_components(self) -> None:
+        baseline = compute_daily_stress_update(
+            stress_before=Decimal("52"),
+            overtime_hours=Decimal("1"),
+            sleep_hours=Decimal("7"),
+            recovery_hours=Decimal("1.0"),
+            debt_pressure_score=Decimal("0.2"),
+            business_net_profit_xgp=Decimal("0"),
+            job_pressure=Decimal("0.0"),
+            layoff_risk_pct=Decimal("5"),
+            region_key="suburban",
+            passive_off_hours_recovery_points=0,
+            weekend_recovery_points=0,
+        )
+        recovered = compute_daily_stress_update(
+            stress_before=Decimal("52"),
+            overtime_hours=Decimal("1"),
+            sleep_hours=Decimal("7"),
+            recovery_hours=Decimal("1.0"),
+            debt_pressure_score=Decimal("0.2"),
+            business_net_profit_xgp=Decimal("0"),
+            job_pressure=Decimal("0.0"),
+            layoff_risk_pct=Decimal("5"),
+            region_key="suburban",
+            passive_off_hours_recovery_points=6,
+            weekend_recovery_points=8,
+        )
+
+        self.assertEqual(float(recovered["drivers"]["passive_off_hours_component"]), 6.0)
+        self.assertEqual(float(recovered["drivers"]["weekend_recovery_component"]), 8.0)
+        self.assertLess(recovered["stress_after"], baseline["stress_after"])
+
+    def test_passive_off_hours_recovery_weakens_when_rideshare_fills_off_hours(self) -> None:
+        full_rest = compute_passive_off_hours_recovery(0)
+        moderate_rideshare = compute_passive_off_hours_recovery(4)
+        heavy_rideshare = compute_passive_off_hours_recovery(8)
+
+        self.assertEqual(int(full_rest["points"]), 8)
+        self.assertEqual(int(moderate_rideshare["points"]), 6)
+        self.assertEqual(int(heavy_rideshare["points"]), 4)
+        self.assertGreater(int(full_rest["points"]), int(moderate_rideshare["points"]))
+        self.assertGreater(int(moderate_rideshare["points"]), int(heavy_rideshare["points"]))
+
+    def test_weekend_recovery_bonus_persists_even_with_rideshare(self) -> None:
+        no_rideshare = compute_weekend_recovery_bonus(is_weekend=True, side_income_hours_today=0)
+        moderate_rideshare = compute_weekend_recovery_bonus(is_weekend=True, side_income_hours_today=3)
+        heavy_rideshare = compute_weekend_recovery_bonus(is_weekend=True, side_income_hours_today=6)
+
+        self.assertEqual(int(no_rideshare["points"]), 12)
+        self.assertEqual(str(no_rideshare["tier"]), "full")
+        self.assertEqual(int(moderate_rideshare["points"]), 8)
+        self.assertEqual(str(moderate_rideshare["tier"]), "moderate")
+        self.assertEqual(int(heavy_rideshare["points"]), 5)
+        self.assertEqual(str(heavy_rideshare["tier"]), "heavy")
+        self.assertGreater(int(no_rideshare["points"]), int(moderate_rideshare["points"]))
+        self.assertGreater(int(moderate_rideshare["points"]), int(heavy_rideshare["points"]))
 
     def test_health_moves_slower_than_stress(self) -> None:
         health = compute_daily_health_update(

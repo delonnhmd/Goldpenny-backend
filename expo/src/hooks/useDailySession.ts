@@ -30,13 +30,37 @@ const MIN_ACTION_TIME_COST_UNITS = BALANCE.SAFETY.MIN_TIME_COST_UNITS;
 const MAX_ACTION_TIME_COST_UNITS = BALANCE.SAFETY.MAX_TIME_COST_UNITS;
 const DEFAULT_ACTION_TIME_COST: Record<string, number> = BALANCE.ACTION_TIME_COST;
 const DEFAULT_ACTION_CAPS: Record<string, number> = BALANCE.ACTION_CAPS;
+const RECOVERY_ACTION_CATEGORY_CAP = BALANCE.RECOVERY_ACTIONS.CATEGORY_CAP;
 const ZERO_TIME_ACTION_KEYS = new Set(['eat_meal', 'quick_loan', 'debt_payment', 'select_housing']);
+const RECOVERY_ACTION_LABELS: Record<string, string> = {
+  rest: 'Rest',
+  watch_tv: 'Watch TV',
+  watch_movie: 'Watch Movie',
+  read_book: 'Read Book',
+  jogging: 'Jogging',
+};
+const RECOVERY_ACTION_KEYS = new Set(Object.keys(RECOVERY_ACTION_LABELS));
 
 const MAX_PERSISTED_ACTION_COUNT = 99;
+
+function toActionLabel(actionKey: string): string {
+  return RECOVERY_ACTION_LABELS[actionKey]
+    || actionKey
+      .split('_')
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+}
+
+function actionLimitReason(actionKey: string): string {
+  if (actionKey === 'eat_meal') return 'Meal already completed';
+  return `${toActionLabel(actionKey)} daily limit reached`;
+}
 
 function normalizeActionKey(key: GameplayActionKey): string {
   const raw = String(key || '').toLowerCase().trim();
   if (!raw) return '';
+  if (raw === 'watch_tv' || raw === 'watch_movie' || raw === 'read_book' || raw === 'jogging') return raw;
   if (raw === 'switch_job' || (raw.includes('switch') && raw.includes('job'))) return 'switch_job';
   if (raw === 'change_region' || ((raw.includes('change') || raw.includes('move')) && raw.includes('region'))) {
     return 'change_region';
@@ -235,6 +259,13 @@ export function useDailySession(playerId: string) {
     [actionCounts],
   );
 
+  const recoveryActionsUsedToday = useMemo(
+    () => Object.entries(actionCounts).reduce((sum, [key, count]) => (
+      RECOVERY_ACTION_KEYS.has(key) ? sum + Math.max(0, Number(count) || 0) : sum
+    ), 0),
+    [actionCounts],
+  );
+
   const canExecuteAction = useCallback(
     (action: DailyActionItem | { action_key: GameplayActionKey; status?: string; blockers?: string[] }, explicitCost?: number): ActionExecutionGuard => {
       const timeCostUnits = estimateTimeCost(action.action_key, explicitCost);
@@ -256,14 +287,25 @@ export function useDailySession(playerId: string) {
       const normalized = normalizeActionKey(action.action_key);
       const cap = DEFAULT_ACTION_CAPS[normalized];
       if (cap && getActionCount(normalized) >= cap) {
-        return { allowed: false, reason: 'You already used this action enough times today.', timeCostUnits };
+        return { allowed: false, reason: actionLimitReason(normalized), timeCostUnits };
+      }
+      if (RECOVERY_ACTION_KEYS.has(normalized) && recoveryActionsUsedToday >= RECOVERY_ACTION_CATEGORY_CAP) {
+        return { allowed: false, reason: 'Recovery category limit reached', timeCostUnits };
       }
       if (remainingTimeUnits < timeCostUnits) {
         return { allowed: false, reason: 'Not enough time today.', timeCostUnits };
       }
       return { allowed: true, reason: null, timeCostUnits };
     },
-    [currentDay, estimateTimeCost, getActionCount, pendingExecution, remainingTimeUnits, sessionStatus],
+    [
+      currentDay,
+      estimateTimeCost,
+      getActionCount,
+      pendingExecution,
+      recoveryActionsUsedToday,
+      remainingTimeUnits,
+      sessionStatus,
+    ],
   );
 
   const consumeTime = useCallback((amount: number) => {

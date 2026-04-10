@@ -135,7 +135,7 @@ export function createMockActionHub(playerId: string): DailyActionHubResponse {
       },
       {
         action_key: 'rest',
-        title: 'Recovery Block',
+        title: 'Rest',
         description: 'Reduce stress and protect health before tomorrow.',
         status: 'available',
         blockers: [],

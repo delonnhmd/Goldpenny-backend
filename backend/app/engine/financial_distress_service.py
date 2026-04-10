@@ -869,7 +869,9 @@ def apply_daily_financial_distress(
         },
     }
 
+    existing_recovery_json = _parse_json(getattr(pds, "recovery_actions_json", None))
     recovery_actions_json = {
+        **existing_recovery_json,
         "actions_applied": list(recovery_update.get("actions_applied", [])),
         "invalid_actions": list(recovery_update.get("invalid_actions", [])),
         "suggested_actions": list(recovery_update.get("suggested_actions", [])),

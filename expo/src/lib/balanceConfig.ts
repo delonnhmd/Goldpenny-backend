@@ -15,7 +15,12 @@ export const BALANCE = {
     operate_business: 2,
     buy_inventory: 1,
     rest: 2,
+    watch_tv: 1,
+    watch_movie: 1,
+    read_book: 1,
+    jogging: 1,
     study: 2,
+    eat_meal: 0,
     debt_payment: 0,
     recovery_action: 1,
     travel: 1,
@@ -31,6 +36,10 @@ export const BALANCE = {
     operate_business: 1,
     buy_inventory: 2,
     rest: 2,
+    watch_tv: 1,
+    watch_movie: 1,
+    read_book: 2,
+    jogging: 1,
     study: 2,
     recovery_action: 1,   // one session-level recovery per day
     travel: 12,
@@ -39,6 +48,10 @@ export const BALANCE = {
   } as Record<string, number>,
 
   // ─── Random event cash / debt impact (informational display values) ───────────
+  RECOVERY_ACTIONS: {
+    CATEGORY_CAP: 4,
+  },
+
   EVENT: {
     GROCERY_SPIKE_LOSS: 25,
     MISSED_OPPORTUNITY_LOSS: 15,

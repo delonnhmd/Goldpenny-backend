@@ -15,6 +15,11 @@ from app.models.business_daily_log import BusinessDailyLog
 from app.models.player import Player
 from app.models.player_business import PlayerBusiness
 from app.models.player_daily_state import PlayerDailyState
+from app.services.recovery_service import (
+    compute_passive_off_hours_recovery,
+    compute_weekend_recovery_bonus,
+)
+from app.services.shift_state_service import get_houston_now
 from app.services.job_market_service import JobMarketError, compute_job_market_pressure
 from app.services.player_daily_state_service import ensure_player_daily_state
 
@@ -249,6 +254,8 @@ def compute_daily_stress_update(
     distress_score: Decimal = Decimal("0.0"),
     distress_state: str = "stable",
     sustained_zero_rest_streak: int = 0,
+    passive_off_hours_recovery_points: Decimal = Decimal("0.0"),
+    weekend_recovery_points: Decimal = Decimal("0.0"),
 ) -> dict:
     """Compute bounded daily stress movement and debug driver chain."""
     overtime_component = _clamp(overtime_hours * Decimal("1.5"), Decimal("0"), Decimal("8"))
@@ -303,6 +310,8 @@ def compute_daily_stress_update(
         and sleep_hours >= Decimal("7")
     ):
         stable_day_relief_component = Decimal("1.20")
+    passive_off_hours_component = _clamp(_d(passive_off_hours_recovery_points), Decimal("0.0"), Decimal("8.0"))
+    weekend_recovery_component = _clamp(_d(weekend_recovery_points), Decimal("0.0"), Decimal("12.0"))
 
     delta_raw = (
         overtime_component
@@ -316,6 +325,8 @@ def compute_daily_stress_update(
         + distress_state_component
         + sustained_grind_component
         - recovery_component
+        - passive_off_hours_component
+        - weekend_recovery_component
         - stable_day_relief_component
     )
     delta_clamped = _clamp(delta_raw, Decimal("-12"), Decimal("15"))
@@ -342,6 +353,8 @@ def compute_daily_stress_update(
             "sustained_grind_component": float(_q4(sustained_grind_component)),
             "recovery_effectiveness": float(_q4(recovery_effectiveness)),
             "recovery_component": float(_q4(recovery_component)),
+            "passive_off_hours_component": float(_q4(passive_off_hours_component)),
+            "weekend_recovery_component": float(_q4(weekend_recovery_component)),
             "stable_day_relief_component": float(_q4(stable_day_relief_component)),
             "stress_delta_raw": float(_q4(delta_raw)),
         },
@@ -623,6 +636,14 @@ def apply_life_consequences_for_player(
         recovery_hours=_d(getattr(pds, "recovery_hours", 0) or Decimal("1.00")),
         commute_hours_override=(commute_hours_from_housing if has_housing_overrides else None),
     )
+    side_income_hours_today = _d(side_income_hours)
+    houston_now = get_houston_now()
+    houston_is_weekend = bool(houston_now.weekday() >= 5)
+    passive_off_hours = compute_passive_off_hours_recovery(side_income_hours_today)
+    weekend_recovery = compute_weekend_recovery_bonus(
+        is_weekend=houston_is_weekend,
+        side_income_hours_today=side_income_hours_today,
+    )
 
     stress_before = _d(player.stress)
     health_before = _d(player.health)
@@ -641,6 +662,8 @@ def apply_life_consequences_for_player(
         distress_score=distress_score,
         distress_state=distress_state,
         sustained_zero_rest_streak=sustained_zero_rest_streak,
+        passive_off_hours_recovery_points=Decimal(str(passive_off_hours["points"])),
+        weekend_recovery_points=Decimal(str(weekend_recovery["points"])),
     )
 
     risk_update = compute_burnout_and_medical_risk(
@@ -780,6 +803,19 @@ def apply_life_consequences_for_player(
             "used_housing_overrides": bool(has_housing_overrides),
             "commute_hours_input": float(_q4(commute_hours_from_housing)),
             "region_stress_delta_input": float(_q4(region_stress_from_housing)),
+        },
+        "passive_recovery": {
+            "houston_timestamp": houston_now.isoformat(),
+            "houston_is_weekend": bool(houston_is_weekend),
+            "off_hours_points": int(passive_off_hours["points"]),
+            "pure_off_hours": float(passive_off_hours["pure_off_hours"]),
+            "rideshare_hours": float(passive_off_hours["rideshare_hours"]),
+            "pure_blocks": int(passive_off_hours["pure_blocks"]),
+            "rideshare_blocks": int(passive_off_hours["rideshare_blocks"]),
+            "off_hours_daily_cap": int(passive_off_hours["daily_cap"]),
+            "weekend_points": int(weekend_recovery["points"]),
+            "weekend_tier": str(weekend_recovery["tier"]),
+            "weekend_rideshare_hours": float(weekend_recovery["rideshare_hours"]),
         },
         "stress_drivers": stress_update["drivers"],
         "health_drivers": health_update["drivers"],

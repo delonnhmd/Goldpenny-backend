@@ -16,7 +16,12 @@ import { finalizePlayerWorkState } from '@/lib/api/gameplay';
 import { BALANCE } from '@/lib/balanceConfig';
 import { formatMoney } from '@/lib/gameplayFormatters';
 import { recordInfo } from '@/lib/logger';
-import { DailyActionItem, EconomySignalChip, JobMarketJobSnapshot } from '@/types/gameplay';
+import {
+  DailyActionItem,
+  EconomySignalChip,
+  JobMarketJobSnapshot,
+  RecoveryActionStateSnapshot,
+} from '@/types/gameplay';
 
 import { useGameplayLoop } from '../context';
 import JobMarketPanel from '../components/JobMarketPanel';
@@ -89,10 +94,10 @@ interface RecoveryPreset {
 const RECOVERY_PRESETS: RecoveryPreset[] = [
   { id: 'watch_tv', title: 'Watch TV', timeCostUnits: 1, stressChange: -4, healthChange: 0, skillChange: 0 },
   { id: 'watch_movie', title: 'Watch Movie', timeCostUnits: 1, stressChange: -5, healthChange: 0, skillChange: 0 },
-  { id: 'read_book', title: 'Read Book', timeCostUnits: 1, stressChange: -2, healthChange: 0, skillChange: 1 },
+  { id: 'read_book', title: 'Read Book', timeCostUnits: 1, stressChange: -3, healthChange: 0, skillChange: 0 },
   { id: 'jogging', title: 'Jogging', timeCostUnits: 1, stressChange: -3, healthChange: 2, skillChange: 0 },
-  { id: 'eat_meal', title: 'Eat Meal', timeCostUnits: 1, stressChange: -4, healthChange: 2, skillChange: 0 },
-  { id: 'rest', title: 'Rest', timeCostUnits: 1, stressChange: -6, healthChange: 3, skillChange: 0 },
+  { id: 'eat_meal', title: 'Eat Meal', timeCostUnits: 0, stressChange: -2, healthChange: 2, skillChange: 0 },
+  { id: 'rest', title: 'Rest', timeCostUnits: 1, stressChange: -6, healthChange: 0, skillChange: 0 },
 ];
 
 function canonicalDashboardActionKey(actionKey: string): string {
@@ -100,6 +105,7 @@ function canonicalDashboardActionKey(actionKey: string): string {
   if (!raw) return '';
   if (raw.includes('work') || raw.includes('shift')) return 'work_shift';
   if (raw.includes('ride') || raw.includes('side_income') || raw.includes('delivery')) return 'side_income';
+  if (raw === 'watch_tv' || raw === 'watch_movie' || raw === 'read_book' || raw === 'jogging') return 'rest';
   if (raw.includes('rest') || raw.includes('recover')) return 'rest';
   if (raw.includes('study') || raw.includes('train')) return 'study';
   if (raw.includes('debt') || raw.includes('loan') || raw.includes('borrow')) return 'finance';
@@ -620,6 +626,20 @@ export default function DashboardScreen() {
   ), [workState?.is_weekend, workState?.phase_status_label]);
 
   const dayLabel = loop.dailySession.currentDay || loop.dailyProgression.currentGameDay || 1;
+  const recoveryState = workState?.recovery_state || null;
+  const recoveryActionStateByKey = useMemo(() => {
+    const next: Record<string, RecoveryActionStateSnapshot> = {};
+    (recoveryState?.actions || []).forEach((entry) => {
+      const key = String(entry.action_key || '').trim().toLowerCase();
+      if (key) next[key] = entry;
+    });
+    if (recoveryState?.meal_action?.action_key) {
+      next[String(recoveryState.meal_action.action_key).trim().toLowerCase()] = recoveryState.meal_action;
+    }
+    return next;
+  }, [recoveryState?.actions, recoveryState?.meal_action]);
+  const passiveRecoverySummary = recoveryState?.passive_off_hours_recovery || null;
+  const weekendRecoverySummary = recoveryState?.weekend_recovery || null;
   const rideshareState = workState?.rideshare_state || null;
   const currentLocationLabel = String(
     workState?.current_location_label
@@ -1167,10 +1187,18 @@ export default function DashboardScreen() {
   };
 
   const runRecoveryAction = async (preset: RecoveryPreset) => {
-    if (backendShiftActive || autoClockingOut) {
+    const recoveryActionState = recoveryActionStateByKey[preset.id];
+    const disabledReason = (
+      backendShiftActive || autoClockingOut
+        ? `Action unavailable during active shift. Available after ${shiftEndLabel}.`
+        : recoveryActionState && !recoveryActionState.available
+          ? String(recoveryActionState.block_reason || 'Recovery action unavailable right now.')
+          : null
+    );
+    if (disabledReason) {
       loop.setFeedback({
         tone: 'error',
-        message: `Recovery actions are unavailable during shift. Available after ${shiftEndLabel}.`,
+        message: disabledReason,
       });
       return;
     }
@@ -1180,53 +1208,17 @@ export default function DashboardScreen() {
     try {
       if (preset.id === 'eat_meal') {
         await loop.eatMeal('dinner');
-      } else if (preset.id === 'read_book') {
-        await loop.executeAction({
-          action_key: 'study',
-          title: 'Read Book',
-          description: 'Read for focused recovery and skill growth.',
-          status: 'available',
-          blockers: [],
-          warnings: [],
-          tradeoffs: [],
-          confidence_level: 'high',
-          parameters: { training_hours: 1 },
-        });
-      } else if (preset.id === 'jogging') {
-        await loop.executeAction({
-          action_key: 'rest',
-          title: 'Jogging',
-          description: 'Jog lightly to lower stress and improve health.',
-          status: 'available',
-          blockers: [],
-          warnings: [],
-          tradeoffs: [],
-          confidence_level: 'medium',
-          parameters: { recovery_mode: 'jogging' },
-        });
-      } else if (preset.id === 'watch_tv' || preset.id === 'watch_movie') {
-        await loop.executeAction({
-          action_key: 'rest',
-          title: preset.title,
-          description: `${preset.title} to decompress before your next money move.`,
-          status: 'available',
-          blockers: [],
-          warnings: [],
-          tradeoffs: [],
-          confidence_level: 'high',
-          parameters: { recovery_mode: preset.id },
-        });
       } else {
         await loop.executeAction({
-          action_key: 'rest',
-          title: 'Rest',
-          description: 'Take a short recovery block to reduce stress.',
+          action_key: preset.id,
+          title: preset.title,
+          description: `${preset.title} to recover before the next pressure spike.`,
           status: 'available',
           blockers: [],
           warnings: [],
           tradeoffs: [],
           confidence_level: 'high',
-          parameters: { recovery_mode: 'rest' },
+          parameters: {},
         });
       }
     } finally {
@@ -1980,23 +1972,67 @@ export default function DashboardScreen() {
             tone="warning"
           />
         ) : null}
+        <GameplayCompactMetricRows
+          items={[
+            {
+              label: 'Recovery actions used',
+              value: `${Number(recoveryState?.category_used || 0)} / ${Number(recoveryState?.category_cap || 4)}`,
+            },
+            {
+              label: 'Recovery remaining',
+              value: String(Math.max(0, Number(recoveryState?.category_remaining || 0))),
+              tone: Number(recoveryState?.category_remaining || 0) <= 0 ? 'warning' : 'positive',
+            },
+            {
+              label: 'Passive off-hours',
+              value: `${signedWhole(Number(passiveRecoverySummary?.stress_delta || 0))} ${
+                passiveRecoverySummary?.status === 'applied' ? '(applied)' : '(pending)'
+              }`,
+              tone: Number(passiveRecoverySummary?.stress_delta || 0) < 0 ? 'positive' : 'neutral',
+            },
+            {
+              label: 'Weekend recovery',
+              value: weekendRecoverySummary?.is_weekend
+                ? `${signedWhole(Number(weekendRecoverySummary?.stress_delta || 0))} (${String(weekendRecoverySummary?.tier || 'pending')})`
+                : 'None',
+              tone: weekendRecoverySummary?.is_weekend ? 'positive' : 'neutral',
+            },
+          ]}
+        />
 
         <View style={styles.recoveryList}>
           {RECOVERY_PRESETS.map((preset) => {
             const running = busyRecoveryId === preset.id;
+            const actionState = recoveryActionStateByKey[preset.id];
+            const actionRemaining = Math.max(0, Number(actionState?.remaining ?? (preset.id === 'eat_meal' ? 1 : 0)));
+            const actionDisabledReason = (
+              backendShiftActive || autoClockingOut
+                ? `Action unavailable during active shift. Available after ${shiftEndLabel}.`
+                : actionState && !actionState.available
+                  ? String(actionState.block_reason || 'Recovery action unavailable right now.')
+                  : null
+            );
             return (
               <View key={preset.id} style={styles.recoveryRow}>
                 <View style={styles.recoveryInfo}>
                   <Text style={styles.recoveryTitle}>{preset.title}</Text>
                   <Text style={styles.recoveryMeta}>
-                    Time {preset.timeCostUnits}u | Stress {signedWhole(preset.stressChange)} | Health {signedWhole(preset.healthChange)} | Skill {signedWhole(preset.skillChange)}
+                    Time {preset.timeCostUnits}u | Stress {signedWhole(preset.stressChange)} | Health {signedWhole(preset.healthChange)} | Remaining {actionRemaining}
                   </Text>
+                  <Text style={styles.recoveryMeta}>
+                    {preset.id === 'eat_meal'
+                      ? 'Meal system separate from recovery cap.'
+                      : `Recovery category remaining: ${Math.max(0, Number(recoveryState?.category_remaining || 0))}`}
+                  </Text>
+                  {actionDisabledReason ? (
+                    <Text style={styles.helperText}>{actionDisabledReason}</Text>
+                  ) : null}
                 </View>
                 <View style={styles.recoveryActionWrap}>
                   <SecondaryButton
                     label={running ? 'Running...' : 'Do'}
                     onPress={() => void runRecoveryAction(preset)}
-                    disabled={Boolean(busyRecoveryId) || loop.executingAction || backendShiftActive || autoClockingOut}
+                    disabled={Boolean(busyRecoveryId) || loop.executingAction || Boolean(actionDisabledReason)}
                   />
                 </View>
               </View>

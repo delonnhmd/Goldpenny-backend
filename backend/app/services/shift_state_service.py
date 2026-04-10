@@ -58,6 +58,7 @@ from app.services.player_job_progression_service import (
     progression_lookup_map,
     safe_default_progression_for_job,
 )
+from app.services.recovery_service import build_recovery_state
 from app.services.player_daily_state_service import ensure_player_daily_state
 from app.services.player_transaction_log_service import record_player_transaction
 
@@ -2915,6 +2916,16 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
     )
     if needs_dinner_reminder and pds is not None:
         pds.night_eat_reminder_shown = True
+    recovery_state = build_recovery_state(
+        pds=pds,
+        hours_available=int(getattr(player, "hours_available", 0) or 0),
+        active_shift=bool(active_shift),
+        day_settled=bool(day_settled),
+        is_weekend=bool(schedule["is_weekend"]),
+        side_income_hours_today=side_income_hours_today,
+        dinner_resolved=bool(dinner_resolved_today),
+        life_debug_json=getattr(pds, "life_debug_json", None) if pds is not None else None,
+    )
 
     rideshare_unlocked = bool(
         not active_shift
@@ -3118,6 +3129,7 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         "needs_dinner_reminder": needs_dinner_reminder,
         "dinner_reminder_message": dinner_reminder_message,
         "night_eat_reminder_shown": bool(getattr(pds, "night_eat_reminder_shown", False)) if pds is not None else False,
+        "recovery_state": recovery_state,
         "last_completed_shift": last_completed_shift_payload,
         "can_rideshare": rideshare_available,
         "rideshare_state": rideshare_state,

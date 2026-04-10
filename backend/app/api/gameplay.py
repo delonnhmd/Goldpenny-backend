@@ -77,6 +77,11 @@ from app.services.job_progress_service import (
     upsert_employment_foundation,
 )
 from app.services.job_key_service import normalize_main_job_key
+from app.services.recovery_service import (
+    RECOVERY_ACTION_PRESETS,
+    apply_recovery_action,
+    resolve_recovery_action_key,
+)
 from app.services.shift_state_service import (
     SHIFT_STATUS_ACTIVE,
     build_work_state_payload,
@@ -516,6 +521,20 @@ def _execution_state_snapshot(db: Session, player: Player) -> dict[str, Any]:
     }
 
 
+def _recovery_action_summary(action_key: str) -> str:
+    preset = RECOVERY_ACTION_PRESETS.get(action_key) or {}
+    title = str(preset.get("title") or action_key.replace("_", " ").title())
+    stress_delta = int(preset.get("stress_delta") or 0)
+    health_delta = int(preset.get("health_delta") or 0)
+    summary_bits: list[str] = []
+    if stress_delta:
+        summary_bits.append(f"Stress {stress_delta:+d}")
+    if health_delta:
+        summary_bits.append(f"Health {health_delta:+d}")
+    summary_text = " | ".join(summary_bits) if summary_bits else "No stat change"
+    return f"{title} completed. {summary_text}."
+
+
 def _is_new_player_first_session(player: Player) -> bool:
     return _safe_int(getattr(player, "last_settled_day", None), 0) <= 0
 
@@ -644,6 +663,19 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
     ).strip()
     if backend_rideshare_reason:
         rideshare_unlock_reason = backend_rideshare_reason
+    recovery_state = (
+        work_state.get("recovery_state")
+        if isinstance(work_state.get("recovery_state"), dict)
+        else {}
+    )
+    rest_action_state = next(
+        (
+            item
+            for item in list(recovery_state.get("actions") or [])
+            if str(item.get("action_key") or "").strip().lower() == "rest"
+        ),
+        {},
+    )
 
     recommended_actions: list[dict[str, Any]] = []
     available_actions: list[dict[str, Any]] = []
@@ -888,32 +920,40 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
             }
         )
 
-    (blocked_actions if shift_active else available_actions).extend(
-        [
-            {
-                "action_key": "study",
-                "title": "Skill Training",
-                "description": "Invest 2 hours in career growth for better long-term outcomes.",
-                "status": "blocked" if shift_active else "available",
-                "blockers": ([f"Training unlocks after the active shift ends at {work_state.get('shift_ends_at')}."] if shift_active else []),
-                "tradeoffs": ["No immediate cash today."],
-                "warnings": [],
-                "confidence_level": "medium",
-                "parameters": {"training_hours": 2},
-            },
-            {
-                "action_key": "rest",
-                "title": "Recovery Block",
-                "description": "Lower stress and protect health before settlement.",
-                "status": "blocked" if shift_active else "available",
-                "blockers": ([f"Recovery unlocks after the active shift ends at {work_state.get('shift_ends_at')}."] if shift_active else []),
-                "tradeoffs": ["No direct income this action."],
-                "warnings": [],
-                "confidence_level": "high",
-                "parameters": {},
-            },
-        ]
+    (blocked_actions if shift_active else available_actions).append(
+        {
+            "action_key": "study",
+            "title": "Skill Training",
+            "description": "Invest 2 hours in career growth for better long-term outcomes.",
+            "status": "blocked" if shift_active else "available",
+            "blockers": ([f"Training unlocks after the active shift ends at {work_state.get('shift_ends_at')}."] if shift_active else []),
+            "tradeoffs": ["No immediate cash today."],
+            "warnings": [],
+            "confidence_level": "medium",
+            "parameters": {"training_hours": 2},
+        }
     )
+    rest_status = "available" if bool(rest_action_state.get("available")) else "blocked"
+    rest_blockers = []
+    if rest_status != "available":
+        rest_blockers = [str(rest_action_state.get("block_reason") or "Recovery action unavailable.")]
+    rest_remaining = int(rest_action_state.get("remaining") or 0)
+    rest_category_remaining = int(recovery_state.get("category_remaining") or 0)
+    rest_payload = {
+        "action_key": "rest",
+        "title": "Rest",
+        "description": "Lower stress before settlement without burning the whole recovery category.",
+        "status": rest_status,
+        "blockers": rest_blockers,
+        "tradeoffs": ["No direct income this action."],
+        "warnings": [
+            f"Rest remaining today: {rest_remaining}.",
+            f"Recovery actions remaining today: {rest_category_remaining}.",
+        ],
+        "confidence_level": "high",
+        "parameters": {},
+    }
+    (available_actions if rest_status == "available" else blocked_actions).append(rest_payload)
 
     debt_now = max(0.0, _safe_float(getattr(player, "debt_xgp", 0), 0.0))
     cash_now = max(0.0, _safe_float(getattr(player, "cash", 0), 0.0))
@@ -1583,7 +1623,7 @@ def preview_gameplay_action(
         "debug_meta": {"preview_route": "canonical"},
     }
 
-    if key in {"switch_job", "start_training", "study", "rest", "side_income", "travel"} and bool(work_state.get("main_shift_active_flag")):
+    if key in {"switch_job", "start_training", "study", "rest", "watch_tv", "watch_movie", "read_book", "jogging", "side_income", "travel"} and bool(work_state.get("main_shift_active_flag")):
         base["blockers"] = [
             f"Main shift is active until {work_state.get('shift_end_time_label') or work_state.get('scheduled_shift_end_label') or 'shift completion'}."
         ]
@@ -1635,17 +1675,38 @@ def preview_gameplay_action(
         base["summary"] = "Ride share adds variable cash with stress tradeoff."
         base["expected_cash_impact"] = {"label": "Cash", "direction": "up", "amount": 20 * hours, "text": f"+~{20 * hours} xgp"}
         base["expected_stress_impact"] = {"label": "Stress", "direction": "up", "amount": max(1, hours), "text": f"+{max(1, hours)}"}
-    elif key == "rest":
-        base["summary"] = "Recovery lowers stress and improves health stability."
-        base["expected_stress_impact"] = {"label": "Stress", "direction": "down", "amount": -6, "text": "-6"}
-        base["expected_health_impact"] = {"label": "Health", "direction": "up", "amount": 3, "text": "+3"}
-        base["expected_time_impact"] = {"label": "Time", "direction": "down", "amount": -1, "text": "-1 units"}
+    elif resolve_recovery_action_key(key, params):
+        recovery_key = str(resolve_recovery_action_key(key, params) or "")
+        recovery_preset = RECOVERY_ACTION_PRESETS[recovery_key]
+        base["summary"] = f"{recovery_preset['title']} lowers stress without consuming the whole day."
+        base["expected_stress_impact"] = {
+            "label": "Stress",
+            "direction": "down",
+            "amount": int(recovery_preset["stress_delta"]),
+            "text": str(int(recovery_preset["stress_delta"])),
+        }
+        base["expected_health_impact"] = {
+            "label": "Health",
+            "direction": "up" if int(recovery_preset["health_delta"]) > 0 else "flat",
+            "amount": int(recovery_preset["health_delta"]),
+            "text": (
+                f"+{int(recovery_preset['health_delta'])}"
+                if int(recovery_preset["health_delta"]) > 0
+                else "0"
+            ),
+        }
+        base["expected_time_impact"] = {
+            "label": "Time",
+            "direction": "down",
+            "amount": -int(recovery_preset["time_cost_units"]),
+            "text": f"-{int(recovery_preset['time_cost_units'])} units",
+        }
     elif key == "eat_meal":
         meal_type = str(params.get("meal_type") or "meal").strip().lower()
         base["summary"] = f"Eating {meal_type} costs 6 XGP and restores health and reduces stress."
         base["expected_cash_impact"] = {"label": "Cash", "direction": "down", "amount": -6, "text": "-6 XGP"}
-        base["expected_health_impact"] = {"label": "Health", "direction": "up", "amount": 5, "text": "+5"}
-        base["expected_stress_impact"] = {"label": "Stress", "direction": "down", "amount": -3, "text": "-3"}
+        base["expected_health_impact"] = {"label": "Health", "direction": "up", "amount": 2, "text": "+2"}
+        base["expected_stress_impact"] = {"label": "Stress", "direction": "down", "amount": -2, "text": "-2"}
         base["expected_time_impact"] = {"label": "Time", "direction": "flat", "amount": 0, "text": "No time cost"}
     elif key == "quick_loan":
         raw_amount = max(100, min(500, int(params.get("loan_amount") or 200)))
@@ -2165,29 +2226,44 @@ def execute_gameplay_action(
             )
             _raise_gameplay_http_error(exc)
 
-    if action_key == "rest":
+    resolved_recovery_action = resolve_recovery_action_key(action_key, params)
+    if resolved_recovery_action is not None:
         _assert_no_active_main_shift(work_state, action_key=action_key)
-        stress_before = _safe_int(player.stress, 0)
-        health_before = _safe_int(player.health, 100)
-        player.stress = max(0, stress_before - 6)
-        player.health = min(100, health_before + 3)
-        db.commit()
+        current_day = int(work_state.get("current_game_day") or _current_game_day(db))
+        try:
+            result = apply_recovery_action(
+                db,
+                player=player,
+                day_number=current_day,
+                action_key=action_key,
+                parameters=params,
+                active_shift=bool(work_state.get("main_shift_active_flag")),
+                day_settled=bool(work_state.get("day_settled")),
+                is_weekend=bool(work_state.get("is_weekend")),
+                side_income_hours_today=_safe_float(work_state.get("side_income_hours_today"), 0.0),
+            )
+            db.commit()
+            db.refresh(player)
+        except ValueError as exc:
+            db.rollback()
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+        except Exception as exc:
+            db.rollback()
+            _raise_gameplay_http_error(exc)
+
         return {
             "player_id": str(player.id),
-            "action_key": action_key,
+            "action_key": resolved_recovery_action,
             "success": True,
-            "message": "Recovery complete.",
-            "result_summary": "You took a recovery block and stabilized pressure.",
-            "time_cost_units": 1,
+            "message": f"{str(result.get('title') or resolved_recovery_action.replace('_', ' ').title())} complete.",
+            "result_summary": _recovery_action_summary(resolved_recovery_action),
+            "time_cost_units": int(result.get("time_cost_units") or 0),
             "cash_delta_xgp": 0.0,
-            "stress_delta": player.stress - stress_before,
-            "health_delta": player.health - health_before,
+            "stress_delta": int(result.get("stress_delta") or 0),
+            "health_delta": int(result.get("health_delta") or 0),
             "raw_result": {
+                **result,
                 "work_state": build_work_state_payload(db, player),
-                "stress_before": stress_before,
-                "stress_after": _safe_int(player.stress, stress_before),
-                "health_before": health_before,
-                "health_after": _safe_int(player.health, health_before),
             },
         }
 
@@ -2199,12 +2275,12 @@ def execute_gameplay_action(
         if bool(latest_work_state.get("day_settled")):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Day finalized. Dinner outcome already recorded.",
+                detail="Day already settled.",
             )
         if meal_type == "dinner" and bool(latest_work_state.get("dinner_resolved_today")):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Dinner already resolved today.",
+                detail="Meal already completed",
             )
         try:
             result = apply_manual_meal_action(
@@ -2230,7 +2306,7 @@ def execute_gameplay_action(
             "message": f"{meal_type.capitalize()} eaten.",
             "result_summary": (
                 f"You ate {meal_type} (-{_safe_float(result.get('meal_cost_xgp'), 6.0):.2f} XGP"
-                f"{debt_note}, +5 health, -3 stress)."
+                f"{debt_note}, +2 health, -2 stress)."
             ),
             "time_cost_units": 0,
             "cash_delta_xgp": -_safe_float(result.get("cash_used_xgp"), 0.0),
