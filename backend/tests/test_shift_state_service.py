@@ -11,7 +11,7 @@ from sqlalchemy.orm import sessionmaker
 
 os.environ["DATABASE_URL"] = "postgresql://goldpenny:goldpenny@localhost:5432/goldpenny_test"
 
-from app.api.gameplay import get_gameplay_actions
+from app.api.gameplay import GameplayActionRequest, execute_gameplay_action, get_gameplay_actions
 from app.api.gameplay import get_gameplay_transaction_history
 from app.db.database import Base
 from app.engine.rideshare_engine import process_rideshare_action
@@ -31,6 +31,7 @@ from app.models.user import User
 from app.models.xgp_transaction import XGPTransaction
 from app.services.shift_state_service import (
     SHIFT_STATUS_COMPLETED,
+    _retry_pending_shift_salary_if_needed,
     build_work_state_payload,
     get_houston_now,
     resolve_expired_shift_if_needed,
@@ -75,6 +76,28 @@ class ShiftStateServiceTests(unittest.TestCase):
                 stability_pct=Decimal("82.00"),
                 growth_pct=Decimal("75.00"),
                 stress_pct=Decimal("70.00"),
+                promotion_threshold=100,
+            )
+        )
+        self.db.add(
+            JobDefinition(
+                job_code="warehouse_operator",
+                title="Warehouse Manager",
+                base_monthly_pay_xgp=Decimal("3200.00"),
+                stability_pct=Decimal("72.00"),
+                growth_pct=Decimal("60.00"),
+                stress_pct=Decimal("55.00"),
+                promotion_threshold=100,
+            )
+        )
+        self.db.add(
+            JobDefinition(
+                job_code="retail",
+                title="Retail Seller",
+                base_monthly_pay_xgp=Decimal("2600.00"),
+                stability_pct=Decimal("65.00"),
+                growth_pct=Decimal("52.00"),
+                stress_pct=Decimal("50.00"),
                 promotion_threshold=100,
             )
         )
@@ -380,7 +403,7 @@ class ShiftStateServiceTests(unittest.TestCase):
             .first()
         )
         assert salary_txn is not None
-        self.assertIn("Main job salary for Day 1", str(salary_txn.description))
+        self.assertEqual(str(salary_txn.description), "Salary - Shift 1 - Banker")
 
     def test_completed_shift_posts_salary_audit_and_cash_delta_matches_ledger(self) -> None:
         shift_start = self._houston_datetime(2026, 1, 1, 12, 0)
@@ -646,6 +669,226 @@ class ShiftStateServiceTests(unittest.TestCase):
         self.assertIn("Market data temporarily unavailable", str(work_state.get("market_data_message") or ""))
         self.assertEqual(str(work_state.get("day_of_week")), "Thursday")
         self.assertEqual(str(work_state.get("phase_status_label")), "Weekday")
+
+    def test_testing_mode_shift_one_exposes_overtime_and_post_shift_rideshare(self) -> None:
+        self.player.main_job = "warehouse_operator"
+        self.db.commit()
+
+        shift_start = self._houston_datetime(2026, 1, 1, 10, 0)
+        after_shift = self._houston_datetime(2026, 1, 1, 10, 16)
+
+        with patch.dict(os.environ, {"GAMEPLAY_TESTING_MODE": "1"}, clear=False):
+            shift_state = start_main_shift(
+                self.db,
+                player=self.player,
+                job_name="warehouse_operator",
+                shift_type="standard_shift",
+                hours_worked=6,
+                now_houston=shift_start,
+            )
+
+            started_at = datetime.fromisoformat(str(shift_state.get("shift_started_at")))
+            ends_at = datetime.fromisoformat(str(shift_state.get("shift_ends_at")))
+            self.assertEqual(int((ends_at - started_at).total_seconds()), 15 * 60)
+            self.assertTrue(bool((shift_state.get("testing_mode") or {}).get("enabled")))
+            self.assertEqual(str((shift_state.get("testing_mode") or {}).get("shift_length_label")), "15 minutes")
+
+            resolved = resolve_expired_shift_if_needed(self.db, player=self.player, now_houston=after_shift)
+            actions_payload = get_gameplay_actions(str(self.player.id), db=self.db)
+
+        testing_mode = resolved.get("testing_mode") or {}
+        work_titles = [str(item.get("title") or "") for item in actions_payload.get("recommended_actions", [])]
+
+        self.assertEqual(int(testing_mode.get("shifts_completed_today") or 0), 1)
+        self.assertTrue(bool(testing_mode.get("shift_1_completed")))
+        self.assertTrue(bool(testing_mode.get("overtime_shift_available")))
+        self.assertTrue(bool(resolved.get("can_rideshare")))
+        self.assertEqual(str(resolved.get("work_status")), "off_shift_after_work")
+        self.assertIn("Start Overtime Shift", work_titles)
+
+    def test_testing_mode_second_shift_posts_overtime_salary_label(self) -> None:
+        self.player.main_job = "warehouse_operator"
+        self.db.commit()
+
+        first_shift_start = self._houston_datetime(2026, 1, 1, 10, 0)
+        first_shift_end = self._houston_datetime(2026, 1, 1, 10, 16)
+        second_shift_start = self._houston_datetime(2026, 1, 1, 10, 17)
+        second_shift_end = self._houston_datetime(2026, 1, 1, 10, 33)
+
+        with patch.dict(os.environ, {"GAMEPLAY_TESTING_MODE": "1"}, clear=False):
+            start_main_shift(
+                self.db,
+                player=self.player,
+                job_name="warehouse_operator",
+                shift_type="standard_shift",
+                hours_worked=6,
+                now_houston=first_shift_start,
+            )
+            resolve_expired_shift_if_needed(self.db, player=self.player, now_houston=first_shift_end)
+
+            start_main_shift(
+                self.db,
+                player=self.player,
+                job_name="warehouse_operator",
+                shift_type="standard_shift",
+                hours_worked=6,
+                now_houston=second_shift_start,
+            )
+            resolved = resolve_expired_shift_if_needed(self.db, player=self.player, now_houston=second_shift_end)
+
+        audits = (
+            self.db.query(ShiftSalaryAuditLog)
+            .filter(
+                ShiftSalaryAuditLog.player_id == self.player.id,
+                ShiftSalaryAuditLog.day_number == 1,
+            )
+            .order_by(ShiftSalaryAuditLog.shift_number.asc())
+            .all()
+        )
+        salary_rows = (
+            self.db.query(GameplayTransaction)
+            .filter(
+                GameplayTransaction.player_id == self.player.id,
+                GameplayTransaction.day == 1,
+                GameplayTransaction.category == "salary",
+            )
+            .order_by(GameplayTransaction.timestamp.asc())
+            .all()
+        )
+        recent_audits = list(resolved.get("recent_salary_audits") or [])
+
+        self.assertEqual(len(audits), 2)
+        self.assertEqual(len(salary_rows), 2)
+        self.assertEqual(str(salary_rows[0].description), "Salary - Shift 1 - Warehouse Manager")
+        self.assertEqual(str(salary_rows[1].description), "Overtime Salary - Shift 2 - Warehouse Manager (1.5x)")
+        self.assertTrue(bool(recent_audits[0].get("overtime_applied") or recent_audits[1].get("overtime_applied")))
+        overtime_audit = next(
+            audit for audit in recent_audits if int(audit.get("shift_number") or 0) == 2
+        )
+        self.assertTrue(bool(overtime_audit.get("overtime_applied")))
+        self.assertEqual(float(overtime_audit.get("overtime_multiplier_used") or 0.0), 1.5)
+
+    def test_testing_mode_weekend_is_rideshare_only_with_cap_18(self) -> None:
+        self.player.main_job = "warehouse_operator"
+        self.db.commit()
+
+        saturday_morning = self._houston_datetime(2026, 1, 3, 10, 0)
+        with patch.dict(os.environ, {"GAMEPLAY_TESTING_MODE": "1"}, clear=False):
+            work_state = resolve_expired_shift_if_needed(self.db, player=self.player, now_houston=saturday_morning)
+            with patch("app.services.shift_state_service.get_houston_now", return_value=saturday_morning):
+                payload = get_gameplay_actions(str(self.player.id), db=self.db)
+
+        self.assertTrue(bool(work_state.get("is_weekend")))
+        self.assertTrue(bool((work_state.get("testing_mode") or {}).get("weekend_rideshare_only")))
+        self.assertEqual(int(((work_state.get("rideshare_state") or {}).get("max_trips") or 0)), 18)
+        self.assertTrue(bool(work_state.get("can_rideshare")))
+        blocked_work = [
+            item for item in payload.get("blocked_actions", [])
+            if str(item.get("action_key") or "") == "work_shift"
+        ]
+        self.assertTrue(blocked_work)
+        self.assertIn("rideshare only", str(blocked_work[0].get("blockers", [""])[0]).lower())
+
+    def test_debt_payment_is_repeatable_but_request_replay_is_idempotent(self) -> None:
+        self.player.cash = Decimal("183.00")
+        self.player.debt_xgp = Decimal("200.00")
+        self.db.commit()
+
+        first = execute_gameplay_action(
+            str(self.player.id),
+            GameplayActionRequest(
+                action_key="debt_payment",
+                parameters={"payment_amount": 50, "request_id": "debt_req_1"},
+            ),
+            db=self.db,
+        )
+        second = execute_gameplay_action(
+            str(self.player.id),
+            GameplayActionRequest(
+                action_key="debt_payment",
+                parameters={"payment_amount": 50, "request_id": "debt_req_2"},
+            ),
+            db=self.db,
+        )
+        replay = execute_gameplay_action(
+            str(self.player.id),
+            GameplayActionRequest(
+                action_key="debt_payment",
+                parameters={"payment_amount": 50, "request_id": "debt_req_2"},
+            ),
+            db=self.db,
+        )
+        self.db.refresh(self.player)
+
+        debt_rows = (
+            self.db.query(GameplayTransaction)
+            .filter(
+                GameplayTransaction.player_id == self.player.id,
+                GameplayTransaction.category == "debt_payment",
+            )
+            .all()
+        )
+
+        self.assertTrue(bool(first["success"]))
+        self.assertTrue(bool(second["success"]))
+        self.assertTrue(bool(replay["success"]))
+        self.assertFalse(bool((first.get("raw_result") or {}).get("idempotent_replay")))
+        self.assertFalse(bool((second.get("raw_result") or {}).get("idempotent_replay")))
+        self.assertTrue(bool((replay.get("raw_result") or {}).get("idempotent_replay")))
+        self.assertEqual(len(debt_rows), 2)
+        self.assertEqual(Decimal(str(self.player.cash)), Decimal("83.00"))
+        self.assertEqual(Decimal(str(self.player.debt_xgp)), Decimal("100.00"))
+
+    def test_salary_retry_reuses_existing_shift_payment_without_duplicate_transaction(self) -> None:
+        self.player.main_job = "warehouse_operator"
+        self.db.commit()
+
+        shift_start = self._houston_datetime(2026, 1, 1, 10, 0)
+        shift_end = self._houston_datetime(2026, 1, 1, 10, 16)
+
+        with patch.dict(os.environ, {"GAMEPLAY_TESTING_MODE": "1"}, clear=False):
+            start_main_shift(
+                self.db,
+                player=self.player,
+                job_name="warehouse_operator",
+                shift_type="standard_shift",
+                hours_worked=6,
+                now_houston=shift_start,
+            )
+            resolve_expired_shift_if_needed(self.db, player=self.player, now_houston=shift_end)
+
+            audit = (
+                self.db.query(ShiftSalaryAuditLog)
+                .filter(ShiftSalaryAuditLog.player_id == self.player.id)
+                .order_by(ShiftSalaryAuditLog.created_at.desc())
+                .first()
+            )
+            assert audit is not None
+            original_salary_tx_id = str(audit.salary_transaction_id)
+            audit.payment_status = "pending"
+            audit.salary_transaction_id = None
+            self.db.commit()
+
+            repaired = _retry_pending_shift_salary_if_needed(
+                self.db,
+                player=self.player,
+                day_number=1,
+                now_houston=self._houston_datetime(2026, 1, 1, 10, 20),
+            )
+
+        salary_rows = (
+            self.db.query(GameplayTransaction)
+            .filter(
+                GameplayTransaction.player_id == self.player.id,
+                GameplayTransaction.day == 1,
+                GameplayTransaction.category == "salary",
+            )
+            .all()
+        )
+        assert repaired is not None
+        self.assertEqual(len(salary_rows), 1)
+        self.assertEqual(str(repaired.salary_transaction_id), original_salary_tx_id)
+        self.assertEqual(str(repaired.payment_status), "posted")
 
 
 if __name__ == "__main__":

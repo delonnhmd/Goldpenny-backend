@@ -275,7 +275,7 @@ CLEANER_CONFIG = JobCareerConfig(
 
 WAREHOUSE_OPERATOR_CONFIG = JobCareerConfig(
     job_key="warehouse_operator",
-    display_name="Warehouse Operator",
+    display_name="Warehouse Manager",
     base_pay_reference=Decimal("3200.00"),
     skill_growth_rate=Decimal("0.34"),
     stability_weight=Decimal("0.11"),
@@ -308,7 +308,7 @@ WAREHOUSE_OPERATOR_CONFIG = JobCareerConfig(
 
 RETAIL_CONFIG = JobCareerConfig(
     job_key="retail",
-    display_name="Retail",
+    display_name="Retail Seller",
     base_pay_reference=Decimal("2600.00"),
     skill_growth_rate=Decimal("0.30"),    # low barrier, lower ceiling
     stability_weight=Decimal("0.08"),

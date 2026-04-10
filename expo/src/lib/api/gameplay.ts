@@ -510,6 +510,8 @@ function normalizeShiftSalaryAudit(raw: unknown): WorkStateSnapshot['current_shi
     health_change: clampDeltaRange(obj.health_change, { min: -100, max: 100, fallback: 0 }),
     fatigue_change: normalizeFiniteNumber(obj.fatigue_change, { fallback: 0 }),
     overtime_penalty_applied: Boolean(obj.overtime_penalty_applied),
+    overtime_applied: Boolean(obj.overtime_applied),
+    overtime_multiplier_used: normalizeFiniteNumber(obj.overtime_multiplier_used, { fallback: 1 }),
     salary_transaction_id: obj.salary_transaction_id == null ? null : toString(obj.salary_transaction_id, ''),
     xgp_transaction_id: obj.xgp_transaction_id == null ? null : toString(obj.xgp_transaction_id, ''),
     player_transaction_log_id: obj.player_transaction_log_id == null ? null : toString(obj.player_transaction_log_id, ''),
@@ -658,6 +660,36 @@ function normalizeWorkState(raw: unknown, playerId: string): WorkStateSnapshot |
     day_of_week: toString(obj.day_of_week, ''),
     is_weekend: Boolean(obj.is_weekend),
     phase_status_label: obj.phase_status_label == null ? null : toString(obj.phase_status_label, ''),
+    testing_mode:
+      obj.testing_mode && typeof obj.testing_mode === 'object'
+        ? {
+          enabled: Boolean((obj.testing_mode as Record<string, unknown>).enabled),
+          shift_minutes: Math.max(0, Math.round(toNumber((obj.testing_mode as Record<string, unknown>).shift_minutes, 0))),
+          shift_length_label:
+            (obj.testing_mode as Record<string, unknown>).shift_length_label == null
+              ? null
+              : toString((obj.testing_mode as Record<string, unknown>).shift_length_label, ''),
+          two_shift_jobs: Array.isArray((obj.testing_mode as Record<string, unknown>).two_shift_jobs)
+            ? ((obj.testing_mode as Record<string, unknown>).two_shift_jobs as unknown[]).map((entry) => toString(entry, '')).filter(Boolean)
+            : [],
+          eligible_for_two_shifts: Boolean((obj.testing_mode as Record<string, unknown>).eligible_for_two_shifts),
+          max_daily_main_shifts: Math.max(1, Math.round(toNumber((obj.testing_mode as Record<string, unknown>).max_daily_main_shifts, 1))),
+          shifts_completed_today: Math.max(0, Math.round(toNumber((obj.testing_mode as Record<string, unknown>).shifts_completed_today, 0))),
+          shift_1_completed: Boolean((obj.testing_mode as Record<string, unknown>).shift_1_completed),
+          shift_2_completed: Boolean((obj.testing_mode as Record<string, unknown>).shift_2_completed),
+          overtime_shift_available: Boolean((obj.testing_mode as Record<string, unknown>).overtime_shift_available),
+          overtime_used_today: Boolean((obj.testing_mode as Record<string, unknown>).overtime_used_today),
+          next_shift_number_available:
+            (obj.testing_mode as Record<string, unknown>).next_shift_number_available == null
+              ? null
+              : Math.max(0, Math.round(toNumber((obj.testing_mode as Record<string, unknown>).next_shift_number_available, 0))),
+          daily_shift_limit_reached: Boolean((obj.testing_mode as Record<string, unknown>).daily_shift_limit_reached),
+          weekend_rideshare_only: Boolean((obj.testing_mode as Record<string, unknown>).weekend_rideshare_only),
+          rideshare_cap_today: Math.max(0, Math.round(toNumber((obj.testing_mode as Record<string, unknown>).rideshare_cap_today, 0))),
+          weekend_main_shift_enabled: Boolean((obj.testing_mode as Record<string, unknown>).weekend_main_shift_enabled),
+          second_shift_overtime_multiplier: normalizeFiniteNumber((obj.testing_mode as Record<string, unknown>).second_shift_overtime_multiplier, { fallback: 1.5 }),
+        }
+        : null,
     day_settled: Boolean(obj.day_settled),
     day_rollover_timezone: obj.day_rollover_timezone == null ? null : toString(obj.day_rollover_timezone, ''),
     day_rollover_time_label: obj.day_rollover_time_label == null ? null : toString(obj.day_rollover_time_label, ''),
@@ -710,6 +742,9 @@ function normalizeWorkState(raw: unknown, playerId: string): WorkStateSnapshot |
     shift_type: obj.shift_type == null ? null : toString(obj.shift_type, ''),
     shift_hours: Math.max(0, Math.round(toNumber(obj.shift_hours, 0))),
     shift_number: Math.max(0, Math.round(toNumber(obj.shift_number, 0))),
+    shifts_completed_today: Math.max(0, Math.round(toNumber(obj.shifts_completed_today, 0))),
+    shift_1_completed: Boolean(obj.shift_1_completed),
+    shift_2_completed: Boolean(obj.shift_2_completed),
     shift_expired: Boolean(obj.shift_expired),
     shift_found: Boolean(obj.shift_found),
     shift_completed_today: Boolean(obj.shift_completed_today),
@@ -1224,6 +1259,9 @@ export async function executeAction(
     }
     normalizedParams.certification_key = certificationKey;
   }
+  if (canonical === 'debt_payment' && !normalizedParams.request_id && !normalizedParams.idempotency_key) {
+    normalizedParams.request_id = `debt_payment_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  }
   const unifiedPayload = {
     action_key: canonical,
     parameters: normalizedParams,
@@ -1387,7 +1425,7 @@ export async function executeAction(
     );
   }
 
-  if (canonical === 'debt_payment' || canonical === 'recovery_action') {
+  if (canonical === 'recovery_action') {
     const raw = await fetchApiWithFallback<Record<string, unknown>>(
       [`/finance/player/${playerId}/recovery-action`],
       {

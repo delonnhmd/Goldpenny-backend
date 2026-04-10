@@ -34,6 +34,8 @@ from app.engine.economy_presentation_service import build_economy_presentation_s
 from app.engine.rideshare_engine import process_rideshare_action
 from app.models.game_state import GameState
 from app.models.player import Player
+from app.models.player_daily_state import PlayerDailyState
+from app.models.player_transaction_log import PlayerTransactionLog
 from app.services.daily_brief_service import (
     DailyBriefError,
     DailyBriefNotFoundError,
@@ -79,6 +81,7 @@ from app.services.shift_state_service import (
     SHIFT_STATUS_ACTIVE,
     build_work_state_payload,
     finalize_active_main_shift,
+    get_gameplay_testing_mode_config,
     resolve_expired_shift_if_needed,
     start_main_shift,
 )
@@ -86,6 +89,7 @@ from app.services.gameplay_transaction_service import (
     list_gameplay_transactions_for_day,
     record_gameplay_transaction,
 )
+from app.services.player_transaction_log_service import record_player_transaction
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -172,15 +176,46 @@ def _safe_int(value: Any, fallback: int = 0) -> int:
         return fallback
 
 
+def _debt_payment_request_id(params: dict[str, Any]) -> str:
+    return str(
+        params.get("request_id")
+        or params.get("idempotency_key")
+        or params.get("action_request_id")
+        or ""
+    ).strip()
+
+
+def _find_existing_debt_payment_log(
+    db: Session,
+    *,
+    player_id: UUID,
+    request_id: str,
+) -> PlayerTransactionLog | None:
+    raw_request_id = str(request_id or "").strip()
+    if not raw_request_id:
+        return None
+    return (
+        db.query(PlayerTransactionLog)
+        .filter(
+            PlayerTransactionLog.player_id == player_id,
+            PlayerTransactionLog.category == "debt_payment",
+            PlayerTransactionLog.transaction_type == "debt_payment",
+            PlayerTransactionLog.metadata_json.contains(raw_request_id),
+        )
+        .order_by(PlayerTransactionLog.created_at.desc())
+        .first()
+    )
+
+
 JOB_DISPLAY_NAMES: dict[str, str] = {
     "auto_mechanic": "Auto Mechanic",
     "aircraft_mechanic": "Aircraft Mechanic",
     "banker": "Banker",
     "chef": "Chef",
     "cleaner": "Cleaner",
-    "warehouse_operator": "Warehouse Operator",
+    "warehouse_operator": "Warehouse Manager",
     "real_estate_agent": "Real Estate Agent",
-    "retail": "Retail Worker",
+    "retail": "Retail Seller",
     "delivery": "Delivery Driver",
 }
 
@@ -563,6 +598,19 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
         (work_state.get("rideshare_state") if isinstance(work_state.get("rideshare_state"), dict) else None)
         or {}
     )
+    testing_mode = (
+        work_state.get("testing_mode")
+        if isinstance(work_state.get("testing_mode"), dict)
+        else {}
+    )
+    testing_mode_enabled = bool(testing_mode.get("enabled"))
+    weekend_rideshare_only = bool(testing_mode.get("weekend_rideshare_only"))
+    overtime_shift_available = bool(testing_mode.get("overtime_shift_available"))
+    shifts_completed_today = int(testing_mode.get("shifts_completed_today") or 0)
+    max_daily_main_shifts = int(testing_mode.get("max_daily_main_shifts") or 1)
+    next_shift_number_available = testing_mode.get("next_shift_number_available")
+    shift_length_label = str(testing_mode.get("shift_length_label") or "").strip() or "Standard shift schedule"
+    overtime_multiplier = float(testing_mode.get("second_shift_overtime_multiplier") or 1.5)
     shift_active = bool(work_state.get("main_shift_active_flag"))
     shift_completed_today = bool(work_state.get("shift_completed_today"))
     missed_shift_today = bool(work_state.get("missed_shift_today"))
@@ -602,25 +650,78 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
     blocked_actions: list[dict[str, Any]] = []
     top_tradeoffs: list[str] = []
     next_risk_warnings: list[str] = []
+    current_job_display_name = str(work_state.get("current_job_display_name") or _job_display_name(current_job))
 
-    if has_job and is_weekend:
+    work_shift_title = "Work Shift"
+    work_shift_description = f"Use your current role ({current_job_display_name}) for stable day-1 cash."
+    work_shift_tradeoffs = ["Consumes time units but improves short-term cash safety."]
+    work_shift_blockers: list[str] = []
+    if testing_mode_enabled:
+        if weekend_rideshare_only:
+            work_shift_title = "Weekend Ride Share Only"
+            work_shift_description = "Weekend testing rule active. No required main shift today - rideshare only."
+            work_shift_blockers = ["Weekend testing rule active. No required main shift today - rideshare only."]
+        elif overtime_shift_available:
+            work_shift_title = "Start Overtime Shift"
+            work_shift_description = (
+                f"Shift {int(next_shift_number_available or 2)}/{max_daily_main_shifts} available for {current_job_display_name}. "
+                f"Overtime pays {overtime_multiplier:.1f}x."
+            )
+            work_shift_tradeoffs = ["Higher pay, but stress and fatigue rise faster on overtime."]
+        else:
+            next_shift_number = int(next_shift_number_available or max(1, shifts_completed_today + 1))
+            work_shift_title = (
+                f"Start Shift {next_shift_number}"
+                if max_daily_main_shifts > 1
+                else "Start Shift 1"
+            )
+            work_shift_description = (
+                f"Testing mode active. {current_job_display_name} shifts run for {shift_length_label}."
+            )
+            work_shift_tradeoffs = [f"Shift length: {shift_length_label}."]
+
+    if has_job and is_weekend and weekend_rideshare_only:
+        blocked_actions.append(
+            {
+                "action_key": "work_shift",
+                "title": work_shift_title,
+                "description": work_shift_description,
+                "status": "blocked",
+                "blockers": work_shift_blockers or ["Weekend testing rule active. No required main shift today - rideshare only."],
+                "tradeoffs": work_shift_tradeoffs,
+                "warnings": [f"Rideshare cap today: {int((testing_mode or {}).get('rideshare_cap_today') or 18)} trips."],
+                "confidence_level": "high",
+                "parameters": {
+                    "job_name": current_job,
+                    "shift_type": "standard_shift",
+                    "hours_worked": SHIFT_PROFILES["standard_shift"]["hours_worked"],
+                    "testing_mode": testing_mode,
+                },
+            }
+        )
+    elif has_job and is_weekend:
         available_actions.append(
             {
                 "action_key": "work_shift",
-                "title": "Weekend Shift",
+                "title": work_shift_title if testing_mode_enabled else "Weekend Shift",
                 "description": (
-                    f"Your {current_job.replace('_', ' ')} role has no required shift today. "
-                    "Work is optional on weekends."
+                    work_shift_description
+                    if testing_mode_enabled
+                    else (
+                        f"Your {current_job_display_name} role has no required shift today. "
+                        "Work is optional on weekends."
+                    )
                 ),
                 "status": "available",
                 "blockers": [],
-                "tradeoffs": ["Weekend time is better for flexible side income unless you want routine pay."],
+                "tradeoffs": work_shift_tradeoffs if testing_mode_enabled else ["Weekend time is better for flexible side income unless you want routine pay."],
                 "warnings": [],
                 "confidence_level": "medium",
                 "parameters": {
                     "job_name": current_job,
                     "shift_type": "standard_shift",
                     "hours_worked": SHIFT_PROFILES["standard_shift"]["hours_worked"],
+                    "testing_mode": testing_mode,
                     "shift_options": [
                         {
                             "shift_type": shift_type,
@@ -637,17 +738,18 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
         recommended_actions.append(
             {
                 "action_key": "work_shift",
-                "title": "Work Shift",
-                "description": f"Use your current role ({current_job.replace('_', ' ')}) for stable day-1 cash.",
+                "title": work_shift_title,
+                "description": work_shift_description,
                 "status": "recommended",
                 "blockers": [],
-                "tradeoffs": ["Consumes time units but improves short-term cash safety."],
+                "tradeoffs": work_shift_tradeoffs,
                 "warnings": [],
                 "confidence_level": "high",
                 "parameters": {
                     "job_name": current_job,
                     "shift_type": "standard_shift",
                     "hours_worked": SHIFT_PROFILES["standard_shift"]["hours_worked"],
+                    "testing_mode": testing_mode,
                     "shift_options": [
                         {
                             "shift_type": shift_type,
@@ -660,29 +762,64 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
                 },
             }
         )
+    elif has_job and overtime_shift_available:
+        recommended_actions.append(
+            {
+                "action_key": "work_shift",
+                "title": work_shift_title,
+                "description": work_shift_description,
+                "status": "recommended",
+                "blockers": [],
+                "tradeoffs": work_shift_tradeoffs,
+                "warnings": [f"Overtime multiplier: {overtime_multiplier:.1f}x"],
+                "confidence_level": "high",
+                "parameters": {
+                    "job_name": current_job,
+                    "shift_type": "standard_shift",
+                    "hours_worked": SHIFT_PROFILES["standard_shift"]["hours_worked"],
+                    "testing_mode": testing_mode,
+                },
+            }
+        )
     elif has_job:
         blocked_actions.append(
             {
                 "action_key": "work_shift",
-                "title": "Work Shift",
+                "title": work_shift_title,
                 "description": (
-                    f"Your main shift is active until {work_state.get('shift_ends_at')}."
-                    if shift_active
+                    "Weekend testing rule active. No required main shift today - rideshare only."
+                    if weekend_rideshare_only
                     else (
-                        f"Today's scheduled window ended at {shift_end_label}."
-                        if missed_shift_today
-                        else "Today's main shift is already completed."
+                        f"Your main shift is active until {work_state.get('shift_ends_at')}."
+                        if shift_active
+                        else (
+                            f"Today's scheduled window ended at {shift_end_label}."
+                            if missed_shift_today
+                            else (
+                                "Daily shift limit reached."
+                                if bool((testing_mode or {}).get("daily_shift_limit_reached"))
+                                else "Today's main shift is already completed."
+                            )
+                        )
                     )
                 ),
                 "status": "blocked",
                 "blockers": [
                     (
-                        f"Main shift is active until {work_state.get('shift_ends_at') or 'Houston shift end'}."
-                        if shift_active
+                        "Weekend testing rule active. No required main shift today - rideshare only."
+                        if weekend_rideshare_only
                         else (
-                            f"Today's shift window has ended. Ride Share unlocks after {shift_end_label}."
-                            if missed_shift_today
-                            else "You have already completed your main shift today."
+                            f"Main shift is active until {work_state.get('shift_ends_at') or 'Houston shift end'}."
+                            if shift_active
+                            else (
+                                f"Today's shift window has ended. Ride Share unlocks after {shift_end_label}."
+                                if missed_shift_today
+                                else (
+                                    "Daily shift limit reached."
+                                    if bool((testing_mode or {}).get("daily_shift_limit_reached"))
+                                    else "You have already completed your main shift today."
+                                )
+                            )
                         )
                     )
                 ],
@@ -693,6 +830,7 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
                     "job_name": current_job,
                     "shift_type": "standard_shift",
                     "hours_worked": SHIFT_PROFILES["standard_shift"]["hours_worked"],
+                    "testing_mode": testing_mode,
                 },
             }
         )
@@ -777,6 +915,28 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
         ]
     )
 
+    debt_now = max(0.0, _safe_float(getattr(player, "debt_xgp", 0), 0.0))
+    cash_now = max(0.0, _safe_float(getattr(player, "cash", 0), 0.0))
+    max_payable = round(min(cash_now, debt_now), 2)
+    debt_action = {
+        "action_key": "debt_payment",
+        "title": "Pay Debt",
+        "description": "Reduce debt directly from current cash.",
+        "status": "available" if max_payable > 0 and not shift_active else "blocked",
+        "blockers": (
+            [f"Finish your active shift first (ends {work_state.get('shift_end_time_label') or work_state.get('scheduled_shift_end_label') or 'at shift end'})."]
+            if shift_active
+            else ([] if max_payable > 0 else ["Pay Debt is available only when both cash and debt remain above zero."])
+        ),
+        "tradeoffs": ["Improves debt pressure without consuming time units."],
+        "warnings": [f"Cash {cash_now:.2f} XGP | debt {debt_now:.2f} XGP | max payable {max_payable:.2f} XGP."],
+        "confidence_level": "high",
+        "parameters": {
+            "payment_amount": round(min(50.0, max_payable), 2) if max_payable > 0 else 0.0,
+        },
+    }
+    (available_actions if debt_action["status"] == "available" else blocked_actions).append(debt_action)
+
     (available_actions if rideshare_available else blocked_actions).append(
         {
             "action_key": "side_income",
@@ -831,12 +991,18 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
 
     if shift_active:
         top_tradeoffs.append("Your main shift is in progress. Post-shift actions unlock after completion.")
+    elif weekend_rideshare_only:
+        top_tradeoffs.append(
+            f"Weekend testing rule active. No main shift today - rideshare cap {int((testing_mode or {}).get('rideshare_cap_today') or 18)} trips."
+        )
     elif is_weekend:
         top_tradeoffs.append("Weekend rules are active. Your main shift is optional and ride share is open all day.")
     elif has_job:
         top_tradeoffs.append("Use one cash-positive shift before optional upside actions.")
     else:
         top_tradeoffs.append("Pick a first job first so day-1 work actions unlock.")
+    if testing_mode_enabled:
+        top_tradeoffs.append(f"Testing mode active. Shift length: {shift_length_label}.")
     top_tradeoffs.append("Protect stress and health before ending the day.")
 
     if _safe_int(player.stress, 0) >= 65:
@@ -874,6 +1040,7 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
             "degraded_sections": list(work_state.get("degraded_sections") or []),
             "market_data_available": bool(work_state.get("market_data_available", True)),
             "market_data_message": work_state.get("market_data_message"),
+            "testing_mode": testing_mode,
             "trips_today": int(work_state.get("trips_today") or rideshare_state.get("trips_today") or 0),
             "trips_remaining": int(work_state.get("trips_remaining") or rideshare_state.get("remaining_trips") or 0),
             "remaining_time_units": int(work_state.get("remaining_time_units") or work_state.get("hours_available") or 0),
@@ -2110,6 +2277,53 @@ def execute_gameplay_action(
 
     # ── Step 74: select_housing ───────────────────────────────────────────────
     if action_key == "debt_payment":
+        current_day = _current_game_day(db)
+        request_id = _debt_payment_request_id(params)
+        if request_id:
+            existing_log = _find_existing_debt_payment_log(
+                db,
+                player_id=player.id,
+                request_id=request_id,
+            )
+            if existing_log is not None:
+                metadata: dict[str, Any] = {}
+                try:
+                    metadata = json.loads(existing_log.metadata_json or "{}")
+                except Exception:
+                    metadata = {}
+                existing_payment_amount = _safe_float(
+                    metadata.get("payment_amount_xgp"),
+                    _safe_float(getattr(existing_log, "gross_amount", 0), 0.0),
+                )
+                existing_cash_before = _safe_float(metadata.get("cash_before"), _safe_float(getattr(player, "cash", 0), 0.0))
+                existing_cash_after = _safe_float(metadata.get("cash_after"), _safe_float(getattr(player, "cash", 0), 0.0))
+                existing_debt_before = _safe_float(metadata.get("debt_before"), _safe_float(getattr(player, "debt_xgp", 0), 0.0))
+                existing_debt_after = _safe_float(metadata.get("debt_after"), _safe_float(getattr(player, "debt_xgp", 0), 0.0))
+                return {
+                    "player_id": str(player.id),
+                    "action_key": action_key,
+                    "success": True,
+                    "message": f"Paid {existing_payment_amount:.2f} XGP toward debt.",
+                    "result_summary": (
+                        f"Debt payment already processed: -{existing_payment_amount:.2f} XGP cash, "
+                        f"debt reduced by {existing_payment_amount:.2f} XGP."
+                    ),
+                    "time_cost_units": 0,
+                    "cash_delta_xgp": -float(existing_payment_amount),
+                    "stress_delta": 0,
+                    "health_delta": 0,
+                    "raw_result": {
+                        "payment_amount_xgp": float(existing_payment_amount),
+                        "cash_before": existing_cash_before,
+                        "cash_after": existing_cash_after,
+                        "debt_before": existing_debt_before,
+                        "debt_after": existing_debt_after,
+                        "request_id": request_id,
+                        "idempotent_replay": True,
+                        "work_state": build_work_state_payload(db, player),
+                    },
+                }
+
         raw_amount = params.get("payment_amount")
         if raw_amount is None:
             raw_amount = params.get("amount")
@@ -2150,12 +2364,43 @@ def execute_gameplay_action(
         record_gameplay_transaction(
             db,
             player=player,
-            day=_current_game_day(db),
+            day=current_day,
             transaction_type="expense",
             category="debt_payment",
             amount=requested_amount,
             description="Debt payment",
         )
+        record_player_transaction(
+            db,
+            player=player,
+            day=current_day,
+            transaction_type="debt_payment",
+            category="debt_payment",
+            gross_amount=requested_amount,
+            fee_amount=0,
+            net_cash_delta=-requested_amount,
+            resulting_cash_balance=player.cash,
+            metadata={
+                "request_id": request_id or None,
+                "payment_amount_xgp": float(requested_amount),
+                "cash_before": float(cash_before),
+                "cash_after": _safe_float(getattr(player, "cash", 0), 0.0),
+                "debt_before": float(debt_before),
+                "debt_after": _safe_float(getattr(player, "debt_xgp", 0), 0.0),
+                "action_key": action_key,
+            },
+        )
+        pds = (
+            db.query(PlayerDailyState)
+            .filter(
+                PlayerDailyState.player_id == player.id,
+                PlayerDailyState.day_number == current_day,
+            )
+            .first()
+        )
+        if pds is not None:
+            pds.debt_payment_xgp = Decimal(str(getattr(pds, "debt_payment_xgp", 0) or 0)) + requested_amount
+            pds.debt_payment_paid_xgp = Decimal(str(getattr(pds, "debt_payment_paid_xgp", 0) or 0)) + requested_amount
         db.commit()
 
         return {
@@ -2174,6 +2419,8 @@ def execute_gameplay_action(
                 "cash_after": _safe_float(getattr(player, "cash", 0), 0.0),
                 "debt_before": float(debt_before),
                 "debt_after": _safe_float(getattr(player, "debt_xgp", 0), 0.0),
+                "request_id": request_id or None,
+                "idempotent_replay": False,
                 "work_state": build_work_state_payload(db, player),
             },
         }

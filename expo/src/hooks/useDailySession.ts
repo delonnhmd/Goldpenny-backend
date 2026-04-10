@@ -274,7 +274,8 @@ export function useDailySession(playerId: string) {
   const addActionToHistory = useCallback((entry: Omit<DailyActionHistoryEntry, 'id' | 'order' | 'executed_at'>) => {
     if (entry.success) {
       const normalized = normalizeActionKey(entry.action_key);
-      if (normalized) {
+      const cap = DEFAULT_ACTION_CAPS[normalized];
+      if (normalized && cap) {
         setActionCounts((prev) => ({
           ...prev,
           [normalized]: (prev[normalized] || 0) + 1,

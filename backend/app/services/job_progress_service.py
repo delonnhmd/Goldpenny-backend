@@ -44,9 +44,9 @@ JOB_COMPANY_MAP: dict[str, dict[str, str]] = {
     "banker": {"symbol": "GP_BANK", "name": "GP Bank", "position": "Junior Banker"},
     "chef": {"symbol": "GP_CONSUMER", "name": "GP Consumer", "position": "Kitchen Lead"},
     "cleaner": {"symbol": "GP_SERVICES", "name": "GP Services", "position": "Cleaner"},
-    "warehouse_operator": {"symbol": "GP_LOGISTICS", "name": "GP Logistics", "position": "Warehouse Operator"},
+    "warehouse_operator": {"symbol": "GP_LOGISTICS", "name": "GP Logistics", "position": "Warehouse Manager"},
     "real_estate_agent": {"symbol": "GP_REALTY", "name": "GP Realty", "position": "Real Estate Agent"},
-    "retail": {"symbol": "GP_RETAIL", "name": "GP Retail", "position": "Retail Associate"},
+    "retail": {"symbol": "GP_RETAIL", "name": "GP Retail", "position": "Retail Seller"},
     "delivery": {"symbol": "GP_TRANSPORT", "name": "GP Transport", "position": "Delivery Driver"},
     "rideshare": {"symbol": "GP_TRANSPORT", "name": "GP Transport", "position": "Ride Share Driver"},
 }

@@ -12,7 +12,7 @@ from uuid import UUID
 
 import pytz
 from sqlalchemy import func, inspect
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.engine.career_config import CAREER_CONFIG, CERTIFICATION_CATALOG
@@ -31,6 +31,7 @@ from app.models.player import Player
 from app.models.player_career import PlayerCareer
 from app.models.player_daily_state import PlayerDailyState
 from app.models.player_employment_state import PlayerEmploymentState
+from app.models.player_transaction_log import PlayerTransactionLog
 from app.models.shift_salary_audit_log import ShiftSalaryAuditLog
 from app.models.side_income_action import SideIncomeAction
 from app.models.xgp_transaction import XGPTransaction
@@ -80,6 +81,15 @@ MISSED_SHIFT_HEALTH_DELTA = -5
 MISSED_SHIFT_STRESS_DELTA = 6
 AUTO_ROLLOVER_MAX_DAYS = 30
 HOUSTON_DAY_RESET_LABEL = "12:00 AM CT"
+GAMEPLAY_TESTING_MODE_DEFAULTS: dict[str, Any] = {
+    "shift_minutes": 15,
+    "two_shift_jobs": ["retail_worker", "warehouse_operator"],
+    "max_daily_shifts_for_two_shift_jobs": 2,
+    "second_shift_overtime_multiplier": 1.5,
+    "weekday_rideshare_cap": 6,
+    "weekend_rideshare_cap": 18,
+    "weekend_main_shift_enabled": False,
+}
 
 JOB_DISPLAY_NAMES: dict[str, str] = {
     "auto_mechanic": "Auto Mechanic",
@@ -87,9 +97,9 @@ JOB_DISPLAY_NAMES: dict[str, str] = {
     "banker": "Banker",
     "chef": "Chef",
     "cleaner": "Cleaner",
-    "warehouse_operator": "Warehouse Operator",
+    "warehouse_operator": "Warehouse Manager",
     "real_estate_agent": "Real Estate Agent",
-    "retail": "Retail Worker",
+    "retail": "Retail Seller",
     "delivery": "Delivery Driver",
 }
 
@@ -108,7 +118,7 @@ JOB_SHIFT_MAP: dict[str, dict[str, str]] = {
 JOB_MARKET_TEMPLATES: tuple[dict[str, Any], ...] = (
     {
         "job_key": "retail",
-        "display_name": "Retail Worker",
+        "display_name": "Retail Seller",
         "tier": "entry",
         "stress_level": "Moderate",
         "certification_key": None,
@@ -148,7 +158,7 @@ JOB_MARKET_TEMPLATES: tuple[dict[str, Any], ...] = (
     },
     {
         "job_key": "warehouse_operator",
-        "display_name": "Warehouse Operator",
+        "display_name": "Warehouse Manager",
         "tier": "mid",
         "stress_level": "Moderate",
         "certification_key": None,
@@ -284,6 +294,85 @@ def _format_houston_date_label(value: date | None) -> str | None:
     return f"{value.strftime('%b')} {value.day}, {value.year}"
 
 
+def _env_flag(*names: str) -> bool:
+    for name in names:
+        raw = str(os.getenv(name) or "").strip().lower()
+        if raw in {"1", "true", "yes", "on"}:
+            return True
+    return False
+
+
+def get_gameplay_testing_mode_config() -> dict[str, Any]:
+    enabled = _env_flag(
+        "GAMEPLAY_TESTING_MODE",
+        "EXPO_PUBLIC_GAMEPLAY_TESTING_MODE",
+        "SHIFT_TIMER_SHORT_MODE",
+        "EXPO_PUBLIC_SHIFT_TIMER_SHORT_MODE",
+    )
+    raw_two_shift_jobs = list(GAMEPLAY_TESTING_MODE_DEFAULTS["two_shift_jobs"])
+    canonical_two_shift_jobs = sorted(
+        {
+            normalize_main_job_key(job_key, allow_aliases=True)
+            for job_key in raw_two_shift_jobs
+            if normalize_main_job_key(job_key, allow_aliases=True)
+        }
+    )
+    return {
+        "testing_mode": bool(enabled),
+        "shift_minutes": int(GAMEPLAY_TESTING_MODE_DEFAULTS["shift_minutes"]),
+        "two_shift_jobs": raw_two_shift_jobs,
+        "two_shift_jobs_canonical": canonical_two_shift_jobs,
+        "max_daily_shifts_for_two_shift_jobs": int(
+            GAMEPLAY_TESTING_MODE_DEFAULTS["max_daily_shifts_for_two_shift_jobs"]
+        ),
+        "second_shift_overtime_multiplier": Decimal(
+            str(GAMEPLAY_TESTING_MODE_DEFAULTS["second_shift_overtime_multiplier"])
+        ),
+        "weekday_rideshare_cap": int(GAMEPLAY_TESTING_MODE_DEFAULTS["weekday_rideshare_cap"]),
+        "weekend_rideshare_cap": int(GAMEPLAY_TESTING_MODE_DEFAULTS["weekend_rideshare_cap"]),
+        "weekend_main_shift_enabled": bool(
+            GAMEPLAY_TESTING_MODE_DEFAULTS["weekend_main_shift_enabled"]
+        ),
+    }
+
+
+def _testing_mode_job_eligible(job_key: object, *, config: dict[str, Any] | None = None) -> bool:
+    resolved = normalize_main_job_key(job_key, allow_aliases=True)
+    if not resolved:
+        return False
+    active_config = config or get_gameplay_testing_mode_config()
+    return bool(active_config.get("testing_mode")) and resolved in set(
+        active_config.get("two_shift_jobs_canonical") or []
+    )
+
+
+def _max_daily_main_shifts_for_job(
+    job_key: object,
+    *,
+    config: dict[str, Any] | None = None,
+) -> int:
+    active_config = config or get_gameplay_testing_mode_config()
+    if _testing_mode_job_eligible(job_key, config=active_config):
+        return max(1, int(active_config.get("max_daily_shifts_for_two_shift_jobs") or 2))
+    return 1
+
+
+def _rideshare_daily_cap(*, is_weekend: bool, config: dict[str, Any] | None = None) -> int:
+    active_config = config or get_gameplay_testing_mode_config()
+    if bool(active_config.get("testing_mode")):
+        if is_weekend:
+            return max(1, int(active_config.get("weekend_rideshare_cap") or RIDESHARE_DAILY_CAP))
+        return max(1, int(active_config.get("weekday_rideshare_cap") or RIDESHARE_DAILY_CAP))
+    return int(RIDESHARE_DAILY_CAP)
+
+
+def _testing_shift_length_label(config: dict[str, Any] | None = None) -> str:
+    active_config = config or get_gameplay_testing_mode_config()
+    if bool(active_config.get("testing_mode")):
+        return f"{int(active_config.get('shift_minutes') or 15)} minutes"
+    return "Standard shift schedule"
+
+
 def _is_table_available(db: Session, table_name: str) -> bool:
     normalized_name = str(table_name or "").strip()
     if not normalized_name:
@@ -330,6 +419,12 @@ def _build_shift_salary_token(
 def _serialize_shift_salary_audit(row: ShiftSalaryAuditLog | None) -> dict[str, Any] | None:
     if row is None:
         return None
+    overtime_multiplier_used = _q4(
+        _overtime_multiplier_for_shift(
+            job_key=str(getattr(row, "job_key", "") or ""),
+            shift_number=int(getattr(row, "shift_number", 0) or 0),
+        )
+    )
     return {
         "audit_id": str(row.id),
         "player_id": str(row.player_id),
@@ -366,6 +461,8 @@ def _serialize_shift_salary_audit(row: ShiftSalaryAuditLog | None) -> dict[str, 
         "health_change": int(getattr(row, "health_change", 0) or 0),
         "fatigue_change": round(_safe_float(getattr(row, "fatigue_change", 0), 0.0), 4),
         "overtime_penalty_applied": bool(getattr(row, "overtime_penalty_applied", False)),
+        "overtime_applied": bool(overtime_multiplier_used > Decimal("1.0")),
+        "overtime_multiplier_used": round(_safe_float(overtime_multiplier_used, 1.0), 4),
         "salary_transaction_id": str(getattr(row, "salary_transaction_id", "") or ""),
         "xgp_transaction_id": str(getattr(row, "xgp_transaction_id", "") or ""),
         "player_transaction_log_id": str(getattr(row, "player_transaction_log_id", "") or ""),
@@ -515,6 +612,74 @@ def _get_gameplay_transaction_by_id(
         return db.query(GameplayTransaction).filter(GameplayTransaction.id == UUID(raw_id)).first()
     except Exception:
         return None
+
+
+def _find_salary_gameplay_transaction_for_shift(
+    db: Session,
+    *,
+    player_id: UUID,
+    day_number: int,
+    description: str,
+) -> GameplayTransaction | None:
+    if not _is_table_available(db, "gameplay_transactions"):
+        return None
+    return (
+        db.query(GameplayTransaction)
+        .filter(
+            GameplayTransaction.player_id == player_id,
+            GameplayTransaction.day == max(1, int(day_number)),
+            GameplayTransaction.category == "salary",
+            GameplayTransaction.description == str(description or "").strip(),
+        )
+        .order_by(GameplayTransaction.timestamp.desc())
+        .first()
+    )
+
+
+def _find_player_transaction_log_for_shift(
+    db: Session,
+    *,
+    player_id: UUID,
+    shift_token: str,
+) -> PlayerTransactionLog | None:
+    if not _is_table_available(db, "player_transaction_logs"):
+        return None
+    raw_shift_token = str(shift_token or "").strip()
+    if not raw_shift_token:
+        return None
+    return (
+        db.query(PlayerTransactionLog)
+        .filter(
+            PlayerTransactionLog.player_id == player_id,
+            PlayerTransactionLog.category == "work",
+            PlayerTransactionLog.transaction_type == "wage_income",
+            PlayerTransactionLog.metadata_json.contains(raw_shift_token),
+        )
+        .order_by(PlayerTransactionLog.created_at.desc())
+        .first()
+    )
+
+
+def _find_xgp_transaction_for_shift(
+    db: Session,
+    *,
+    player_id: UUID,
+    shift_id: str | None,
+) -> XGPTransaction | None:
+    raw_shift_id = str(shift_id or "").strip()
+    if not raw_shift_id or not _is_table_available(db, "xgp_transactions"):
+        return None
+    return (
+        db.query(XGPTransaction)
+        .filter(
+            XGPTransaction.player_id == player_id,
+            XGPTransaction.transaction_type == "job_income",
+            XGPTransaction.reference_type == "job_action",
+            XGPTransaction.reference_id == raw_shift_id,
+        )
+        .order_by(XGPTransaction.created_at.desc())
+        .first()
+    )
 
 
 def _job_display_name(job_key: str | None) -> str:
@@ -1291,6 +1456,10 @@ def sync_shift_day_rules_if_needed(
 
 
 def _configured_shift_duration_seconds(hours_worked: int) -> int:
+    testing_config = get_gameplay_testing_mode_config()
+    if bool(testing_config.get("testing_mode")):
+        return max(60, int(testing_config.get("shift_minutes") or 15) * 60)
+
     direct_seconds = os.getenv("SHIFT_TIMER_SECONDS") or os.getenv("EXPO_PUBLIC_SHIFT_TIMER_SECONDS")
     if direct_seconds:
         try:
@@ -1367,8 +1536,10 @@ def _build_rideshare_state(
     stress: int,
     current_location_key: str,
     now_houston: datetime,
+    testing_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    max_trips = int(RIDESHARE_DAILY_CAP)
+    active_testing_config = testing_config or get_gameplay_testing_mode_config()
+    max_trips = _rideshare_daily_cap(is_weekend=is_weekend, config=active_testing_config)
     trips_today = max(0, min(max_trips, int(round(float(side_income_hours_today or 0.0)))))
     hours_remaining_today = max(0, int(hours_available or 0))
     remaining_by_cap = max(0, max_trips - trips_today)
@@ -1415,7 +1586,12 @@ def _build_rideshare_state(
         status = "not_enough_time"
         reason = "Not enough time left today for rideshare."
     elif is_weekend:
-        reason = "Available all day (weekend)."
+        if bool(active_testing_config.get("testing_mode")) and not bool(
+            active_testing_config.get("weekend_main_shift_enabled")
+        ):
+            reason = "Weekend testing rule active. Rideshare only."
+        else:
+            reason = "Available all day (weekend)."
     elif no_shift_scheduled:
         reason = "Available all day (no required shift)."
     elif shift_completed_today:
@@ -1515,6 +1691,36 @@ def _apply_main_job_sync_result_to_work_state(
     return work_state
 
 
+def _overtime_multiplier_for_shift(
+    *,
+    job_key: str,
+    shift_number: int,
+    config: dict[str, Any] | None = None,
+) -> Decimal:
+    active_config = config or get_gameplay_testing_mode_config()
+    if (
+        bool(active_config.get("testing_mode"))
+        and int(shift_number) == 2
+        and _testing_mode_job_eligible(job_key, config=active_config)
+    ):
+        return Decimal(str(active_config.get("second_shift_overtime_multiplier") or Decimal("1.5")))
+    return Decimal("1.0")
+
+
+def _salary_transaction_label_for_shift(
+    *,
+    job_display_name: str,
+    shift_number: int,
+    overtime_multiplier_used: Decimal,
+) -> str:
+    if int(shift_number) == 2 and overtime_multiplier_used > Decimal("1.0"):
+        return (
+            f"Overtime Salary - Shift {int(shift_number)} - {job_display_name} "
+            f"({float(overtime_multiplier_used):.1f}x)"
+        )
+    return f"Salary - Shift {int(shift_number)} - {job_display_name}"
+
+
 def _build_shift_salary_snapshot(
     player: Player,
     *,
@@ -1522,6 +1728,7 @@ def _build_shift_salary_snapshot(
     now_houston: datetime,
     trigger: str,
 ) -> dict[str, Any]:
+    testing_config = get_gameplay_testing_mode_config()
     shift_started_at = _as_houston(getattr(player, "main_shift_started_at", None)) or now_houston
     shift_ends_at = _as_houston(getattr(player, "main_shift_ends_at", None))
     job_key = _canonical_main_job(
@@ -1537,13 +1744,33 @@ def _build_shift_salary_snapshot(
     base_monthly_salary = _q4(Decimal(str(job_def.monthly_salary or 0)))
     pay_snapshot_used = _q4(base_monthly_salary)
     base_hourly_pay = _q4(base_monthly_salary / Decimal("30") / Decimal("8"))
-    productivity_multiplier = _q4(Decimal(str(_productivity(player, shift_number=shift_number))))
+    overtime_multiplier_used = _q4(
+        _overtime_multiplier_for_shift(
+            job_key=job_key,
+            shift_number=shift_number,
+            config=testing_config,
+        )
+    )
+    overtime_applied = bool(overtime_multiplier_used > Decimal("1.0"))
+    productivity_multiplier = _q4(
+        Decimal(
+            str(
+                _productivity(
+                    player,
+                    shift_number=shift_number,
+                )
+                if not overtime_applied
+                else _productivity(player, shift_number=1)
+            )
+        )
+    )
     job_level_multiplier = _q4(Decimal("1"))
     gross_shift_pay = _q4(
         base_hourly_pay
         * Decimal(str(hours_worked))
         * productivity_multiplier
         * job_level_multiplier
+        * overtime_multiplier_used
     )
     income_multiplier = _q4(Decimal(str(apply_income_multiplier(1.0))))
     final_salary_paid = _q4(gross_shift_pay * income_multiplier)
@@ -1609,11 +1836,19 @@ def _build_shift_salary_snapshot(
         "health_change": int(health_delta),
         "fatigue_change": fatigue_change,
         "overtime_penalty_applied": bool(overtime_penalty),
+        "overtime_applied": overtime_applied,
+        "overtime_multiplier_used": overtime_multiplier_used,
         "cash_before": cash_before,
     }
 
 
 def _shift_salary_snapshot_from_audit(audit_row: ShiftSalaryAuditLog) -> dict[str, Any]:
+    overtime_multiplier_used = _q4(
+        _overtime_multiplier_for_shift(
+            job_key=str(getattr(audit_row, "job_key", "") or ""),
+            shift_number=int(getattr(audit_row, "shift_number", 0) or 0),
+        )
+    )
     return {
         "player_id": getattr(audit_row, "player_id"),
         "current_day": int(getattr(audit_row, "day_number", 0) or 0),
@@ -1640,6 +1875,8 @@ def _shift_salary_snapshot_from_audit(audit_row: ShiftSalaryAuditLog) -> dict[st
         "health_change": int(getattr(audit_row, "health_change", 0) or 0),
         "fatigue_change": _q4(getattr(audit_row, "fatigue_change", 0)),
         "overtime_penalty_applied": bool(getattr(audit_row, "overtime_penalty_applied", False)),
+        "overtime_applied": bool(overtime_multiplier_used > Decimal("1.0")),
+        "overtime_multiplier_used": overtime_multiplier_used,
         "cash_before": _q4(getattr(audit_row, "cash_before", 0)),
         "shift_id": str(getattr(audit_row, "shift_id", "") or ""),
     }
@@ -1671,12 +1908,15 @@ def _upsert_shift_salary_audit_row(
 ) -> ShiftSalaryAuditLog | None:
     if not _is_table_available(db, "shift_salary_audit_logs"):
         return None
-    row = _get_shift_salary_audit_by_token(db, shift_token=str(snapshot.get("shift_token") or ""))
+    shift_token = str(snapshot.get("shift_token") or "").strip()
+    row = _get_shift_salary_audit_by_token(db, shift_token=shift_token)
+    existed_already = row is not None
     if row is None:
         row = ShiftSalaryAuditLog(
             player_id=snapshot["player_id"],
-            shift_token=str(snapshot.get("shift_token") or ""),
+            shift_token=shift_token,
         )
+
     row.day_number = int(snapshot.get("current_day") or 0)
     row.shift_id = shift_id or str(getattr(row, "shift_id", "") or "") or None
     row.job_key = str(snapshot.get("job_key") or "")
@@ -1718,7 +1958,82 @@ def _upsert_shift_salary_audit_row(
         else snapshot.get("cash_before", 0)
     )
     db.add(row)
-    db.flush()
+    try:
+        with db.begin_nested():
+            db.flush()
+    except IntegrityError:
+        row = _get_shift_salary_audit_by_token(db, shift_token=shift_token)
+        if row is None:
+            raise
+        existed_already = True
+        row.day_number = int(snapshot.get("current_day") or 0)
+        row.shift_id = shift_id or str(getattr(row, "shift_id", "") or "") or None
+        row.job_key = str(snapshot.get("job_key") or "")
+        row.job_display_name = str(snapshot.get("job_display_name") or "")
+        row.shift_started_at = _as_houston(snapshot.get("shift_started_at"))
+        row.shift_ends_at = _as_houston(snapshot.get("shift_ends_at"))
+        row.shift_completed_at = _as_houston(snapshot.get("shift_completed_at"))
+        row.shift_type = str(snapshot.get("shift_type") or "")
+        row.shift_number = int(snapshot.get("shift_number") or 0)
+        row.hours_worked = int(snapshot.get("hours_worked") or 0)
+        row.trigger = str(snapshot.get("trigger") or "")
+        row.payment_status = str(payment_status or SALARY_PAYMENT_STATUS_PENDING)
+        row.failure_reason = str(failure_reason or "").strip() or None
+        row.base_monthly_salary = _q4(snapshot.get("base_monthly_salary", 0))
+        row.pay_snapshot_used = _q4(snapshot.get("pay_snapshot_used", 0))
+        row.base_hourly_pay = _q4(snapshot.get("base_hourly_pay", 0))
+        row.productivity_multiplier = _q4(snapshot.get("productivity_multiplier", 1))
+        row.income_multiplier = _q4(snapshot.get("income_multiplier", 1))
+        row.job_level_multiplier = _q4(snapshot.get("job_level_multiplier", 1))
+        row.gross_shift_pay = _q4(snapshot.get("gross_shift_pay", 0))
+        row.final_salary_paid = _q4(snapshot.get("final_salary_paid", 0))
+        row.xp_gained = int(snapshot.get("xp_gained") or 0)
+        row.stress_change = int(snapshot.get("stress_change") or 0)
+        row.health_change = int(snapshot.get("health_change") or 0)
+        row.fatigue_change = _q4(snapshot.get("fatigue_change", 0))
+        row.overtime_penalty_applied = bool(snapshot.get("overtime_penalty_applied"))
+        row.salary_transaction_id = str(
+            salary_transaction_id or getattr(row, "salary_transaction_id", "") or ""
+        ) or None
+        row.xgp_transaction_id = str(
+            xgp_transaction_id or getattr(row, "xgp_transaction_id", "") or ""
+        ) or None
+        row.player_transaction_log_id = str(
+            player_transaction_log_id or getattr(row, "player_transaction_log_id", "") or ""
+        ) or None
+        row.salary_posted_at = _as_houston(salary_posted_at or getattr(row, "salary_posted_at", None))
+        row.cash_before = _q4(cash_before if cash_before is not None else snapshot.get("cash_before", 0))
+        row.cash_after = _q4(
+            cash_after
+            if cash_after is not None
+            else getattr(row, "cash_after", None)
+            if getattr(row, "cash_after", None) is not None
+            else snapshot.get("cash_before", 0)
+        )
+        db.add(row)
+        db.flush()
+        logger.info(
+            "shift.salary_audit_reused_after_conflict",
+            extra={
+                "player_id": str(snapshot.get("player_id") or ""),
+                "shift_token": shift_token,
+                "day_number": int(snapshot.get("current_day") or 0),
+                "job_key": str(snapshot.get("job_key") or ""),
+                "payment_status": str(payment_status or SALARY_PAYMENT_STATUS_PENDING),
+            },
+        )
+
+    logger.info(
+        "shift.salary_audit_upserted",
+        extra={
+            "player_id": str(snapshot.get("player_id") or ""),
+            "shift_token": shift_token,
+            "day_number": int(snapshot.get("current_day") or 0),
+            "job_key": str(snapshot.get("job_key") or ""),
+            "payment_status": str(payment_status or SALARY_PAYMENT_STATUS_PENDING),
+            "row_existed_already": bool(existed_already),
+        },
+    )
     return row
 
 
@@ -1807,11 +2122,7 @@ def _post_shift_salary_from_audit(
         player,
         day_number=int(snapshot.get("current_day") or 1),
     )
-    existing_salary_tx_id = str(
-        getattr(pds, "salary_transaction_id", None)
-        or getattr(audit_row, "salary_transaction_id", None)
-        or ""
-    ).strip()
+    existing_salary_tx_id = str(getattr(audit_row, "salary_transaction_id", None) or "").strip()
     if existing_salary_tx_id:
         existing_gameplay_tx = _get_gameplay_transaction_by_id(db, transaction_id=existing_salary_tx_id)
         if existing_gameplay_tx is None:
@@ -1819,7 +2130,14 @@ def _post_shift_salary_from_audit(
                 f"Salary transaction {existing_salary_tx_id} is missing from gameplay ledger."
             )
         existing_amount = _q4(getattr(existing_gameplay_tx, "amount", 0))
-        pds.salary_earned = _q4(existing_amount)
+        pds.salary_earned = _q4(
+            _salary_total_for_day(
+                db,
+                player_id=player.id,
+                day_number=int(snapshot.get("current_day") or 1),
+                fallback_amount=float(existing_amount),
+            )
+        )
         pds.salary_transaction_id = existing_salary_tx_id
         pds.salary_posted_at = _as_houston(getattr(existing_gameplay_tx, "timestamp", None)) or getattr(
             pds, "salary_posted_at", None
@@ -1839,6 +2157,13 @@ def _post_shift_salary_from_audit(
         return updated_audit or audit_row
 
     shift_id = str(getattr(audit_row, "shift_id", "") or "")
+    salary_label = _salary_transaction_label_for_shift(
+        job_display_name=str(
+            snapshot.get("job_display_name") or _job_display_name(str(snapshot.get("job_key") or ""))
+        ),
+        shift_number=int(snapshot.get("shift_number") or 1),
+        overtime_multiplier_used=_q4(snapshot.get("overtime_multiplier_used", Decimal("1.0"))),
+    )
     action = None
     if shift_id:
         action = db.query(JobAction).filter(JobAction.id == UUID(shift_id)).first()
@@ -1862,6 +2187,50 @@ def _post_shift_salary_from_audit(
         db.add(action)
         db.flush()
         shift_id = str(action.id)
+
+    existing_gameplay_tx = _find_salary_gameplay_transaction_for_shift(
+        db,
+        player_id=player.id,
+        day_number=int(snapshot.get("current_day") or 1),
+        description=salary_label,
+    )
+    if existing_gameplay_tx is not None:
+        player_tx = _find_player_transaction_log_for_shift(
+            db,
+            player_id=player.id,
+            shift_token=str(snapshot.get("shift_token") or ""),
+        )
+        xgp_tx = _find_xgp_transaction_for_shift(
+            db,
+            player_id=player.id,
+            shift_id=shift_id,
+        )
+        existing_amount = _q4(getattr(existing_gameplay_tx, "amount", 0))
+        pds.salary_earned = _q4(
+            _salary_total_for_day(
+                db,
+                player_id=player.id,
+                day_number=int(snapshot.get("current_day") or 1),
+                fallback_amount=float(existing_amount),
+            )
+        )
+        pds.salary_transaction_id = str(existing_gameplay_tx.id)
+        pds.salary_posted_at = _as_houston(getattr(existing_gameplay_tx, "timestamp", None)) or now_houston
+        updated_audit = _upsert_shift_salary_audit_row(
+            db,
+            snapshot=snapshot,
+            payment_status=SALARY_PAYMENT_STATUS_POSTED,
+            shift_id=shift_id,
+            salary_transaction_id=str(existing_gameplay_tx.id),
+            xgp_transaction_id=str(getattr(xgp_tx, "id", "") or "") or None,
+            player_transaction_log_id=str(getattr(player_tx, "id", "") or "") or None,
+            salary_posted_at=pds.salary_posted_at,
+            cash_before=_q4(getattr(audit_row, "cash_before", getattr(player, "cash", 0))),
+            cash_after=_q4(getattr(player, "cash", 0)),
+        )
+        db.commit()
+        db.refresh(player)
+        return updated_audit or audit_row
 
     balance_before = _q4(getattr(player, "cash", 0))
     final_salary_paid = _q4(snapshot.get("final_salary_paid", 0))
@@ -1904,7 +2273,7 @@ def _post_shift_salary_from_audit(
         balance_after=balance_after,
         reference_type="job_action",
         reference_id=shift_id,
-        description=f"Main job income - {snapshot.get('job_key')} shift {snapshot.get('shift_number')}",
+        description=salary_label,
     )
     db.add(xgp_tx)
     db.flush()
@@ -1930,6 +2299,9 @@ def _post_shift_salary_from_audit(
             "main_shift_status": SHIFT_STATUS_COMPLETED,
             "houston_finalized_at": now_houston.isoformat(),
             "salary_audit_shift_token": str(snapshot.get("shift_token") or ""),
+            "salary_label": salary_label,
+            "overtime_applied": bool(snapshot.get("overtime_applied")),
+            "overtime_multiplier_used": float(_q4(snapshot.get("overtime_multiplier_used", 1))),
         },
     )
     db.flush()
@@ -1941,10 +2313,7 @@ def _post_shift_salary_from_audit(
         transaction_type="income",
         category="salary",
         amount=final_salary_paid,
-        description=(
-            f"Main job salary for Day {int(snapshot.get('current_day') or 1)} "
-            f"({str(snapshot.get('job_display_name') or _job_display_name(snapshot.get('job_key')) )})"
-        ),
+        description=salary_label,
     )
     db.flush()
     logger.info(
@@ -1975,9 +2344,12 @@ def _post_shift_salary_from_audit(
                 "productivity_multiplier": float(_q4(snapshot.get("productivity_multiplier", 1))),
                 "base_hourly_pay": float(_q4(snapshot.get("base_hourly_pay", 0))),
                 "overtime_penalty": bool(snapshot.get("overtime_penalty_applied")),
+                "overtime_applied": bool(snapshot.get("overtime_applied")),
+                "overtime_multiplier_used": float(_q4(snapshot.get("overtime_multiplier_used", 1))),
                 "trigger": trigger,
                 "houston_finalized_at": now_houston.isoformat(),
                 "salary_audit_shift_token": str(snapshot.get("shift_token") or ""),
+                "salary_label": salary_label,
             }
         ),
     )
@@ -2158,6 +2530,14 @@ def _retry_pending_shift_salary_if_needed(
 def _validate_main_shift_start(player: Player, *, job_name: str, hours_worked: int, shift_number: int) -> None:
     canonical_job_name = _canonical_main_job(job_name)
     canonical_player_job = _canonical_main_job(getattr(player, "main_job", None))
+    testing_config = get_gameplay_testing_mode_config()
+    max_daily_main_shifts = _max_daily_main_shifts_for_job(canonical_job_name, config=testing_config)
+    max_main_hours_per_day = MAX_MAIN_HOURS_PER_DAY
+    if bool(testing_config.get("testing_mode")) and max_daily_main_shifts > 1:
+        max_main_hours_per_day = max(
+            MAX_MAIN_HOURS_PER_DAY,
+            int(hours_worked) * int(max_daily_main_shifts),
+        )
     if canonical_job_name not in MAIN_JOBS:
         raise ValueError(
             f"Invalid main job key: {job_name}. Expected one of: {supported_main_job_keys_text()}"
@@ -2176,8 +2556,8 @@ def _validate_main_shift_start(player: Player, *, job_name: str, hours_worked: i
             f"Main job shifts cannot exceed {MAX_MAIN_HOURS_PER_DAY} hours. Requested: {hours_worked}."
         )
 
-    if int(player.work_actions_today or 0) >= 2:
-        raise ValueError("You have already completed the maximum of 2 work actions today.")
+    if int(player.work_actions_today or 0) >= max_daily_main_shifts:
+        raise ValueError("Daily shift limit reached.")
 
     if int(player.health or 0) <= 15:
         raise ValueError(f"Health is too low to work ({player.health}/100). Minimum required: 16.")
@@ -2188,12 +2568,15 @@ def _validate_main_shift_start(player: Player, *, job_name: str, hours_worked: i
             f"Must be below {MAX_FATIGUE_FOR_SECOND_SHIFT}."
         )
 
-    if int(player.main_job_hours_today or 0) > 0:
+    if int(player.main_job_hours_today or 0) > 0 and max_daily_main_shifts <= 1:
         raise ValueError("You have already worked your main job shift today.")
 
-    if int(player.main_job_hours_today or 0) + hours_worked > MAX_MAIN_HOURS_PER_DAY:
+    if shift_number > max_daily_main_shifts:
+        raise ValueError("Daily shift limit reached.")
+
+    if int(player.main_job_hours_today or 0) + hours_worked > max_main_hours_per_day:
         raise ValueError(
-            f"Main job hour cap is {MAX_MAIN_HOURS_PER_DAY} hours/day. "
+            f"Main job hour cap is {max_main_hours_per_day} hours/day. "
             f"You already worked {player.main_job_hours_today} main-shift hours."
         )
 
@@ -2262,9 +2645,91 @@ def _clamp_int(value: int, lo: int, hi: int) -> int:
     return max(lo, min(hi, value))
 
 
+def _list_shift_salary_audits_for_player_day(
+    db: Session,
+    *,
+    player_id: UUID,
+    day_number: int,
+) -> list[ShiftSalaryAuditLog]:
+    if not _is_table_available(db, "shift_salary_audit_logs"):
+        return []
+    return (
+        db.query(ShiftSalaryAuditLog)
+        .filter(
+            ShiftSalaryAuditLog.player_id == player_id,
+            ShiftSalaryAuditLog.day_number == int(day_number),
+        )
+        .order_by(
+            ShiftSalaryAuditLog.shift_number.asc(),
+            ShiftSalaryAuditLog.shift_completed_at.asc(),
+            ShiftSalaryAuditLog.created_at.asc(),
+        )
+        .all()
+    )
+
+
+def _build_testing_mode_work_payload(
+    *,
+    player: Player,
+    is_weekend: bool,
+    shifts_completed_today: int,
+    shift_1_completed: bool,
+    shift_2_completed: bool,
+    active_shift: bool,
+) -> dict[str, Any]:
+    testing_config = get_gameplay_testing_mode_config()
+    current_job_key = normalize_main_job_key(
+        getattr(player, "main_shift_job_name", None) or getattr(player, "main_job", None),
+        allow_aliases=True,
+    )
+    eligible_for_two_shifts = _testing_mode_job_eligible(current_job_key, config=testing_config)
+    max_daily_main_shifts = _max_daily_main_shifts_for_job(current_job_key, config=testing_config)
+    weekend_main_shift_enabled = bool(testing_config.get("weekend_main_shift_enabled"))
+    weekend_rideshare_only = bool(
+        testing_config.get("testing_mode") and is_weekend and not weekend_main_shift_enabled
+    )
+    overtime_shift_available = bool(
+        testing_config.get("testing_mode")
+        and eligible_for_two_shifts
+        and not weekend_rideshare_only
+        and shift_1_completed
+        and not shift_2_completed
+        and not active_shift
+    )
+    daily_shift_limit_reached = bool(
+        shifts_completed_today >= max_daily_main_shifts or (weekend_rideshare_only and shifts_completed_today == 0)
+    )
+    next_shift_number_available = None
+    if not active_shift and not daily_shift_limit_reached and not weekend_rideshare_only:
+        next_shift_number_available = min(max_daily_main_shifts, shifts_completed_today + 1)
+
+    return {
+        "enabled": bool(testing_config.get("testing_mode")),
+        "shift_minutes": int(testing_config.get("shift_minutes") or 15),
+        "shift_length_label": _testing_shift_length_label(testing_config),
+        "two_shift_jobs": list(testing_config.get("two_shift_jobs") or []),
+        "eligible_for_two_shifts": eligible_for_two_shifts,
+        "max_daily_main_shifts": max_daily_main_shifts,
+        "shifts_completed_today": shifts_completed_today,
+        "shift_1_completed": bool(shift_1_completed),
+        "shift_2_completed": bool(shift_2_completed),
+        "overtime_shift_available": overtime_shift_available,
+        "overtime_used_today": bool(shift_2_completed),
+        "next_shift_number_available": next_shift_number_available,
+        "daily_shift_limit_reached": daily_shift_limit_reached,
+        "weekend_rideshare_only": weekend_rideshare_only,
+        "rideshare_cap_today": _rideshare_daily_cap(is_weekend=is_weekend, config=testing_config),
+        "weekend_main_shift_enabled": weekend_main_shift_enabled,
+        "second_shift_overtime_multiplier": float(
+            testing_config.get("second_shift_overtime_multiplier") or Decimal("1.5")
+        ),
+    }
+
+
 def build_work_state_payload(db: Session, player: Player, *, now_houston: datetime | None = None) -> dict[str, Any]:
     now = _as_houston(now_houston) or get_houston_now()
     current_day = _current_game_day_for_player(db, player)
+    testing_config = get_gameplay_testing_mode_config()
     _maybe_reset_daily_counters(player, current_day)
     pds = (
         db.query(PlayerDailyState)
@@ -2289,8 +2754,24 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
     shift_ends_at = _as_houston(getattr(player, "main_shift_ends_at", None))
     shift_completed_at = _as_houston(getattr(player, "main_shift_completed_at", None))
     active_shift = bool(getattr(player, "main_shift_active_flag", False) and getattr(player, "main_shift_status", "") == SHIFT_STATUS_ACTIVE)
+    current_day_shift_audits = _list_shift_salary_audits_for_player_day(
+        db,
+        player_id=player.id,
+        day_number=current_day,
+    )
+    shifts_completed_today = len(current_day_shift_audits)
+    shift_1_completed = any(int(getattr(row, "shift_number", 0) or 0) == 1 for row in current_day_shift_audits)
+    shift_2_completed = any(int(getattr(row, "shift_number", 0) or 0) == 2 for row in current_day_shift_audits)
     shift_expired = bool(active_shift and shift_ends_at and now >= shift_ends_at)
     schedule = _scheduled_shift_context(player, day_number=current_day, now_houston=now)
+    testing_mode_payload = _build_testing_mode_work_payload(
+        player=player,
+        is_weekend=bool(schedule["is_weekend"]),
+        shifts_completed_today=shifts_completed_today,
+        shift_1_completed=shift_1_completed,
+        shift_2_completed=shift_2_completed,
+        active_shift=active_shift,
+    )
     resolved_shift_job_name = canonical_shift_job_name or _canonical_main_job(schedule["canonical_main_job"]) or canonical_main_job
     job_truth_context = _resolve_job_truth_context(
         db,
@@ -2458,6 +2939,7 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         stress=_safe_int(getattr(player, "stress", 0), 0),
         current_location_key=current_location_key,
         now_houston=now,
+        testing_config=testing_config,
     )
     rideshare_available = bool(rideshare_state.get("can_rideshare"))
     rideshare_block_reason = str(rideshare_state.get("block_reason") or "").strip() or None
@@ -2472,9 +2954,7 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
     shift_ended_at = shift_completed_at
     did_work_today = _did_work_for_day(player, pds, current_day=current_day, active_shift=active_shift)
     missed_shift_today = bool(getattr(pds, "missed_shift", False)) if pds is not None else False
-    current_day_salary_audit = _serialize_shift_salary_audit(
-        _latest_shift_salary_audit_for_player(db, player_id=player.id, day_number=current_day)
-    )
+    current_day_salary_audit = _serialize_shift_salary_audit(current_day_shift_audits[-1] if current_day_shift_audits else None)
     did_work_today = bool(did_work_today or current_day_salary_audit)
     last_salary_posted = _serialize_shift_salary_audit(
         _latest_posted_shift_salary_audit_for_player(db, player_id=player.id)
@@ -2532,6 +3012,7 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         "day_of_week": str(schedule["day_of_week"]),
         "is_weekend": bool(schedule["is_weekend"]),
         "phase_status_label": str(schedule["phase_status_label"]),
+        "testing_mode": testing_mode_payload,
         "day_rollover_timezone": "America/Chicago",
         "day_rollover_time_label": HOUSTON_DAY_RESET_LABEL,
         "next_day_rollover_time": "00:00",
@@ -2579,6 +3060,9 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         "shift_type": str(getattr(player, "main_shift_shift_type", None) or "standard_shift"),
         "shift_hours": int(getattr(player, "main_shift_hours", 0) or 0),
         "shift_number": int(getattr(player, "main_shift_number", 0) or 0),
+        "shifts_completed_today": int(shifts_completed_today),
+        "shift_1_completed": bool(shift_1_completed),
+        "shift_2_completed": bool(shift_2_completed),
         "shift_expired": shift_expired,
         "shift_found": active_shift,
         "shift_completed_today": completed_shift_confirmed,
@@ -2671,10 +3155,13 @@ def start_main_shift(
 
     resolve_expired_shift_if_needed(db, player=player, now_houston=now)
     current_work_state = build_work_state_payload(db, player, now_houston=now)
+    testing_mode_payload = current_work_state.get("testing_mode") if isinstance(current_work_state, dict) else {}
     if str(current_work_state.get("job_sync_status") or "") == "repair_needed":
         raise ValueError(
             str(current_work_state.get("job_sync_warning_message") or "Your job data is syncing. Please retry in a moment.")
         )
+    if bool((testing_mode_payload or {}).get("weekend_rideshare_only")):
+        raise ValueError("Weekend testing rule active. No required main shift today - rideshare only.")
     if bool(current_work_state.get("missed_shift_today")):
         raise ValueError(
             "Today's required shift window has already ended. Ride share is the available work option now."

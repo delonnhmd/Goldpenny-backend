@@ -16,7 +16,7 @@ export const BALANCE = {
     buy_inventory: 1,
     rest: 2,
     study: 2,
-    debt_payment: 1,
+    debt_payment: 0,
     recovery_action: 1,
     travel: 1,
     switch_job: 1,
@@ -32,7 +32,6 @@ export const BALANCE = {
     buy_inventory: 2,
     rest: 2,
     study: 2,
-    debt_payment: 1,      // once per day; prevents free debt-loop
     recovery_action: 1,   // one session-level recovery per day
     travel: 12,
     switch_job: 1,

@@ -40,6 +40,10 @@ function signedWhole(value: number): string {
   return String(rounded);
 }
 
+function createActionRequestId(prefix: string): string {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function formatRiskLevel(level: string | null | undefined): string {
   const normalized = String(level || '').trim().toLowerCase();
   if (normalized === 'critical') return 'Critical';
@@ -523,6 +527,20 @@ export default function DashboardScreen() {
     workState?.day_of_week
     || formatHoustonWeekday(backendHoustonDate),
   );
+  const testingMode = workState?.testing_mode || null;
+  const testingModeEnabled = Boolean(testingMode?.enabled);
+  const testingShiftLabel = String(
+    testingMode?.shift_length_label
+    || (SHIFT_SHORT_MODE ? '15 minutes' : 'Standard shift schedule'),
+  );
+  const shiftsCompletedToday = Number(testingMode?.shifts_completed_today ?? workState?.shifts_completed_today ?? 0);
+  const maxDailyMainShifts = Number(testingMode?.max_daily_main_shifts || 1);
+  const overtimeShiftAvailable = Boolean(testingMode?.overtime_shift_available);
+  const overtimeUsedToday = Boolean(testingMode?.overtime_used_today);
+  const weekendRideshareOnly = Boolean(testingMode?.weekend_rideshare_only);
+  const nextShiftNumberAvailable = Number(testingMode?.next_shift_number_available || 0);
+  const dailyShiftLimitReached = Boolean(testingMode?.daily_shift_limit_reached);
+  const rideshareCapToday = Number(testingMode?.rideshare_cap_today || 0);
   const marketDataMessage = String(workState?.market_data_message || '').trim();
   const dayRolloverLabel = String(workState?.day_rollover_time_label || '12:00 AM CT');
   const autoRolloverRecapLines = Array.isArray(workState?.auto_rollover_recap_lines)
@@ -542,6 +560,15 @@ export default function DashboardScreen() {
   const workIncomeVisibilityLabel = backendShiftActive
     ? 'Shift active - salary pending until completion.'
     : salaryStatusMessage;
+  const nextShiftLabel = weekendRideshareOnly
+    ? 'Weekend rideshare-only'
+    : overtimeShiftAvailable
+      ? `Overtime available (${Number(testingMode?.second_shift_overtime_multiplier || 1.5).toFixed(1)}x)`
+      : dailyShiftLimitReached
+        ? 'Daily shift limit reached'
+        : maxDailyMainShifts > 1 && nextShiftNumberAvailable > 0
+          ? `Shift ${nextShiftNumberAvailable}/${maxDailyMainShifts} available`
+          : 'Standard shift available';
 
   useEffect(() => {
     setAutoClockingOut(false);
@@ -614,7 +641,7 @@ export default function DashboardScreen() {
       : getRideshareMode(houstonHour)
   ) as RideshareMode;
   const rideshareTripsToday = rideshareState?.trips_today ?? Math.max(0, Math.round(workState?.side_income_hours_today ?? 0));
-  const rideshareDailyCap = rideshareState?.max_trips ?? Math.max(1, Number(BALANCE.ACTION_CAPS.side_income || 6));
+  const rideshareDailyCap = rideshareState?.max_trips ?? Math.max(1, rideshareCapToday || Number(BALANCE.ACTION_CAPS.side_income || 6));
   const rideshareRemainingTrips = rideshareState?.remaining_trips ?? Math.max(0, rideshareDailyCap - rideshareTripsToday);
   const rideshareHoursRemainingToday = rideshareState?.hours_remaining_today ?? Math.max(0, Number(workState?.hours_available || 0));
   const rideshareEarnedToday = useMemo(
@@ -1284,6 +1311,7 @@ export default function DashboardScreen() {
     }
     setBusyDebtPayment(true);
     try {
+      const requestId = createActionRequestId('debt_payment');
       const ok = await loop.executeAction({
         action_key: 'debt_payment',
         title: `Pay ${formatMoney(normalizedAmount)} debt`,
@@ -1295,10 +1323,14 @@ export default function DashboardScreen() {
         confidence_level: 'high',
         parameters: {
           payment_amount: normalizedAmount,
+          request_id: requestId,
         },
       });
       if (ok) {
-        setDebtPaymentAmount('0');
+        const remainingCash = Math.max(0, cash - normalizedAmount);
+        const remainingDebt = Math.max(0, debt - normalizedAmount);
+        const nextSuggestedAmount = Math.min(normalizedAmount, remainingCash, remainingDebt);
+        setDebtPaymentAmount(nextSuggestedAmount > 0 ? String(Math.round(nextSuggestedAmount * 100) / 100) : '');
         loop.setFeedback({
           tone: 'success',
           message: `Paid ${formatMoney(normalizedAmount)} toward debt.`,
@@ -1450,7 +1482,7 @@ export default function DashboardScreen() {
                 tone: gamePhaseLabel === 'Weekend' ? 'warning' : 'info',
               },
               { label: 'Shift window', value: scheduledShiftWindowLabel },
-              { label: 'Timer mode', value: SHIFT_SHORT_MODE ? 'Accelerated testing mode' : 'Real-time mode' },
+              { label: 'Timer mode', value: testingModeEnabled ? 'Testing mode active' : SHIFT_SHORT_MODE ? 'Accelerated testing mode' : 'Real-time mode' },
             ]}
           />
         </GameplaySummaryCard>
@@ -1561,6 +1593,18 @@ export default function DashboardScreen() {
             note="Houston local time."
           />
           <GameplayStatCard
+            label="Testing mode"
+            value={testingModeEnabled ? 'On' : 'Off'}
+            tone={testingModeEnabled ? 'warning' : 'neutral'}
+            note={testingModeEnabled ? `Shift length: ${testingShiftLabel}` : 'Production rules active.'}
+          />
+          <GameplayStatCard
+            label="Shifts today"
+            value={`${Math.max(0, shiftsCompletedToday)} / ${Math.max(1, maxDailyMainShifts)}`}
+            tone={dailyShiftLimitReached ? 'warning' : overtimeShiftAvailable ? 'positive' : 'info'}
+            note={nextShiftLabel}
+          />
+          <GameplayStatCard
             label="Salary today"
             value={salaryEarnedToday > 0 ? `+${formatMoney(salaryEarnedToday)}` : 'No salary yet'}
             tone={salaryEarnedToday > 0 ? 'positive' : backendShiftActive ? 'warning' : 'neutral'}
@@ -1614,7 +1658,7 @@ export default function DashboardScreen() {
             label="Time left"
             value={`${loop.dailySession.remainingTimeUnits}/${loop.dailySession.totalTimeUnits}`}
             tone={loop.dailySession.remainingTimeUnits <= 2 ? 'warning' : 'info'}
-            note={SHIFT_SHORT_MODE ? 'Accelerated testing mode.' : 'Real-time shift timer.'}
+            note={testingModeEnabled ? `Testing mode active. Shift length: ${testingShiftLabel}.` : 'Real-time shift timer.'}
           />
         </View>
 
@@ -1627,7 +1671,7 @@ export default function DashboardScreen() {
                   ? 'Starting shift...'
                   : backendShiftActive
                     ? `On shift (${shiftRemainingLabel})`
-                    : 'Clock In'
+                    : String(workShiftAction?.title || 'Clock In')
             }
             onPress={() => void handleClockIn()}
             disabled={!canClockIn || backendShiftActive || autoClockingOut || runningWorkAction}
@@ -1657,6 +1701,12 @@ export default function DashboardScreen() {
             title="Auto-finalizing"
             message="Timer reached zero. Finalizing shift and unlocking post-shift actions."
             tone="warning"
+          />
+        ) : weekendRideshareOnly ? (
+          <GameplayWarningBanner
+            title="Weekend testing rule active"
+            message={`No required main shift. Rideshare cap today: ${rideshareDailyCap} trips.`}
+            tone="info"
           />
         ) : backendShiftCompleted && lastCompletedShift ? (
           <GameplayWarningBanner
@@ -1793,6 +1843,12 @@ export default function DashboardScreen() {
             <GameplayWarningBanner
               title="Rideshare running"
               message="Processing trip bundle and updating cash, stress, health, and time."
+              tone="info"
+            />
+          ) : weekendRideshareOnly ? (
+            <GameplayWarningBanner
+              title="Weekend testing rule active"
+              message={`No required main shift. Rideshare cap today: ${rideshareDailyCap} trips.`}
               tone="info"
             />
           ) : backendShiftCompleted ? (

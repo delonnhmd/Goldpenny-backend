@@ -130,6 +130,8 @@ export interface ShiftSalaryAuditSnapshot {
   health_change: number;
   fatigue_change: number;
   overtime_penalty_applied: boolean;
+  overtime_applied?: boolean;
+  overtime_multiplier_used?: number;
   salary_transaction_id?: string | null;
   xgp_transaction_id?: string | null;
   player_transaction_log_id?: string | null;
@@ -137,6 +139,26 @@ export interface ShiftSalaryAuditSnapshot {
   cash_before: number;
   cash_after: number;
   transaction_confirmed: boolean;
+}
+
+export interface TestingModeSnapshot {
+  enabled: boolean;
+  shift_minutes: number;
+  shift_length_label?: string | null;
+  two_shift_jobs?: string[];
+  eligible_for_two_shifts?: boolean;
+  max_daily_main_shifts?: number;
+  shifts_completed_today?: number;
+  shift_1_completed?: boolean;
+  shift_2_completed?: boolean;
+  overtime_shift_available?: boolean;
+  overtime_used_today?: boolean;
+  next_shift_number_available?: number | null;
+  daily_shift_limit_reached?: boolean;
+  weekend_rideshare_only?: boolean;
+  rideshare_cap_today?: number;
+  weekend_main_shift_enabled?: boolean;
+  second_shift_overtime_multiplier?: number;
 }
 
 export interface RideshareStateSnapshot {
@@ -201,6 +223,7 @@ export interface WorkStateSnapshot {
   day_of_week?: string;
   is_weekend?: boolean;
   phase_status_label?: string | null;
+  testing_mode?: TestingModeSnapshot | null;
   day_settled: boolean;
   day_rollover_timezone?: string | null;
   day_rollover_time_label?: string | null;
@@ -241,6 +264,9 @@ export interface WorkStateSnapshot {
   shift_type?: string | null;
   shift_hours: number;
   shift_number: number;
+  shifts_completed_today?: number;
+  shift_1_completed?: boolean;
+  shift_2_completed?: boolean;
   shift_expired: boolean;
   shift_found: boolean;
   shift_completed_today?: boolean;
