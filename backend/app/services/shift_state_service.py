@@ -278,6 +278,12 @@ def _format_houston_datetime_label(value: datetime | None) -> str | None:
     return f"{resolved.strftime('%I:%M %p').lstrip('0')} CT"
 
 
+def _format_houston_date_label(value: date | None) -> str | None:
+    if value is None:
+        return None
+    return f"{value.strftime('%b')} {value.day}, {value.year}"
+
+
 def _is_table_available(db: Session, table_name: str) -> bool:
     normalized_name = str(table_name or "").strip()
     if not normalized_name:
@@ -945,33 +951,107 @@ def _should_run_offline_survival_catchup(player: Player, *, current_day: int) ->
     return int(getattr(player, "last_settled_day", 0) or 0) >= int(current_day)
 
 
+def _rollover_degraded_result(
+    *,
+    player: Player,
+    now_houston: datetime,
+    reason: str,
+) -> dict[str, Any]:
+    missed_days, previous_sync_date = _resolve_houston_rollover_days(player, now_houston=now_houston)
+    return {
+        "applied_days": 0,
+        "missed_days": int(missed_days),
+        "truncated_days": int(missed_days),
+        "previous_sync_date": str(previous_sync_date),
+        "today_date": str(now_houston.date()),
+        "settlement_days": [],
+        "triggered": False,
+        "skipped_reason": "market_data_temporarily_unavailable",
+        "degraded": True,
+        "error": reason,
+    }
+
+
+def _apply_market_degradation_to_work_state(
+    work_state: dict[str, Any],
+    *,
+    rollover_result: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not isinstance(work_state, dict):
+        return work_state
+    if not isinstance(rollover_result, dict) or not bool(rollover_result.get("degraded")):
+        return work_state
+
+    degraded_sections = [
+        str(section)
+        for section in (work_state.get("degraded_sections") or [])
+        if str(section).strip()
+    ]
+    if "market_data" not in degraded_sections:
+        degraded_sections.append("market_data")
+    reason = str(rollover_result.get("error") or "").strip() or "Market data temporarily unavailable."
+    work_state["degraded_sections"] = degraded_sections
+    work_state["market_data_available"] = False
+    work_state["market_data_message"] = (
+        "Market data temporarily unavailable. Core dashboard loaded with limited economy data."
+    )
+    work_state["auto_rollover_warning"] = reason
+    return work_state
+
+
 def _scheduled_shift_context(player: Player, *, day_number: int, now_houston: datetime) -> dict[str, Any]:
     resolved_now = _as_houston(now_houston) or get_houston_now()
-    resolved_date = _day_to_date(day_number)
+    houston_local_date = resolved_now.date()
+    mapped_game_day_date = _day_to_date(day_number)
+    weekday_index = int(houston_local_date.weekday())
     canonical_main_job = _canonical_main_job(getattr(player, "main_job", None))
-    day_of_week = resolved_date.strftime("%A")
-    is_weekend = resolved_date.weekday() >= 5
+    day_of_week = houston_local_date.strftime("%A")
+    is_weekend = weekday_index >= 5
+    phase_status_label = "Weekend" if is_weekend else "Weekday"
     shift_template = JOB_SHIFT_MAP.get(canonical_main_job or "")
     scheduled_shift_start = str((shift_template or {}).get("start") or "")
     scheduled_shift_end = str((shift_template or {}).get("end") or "")
     scheduled_start_time = _parse_houston_hhmm(scheduled_shift_start)
     scheduled_end_time = _parse_houston_hhmm(scheduled_shift_end)
     current_local_time = resolved_now.timetz().replace(tzinfo=None)
-    current_day_matches_houston_date = bool(resolved_now.date() == resolved_date)
+    current_day_matches_houston_date = bool(houston_local_date == mapped_game_day_date)
     reached_shift_end = bool(
-        current_day_matches_houston_date
-        and scheduled_end_time
+        scheduled_end_time
         and current_local_time >= scheduled_end_time
     )
     passed_shift_end = bool(
-        current_day_matches_houston_date
-        and scheduled_end_time
+        scheduled_end_time
         and current_local_time > scheduled_end_time
     )
+    logger.info(
+        "shift.calendar_classification_resolved",
+        extra={
+            "player_id": str(player.id),
+            "current_game_day": int(day_number),
+            "utc_timestamp": resolved_now.astimezone(pytz.UTC).isoformat(),
+            "houston_local_timestamp": resolved_now.isoformat(),
+            "houston_local_date": str(houston_local_date),
+            "mapped_game_day_date": str(mapped_game_day_date),
+            "day_matches_game_day_date": current_day_matches_houston_date,
+            "derived_weekday_index": weekday_index,
+            "derived_weekday_label": day_of_week,
+            "derived_phase_status": phase_status_label,
+            "timer_mode": (
+                "accelerated"
+                if _configured_shift_duration_seconds(1) == 90
+                else "normal"
+            ),
+        },
+    )
     return {
+        "houston_local_date": houston_local_date,
+        "houston_local_date_label": _format_houston_date_label(houston_local_date),
+        "mapped_game_day_date": mapped_game_day_date,
         "day_of_week": day_of_week,
+        "weekday_index": weekday_index,
         "current_day_matches_houston_date": current_day_matches_houston_date,
         "is_weekend": is_weekend,
+        "phase_status_label": phase_status_label,
         "has_main_job": bool(canonical_main_job),
         "canonical_main_job": canonical_main_job or "",
         "shift_required_today": bool(canonical_main_job and not is_weekend and shift_template),
@@ -2446,9 +2526,12 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         "player_id": str(player.id),
         "current_houston_time": now.isoformat(),
         "current_houston_time_label": _format_houston_datetime_label(now),
+        "current_houston_date": str(schedule["houston_local_date"]),
+        "current_houston_date_label": str(schedule["houston_local_date_label"] or ""),
         "current_game_day": current_day,
         "day_of_week": str(schedule["day_of_week"]),
         "is_weekend": bool(schedule["is_weekend"]),
+        "phase_status_label": str(schedule["phase_status_label"]),
         "day_rollover_timezone": "America/Chicago",
         "day_rollover_time_label": HOUSTON_DAY_RESET_LABEL,
         "next_day_rollover_time": "00:00",
@@ -2562,6 +2645,9 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         "trips_remaining": int(rideshare_state.get("remaining_trips") or 0),
         "remaining_time_units": int(rideshare_state.get("hours_remaining_today") or int(getattr(player, "hours_available", 0) or 0)),
         "remaining_side_income_hours_today": round(remaining_side_cap, 4),
+        "degraded_sections": [],
+        "market_data_available": True,
+        "market_data_message": None,
         "action_state_refreshed_at": now.isoformat(),
         "auto_finalized_previous_day": False,
         "auto_finalized_days_count": 0,
@@ -2913,7 +2999,24 @@ def resolve_expired_shift_if_needed(
         },
     )
 
-    rollover_result = _run_houston_auto_rollover_if_needed(db, player=player, now_houston=now)
+    try:
+        rollover_result = _run_houston_auto_rollover_if_needed(db, player=player, now_houston=now)
+    except Exception as exc:
+        db.rollback()
+        db.refresh(player)
+        logger.exception(
+            "shift.resolve_expired_shift_if_needed auto_rollover_degraded",
+            extra={
+                "player_id": str(player.id),
+                "current_houston_time": now.isoformat(),
+                "reason": str(exc),
+            },
+        )
+        rollover_result = _rollover_degraded_result(
+            player=player,
+            now_houston=now,
+            reason=str(exc),
+        )
     if int(rollover_result.get("applied_days") or 0) > 0:
         refreshed_day = _current_game_day_for_player(db, player)
         sync_result = sync_shift_day_rules_if_needed(
@@ -2947,6 +3050,10 @@ def resolve_expired_shift_if_needed(
         work_state["auto_finalized_days_count"] = applied_days
         work_state["new_day_started_houston_time"] = True
         work_state["auto_rollover_recap_lines"] = recap_lines
+        work_state = _apply_market_degradation_to_work_state(
+            work_state,
+            rollover_result=rollover_result,
+        )
         logger.info(
             "shift.resolve_expired_shift_if_needed applied Houston auto-rollover.",
             extra={
@@ -2994,6 +3101,10 @@ def resolve_expired_shift_if_needed(
         finalized_state["auto_finalized_days_count"] = 0
         finalized_state["new_day_started_houston_time"] = False
         finalized_state["auto_rollover_recap_lines"] = []
+        finalized_state = _apply_market_degradation_to_work_state(
+            finalized_state,
+            rollover_result=rollover_result,
+        )
         return finalized_state
 
     sync_result = sync_shift_day_rules_if_needed(
@@ -3029,5 +3140,9 @@ def resolve_expired_shift_if_needed(
     work_state["auto_finalized_days_count"] = 0
     work_state["new_day_started_houston_time"] = False
     work_state["auto_rollover_recap_lines"] = []
+    work_state = _apply_market_degradation_to_work_state(
+        work_state,
+        rollover_result=rollover_result,
+    )
     return work_state
 

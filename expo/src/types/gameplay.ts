@@ -195,9 +195,12 @@ export interface WorkStateSnapshot {
   player_id: string;
   current_houston_time: string;
   current_houston_time_label?: string | null;
+  current_houston_date?: string | null;
+  current_houston_date_label?: string | null;
   current_game_day: number;
   day_of_week?: string;
   is_weekend?: boolean;
+  phase_status_label?: string | null;
   day_settled: boolean;
   day_rollover_timezone?: string | null;
   day_rollover_time_label?: string | null;
@@ -309,6 +312,9 @@ export interface WorkStateSnapshot {
   trips_remaining?: number;
   remaining_time_units?: number;
   remaining_side_income_hours_today: number;
+  degraded_sections?: string[];
+  market_data_available?: boolean;
+  market_data_message?: string | null;
   action_state_refreshed_at?: string | null;
   auto_day_rollover?: {
     applied_days: number;

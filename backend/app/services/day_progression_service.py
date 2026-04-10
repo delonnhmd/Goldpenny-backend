@@ -18,12 +18,16 @@ from app.models.stock_daily_price import StockDailyPrice
 from app.services.basket_pricing_service import BasketPricingError, compute_daily_basket_price_updates
 from app.services.daily_brief_service import DailyBriefError, build_daily_economy_brief
 from app.services.daily_settlement_service import (
+    DailySettlementError,
     get_next_player_day,
     settle_player_day,
 )
 from app.services.daily_brief_service import generate_player_daily_brief
 from app.services.job_market_service import compute_daily_job_market_updates
-from app.services.market_daily_update_service import generate_next_stock_day
+from app.services.market_daily_update_service import (
+    MarketUpdateError,
+    ensure_stock_market_day,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -75,10 +79,26 @@ def run_player_next_day(db: Session, player_id: str | UUID) -> dict:
     # Frontend summaries, settlement integrity, and progression tests assume this exact pipeline.
     target_settlement_day = get_next_player_day(db, player_id)
     market_day = _latest_stock_day(db)
-
-    while market_day is None or market_day < target_settlement_day:
-        update = generate_next_stock_day(db)
-        market_day = int(update["new_market_day"])
+    try:
+        market_bootstrap = ensure_stock_market_day(
+            db,
+            target_settlement_day,
+            caller="run_player_next_day",
+        )
+        market_day = int(market_bootstrap["latest_market_day"])
+    except MarketUpdateError as exc:
+        logger.exception(
+            "day_progression.market_bootstrap_failed",
+            extra={
+                "player_id": str(player_id),
+                "day_number": int(target_settlement_day),
+                "latest_market_day": market_day,
+                "failing_function": "ensure_stock_market_day",
+            },
+        )
+        raise DailySettlementError(
+            f"Market data temporarily unavailable for day {target_settlement_day}. {exc}"
+        ) from exc
 
     # Step 19: Run event engine BEFORE basket/supply chain so macro values
     # are adjusted before downstream systems consume them.

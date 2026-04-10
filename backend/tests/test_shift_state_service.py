@@ -611,6 +611,42 @@ class ShiftStateServiceTests(unittest.TestCase):
         self.assertTrue(bool(work_state.get("rideshare_unlocked")))
         self.assertTrue(bool(work_state.get("rideshare_available")))
 
+    def test_houston_weekday_truth_uses_local_date_even_when_game_day_maps_to_weekend(self) -> None:
+        game_state = self.db.query(GameState).first()
+        assert game_state is not None
+        game_state.current_day = 3
+        self.db.commit()
+
+        thursday_morning = self._houston_datetime(2026, 4, 9, 10, 0)
+        work_state = resolve_expired_shift_if_needed(self.db, player=self.player, now_houston=thursday_morning)
+
+        self.assertEqual(str(work_state.get("current_houston_date")), "2026-04-09")
+        self.assertEqual(str(work_state.get("current_houston_date_label")), "Apr 9, 2026")
+        self.assertEqual(str(work_state.get("day_of_week")), "Thursday")
+        self.assertFalse(bool(work_state.get("is_weekend")))
+        self.assertEqual(str(work_state.get("phase_status_label")), "Weekday")
+        self.assertEqual(str(work_state.get("scheduled_shift_window_label")), "10:00 AM-6:00 PM")
+
+    def test_rollover_market_failure_degrades_work_state_without_crashing(self) -> None:
+        self.player.last_survival_resolved_date = self._houston_datetime(2026, 4, 8, 9, 0).date()
+        self.db.commit()
+
+        with patch(
+            "app.services.shift_state_service._run_houston_auto_rollover_if_needed",
+            side_effect=RuntimeError("duplicate key on uq_stock_daily_price_day_ticker"),
+        ):
+            work_state = resolve_expired_shift_if_needed(
+                self.db,
+                player=self.player,
+                now_houston=self._houston_datetime(2026, 4, 9, 10, 0),
+            )
+
+        self.assertIn("market_data", list(work_state.get("degraded_sections") or []))
+        self.assertFalse(bool(work_state.get("market_data_available")))
+        self.assertIn("Market data temporarily unavailable", str(work_state.get("market_data_message") or ""))
+        self.assertEqual(str(work_state.get("day_of_week")), "Thursday")
+        self.assertEqual(str(work_state.get("phase_status_label")), "Weekday")
+
 
 if __name__ == "__main__":
     unittest.main()

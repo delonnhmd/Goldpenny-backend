@@ -548,7 +548,7 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
     job_sync_message = str((work_state or {}).get("job_sync_warning_message") or "").strip()
     has_job = bool(current_job)
     is_first_session = _is_new_player_first_session(player)
-    as_of_date = date.today().isoformat()
+    as_of_date = str((work_state or {}).get("current_houston_date") or date.today().isoformat())
     job_options = _job_options_payload()
     default_switch_job_key = next(
         (
@@ -843,6 +843,14 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
         next_risk_warnings.append("Stress is elevated. Mix recovery into your next move.")
     if _safe_float(player.debt_xgp, 0) > max(200.0, _safe_float(player.cash_xgp, 0)):
         next_risk_warnings.append("Debt pressure is high relative to cash buffer.")
+    if not bool(work_state.get("market_data_available", True)):
+        next_risk_warnings.insert(
+            0,
+            str(
+                work_state.get("market_data_message")
+                or "Market data temporarily unavailable. Core dashboard loaded with limited economy data."
+            ),
+        )
 
     return {
         "player_id": str(player.id),
@@ -863,6 +871,9 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
             "rideshare_state": rideshare_state,
             "can_rideshare": bool(work_state.get("can_rideshare", rideshare_available)),
             "rideshare_block_reason": backend_rideshare_reason or None,
+            "degraded_sections": list(work_state.get("degraded_sections") or []),
+            "market_data_available": bool(work_state.get("market_data_available", True)),
+            "market_data_message": work_state.get("market_data_message"),
             "trips_today": int(work_state.get("trips_today") or rideshare_state.get("trips_today") or 0),
             "trips_remaining": int(work_state.get("trips_remaining") or rideshare_state.get("remaining_trips") or 0),
             "remaining_time_units": int(work_state.get("remaining_time_units") or work_state.get("hours_available") or 0),
@@ -997,6 +1008,20 @@ def get_gameplay_dashboard(player_id: str, db: Session = Depends(get_db)) -> dic
                 "severity": "warning",
             }
         ]
+    if not bool(work_state.get("market_data_available", True)):
+        degraded_sections.append("market_data")
+        top_risks.insert(
+            0,
+            {
+                "key": "market_data_degraded",
+                "title": "Market data temporarily unavailable",
+                "description": str(
+                    work_state.get("market_data_message")
+                    or "Core dashboard loaded with limited economy data."
+                ),
+                "severity": "warning",
+            },
+        )
     if "economy" in degraded_sections:
         top_risks.insert(
             0,
@@ -1040,7 +1065,11 @@ def get_gameplay_dashboard(player_id: str, db: Session = Depends(get_db)) -> dic
 
     dashboard = {
         "player_id": str(player.id),
-        "as_of_date": str((brief_payload or {}).get("day") or date.today().isoformat()),
+        "as_of_date": str(
+            (brief_payload or {}).get("day")
+            or (work_state or {}).get("current_houston_date")
+            or date.today().isoformat()
+        ),
         "headline": headline,
         "daily_brief": daily_brief,
         "stats": {
@@ -1066,7 +1095,7 @@ def get_gameplay_dashboard(player_id: str, db: Session = Depends(get_db)) -> dic
             "authoritative_current_job_id": str((work_state or {}).get("authoritative_current_job_id") or ""),
             "source_brief_available": brief_payload is not None,
             "source_economy_available": economy_payload is not None,
-            "degraded_sections": degraded_sections,
+            "degraded_sections": sorted({str(section) for section in degraded_sections if str(section).strip()}),
             "work_state": work_state,
         },
     }

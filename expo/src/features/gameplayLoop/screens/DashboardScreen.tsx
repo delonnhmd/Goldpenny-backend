@@ -132,6 +132,13 @@ function formatHoustonDate(date: Date): string {
   }).format(date);
 }
 
+function formatHoustonWeekday(date: Date): string {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: HOUSTON_TIMEZONE,
+    weekday: 'long',
+  }).format(date);
+}
+
 function formatHoustonTimestamp(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '--:--';
@@ -414,6 +421,9 @@ export default function DashboardScreen() {
     [allActionItems],
   );
   const workState = loop.dashboard?.work_state || loop.actionHub?.work_state || null;
+  const backendHoustonDate = workState?.current_houston_time
+    ? new Date(workState.current_houston_time)
+    : houstonNow;
   const economyOverview = loop.dashboard?.economy_risk_overview || null;
   const macroConditions = Array.isArray(economyOverview?.macro_conditions)
     ? economyOverview.macro_conditions
@@ -475,8 +485,8 @@ export default function DashboardScreen() {
   const postShiftBannerMessage = backendShiftCompleted
     ? (
       workState?.rideshare_state?.can_rideshare
-        ? 'Shift completed · You are now off shift. Ride share available now.'
-        : `Shift completed · Rideshare blocked: ${stripUnavailablePrefix(rideshareBlockReason) || 'Unavailable right now.'}`
+        ? 'Shift completed - You are now off shift. Ride share available now.'
+        : `Shift completed - Rideshare blocked: ${stripUnavailablePrefix(rideshareBlockReason) || 'Unavailable right now.'}`
     )
     : '';
   const currentSalaryAudit = workState?.current_shift_salary_audit || null;
@@ -505,6 +515,15 @@ export default function DashboardScreen() {
     workState?.current_houston_time_label
     || `${formatHoustonNow(houstonNow)} CT`,
   );
+  const currentHoustonDateLabel = String(
+    workState?.current_houston_date_label
+    || formatHoustonDate(backendHoustonDate),
+  );
+  const currentHoustonDayOfWeekLabel = String(
+    workState?.day_of_week
+    || formatHoustonWeekday(backendHoustonDate),
+  );
+  const marketDataMessage = String(workState?.market_data_message || '').trim();
   const dayRolloverLabel = String(workState?.day_rollover_time_label || '12:00 AM CT');
   const autoRolloverRecapLines = Array.isArray(workState?.auto_rollover_recap_lines)
     ? workState.auto_rollover_recap_lines.filter(Boolean)
@@ -566,16 +585,12 @@ export default function DashboardScreen() {
     workShiftAction,
   ]);
 
-  const gamePhaseLabel = useMemo(() => {
-    if (loop.dailySession.sessionStatus === 'ended') return 'End of day';
-    if (workState?.is_weekend) return 'Weekend';
-    if (autoClockingOut) return 'Auto-finalizing';
-    if (backendShiftActive) return 'On shift';
-    if (backendShiftCompleted) return 'Shift completed';
-    if (houstonHour < 9) return 'Before shift';
-    if (houstonHour >= 17) return 'After shift';
-    return 'Before shift';
-  }, [autoClockingOut, backendShiftActive, backendShiftCompleted, houstonHour, loop.dailySession.sessionStatus, workState?.is_weekend]);
+  const gamePhaseLabel = useMemo(() => (
+    String(
+      workState?.phase_status_label
+      || (workState?.is_weekend ? 'Weekend' : 'Weekday'),
+    )
+  ), [workState?.is_weekend, workState?.phase_status_label]);
 
   const dayLabel = loop.dailySession.currentDay || loop.dailyProgression.currentGameDay || 1;
   const rideshareState = workState?.rideshare_state || null;
@@ -1427,11 +1442,12 @@ export default function DashboardScreen() {
               { label: 'Current day', value: `Day ${dayLabel}` },
               { label: 'Houston time', value: currentHoustonTimeLabel },
               { label: 'Day reset', value: dayRolloverLabel },
-              { label: 'Date', value: formatHoustonDate(houstonNow) },
+              { label: 'Date', value: currentHoustonDateLabel },
+              { label: 'Day of week', value: currentHoustonDayOfWeekLabel },
               {
                 label: 'Phase / status',
                 value: gamePhaseLabel,
-                tone: backendShiftActive || autoClockingOut ? 'warning' : backendShiftCompleted ? 'positive' : 'info',
+                tone: gamePhaseLabel === 'Weekend' ? 'warning' : 'info',
               },
               { label: 'Shift window', value: scheduledShiftWindowLabel },
               { label: 'Timer mode', value: SHIFT_SHORT_MODE ? 'Accelerated testing mode' : 'Real-time mode' },
@@ -1439,6 +1455,14 @@ export default function DashboardScreen() {
           />
         </GameplaySummaryCard>
       </SlideFadeInOnChange>
+
+      {marketDataMessage ? (
+        <GameplayWarningBanner
+          title="Market data temporarily unavailable"
+          message={marketDataMessage}
+          tone="warning"
+        />
+      ) : null}
 
       {autoRolloverRecapLines.length > 0 ? (
         <GameplayWarningBanner
@@ -2340,6 +2364,4 @@ const styles = StyleSheet.create({
     gap: theme.spacing.sm,
   },
 });
-
-
 

@@ -652,9 +652,12 @@ function normalizeWorkState(raw: unknown, playerId: string): WorkStateSnapshot |
     player_id: toString(obj.player_id, playerId),
     current_houston_time: toString(obj.current_houston_time, ''),
     current_houston_time_label: obj.current_houston_time_label == null ? null : toString(obj.current_houston_time_label, ''),
+    current_houston_date: obj.current_houston_date == null ? null : toString(obj.current_houston_date, ''),
+    current_houston_date_label: obj.current_houston_date_label == null ? null : toString(obj.current_houston_date_label, ''),
     current_game_day: normalizeCurrentDay(obj.current_game_day ?? obj.current_day, 1),
     day_of_week: toString(obj.day_of_week, ''),
     is_weekend: Boolean(obj.is_weekend),
+    phase_status_label: obj.phase_status_label == null ? null : toString(obj.phase_status_label, ''),
     day_settled: Boolean(obj.day_settled),
     day_rollover_timezone: obj.day_rollover_timezone == null ? null : toString(obj.day_rollover_timezone, ''),
     day_rollover_time_label: obj.day_rollover_time_label == null ? null : toString(obj.day_rollover_time_label, ''),
@@ -837,6 +840,11 @@ function normalizeWorkState(raw: unknown, playerId: string): WorkStateSnapshot |
     trips_remaining: Math.max(0, Math.round(toNumber(obj.trips_remaining ?? ((obj.rideshare_state as Record<string, unknown> | undefined)?.remaining_trips), 0))),
     remaining_time_units: Math.max(0, Math.round(toNumber(obj.remaining_time_units ?? obj.hours_available, 0))),
     remaining_side_income_hours_today: normalizeFiniteNumber(obj.remaining_side_income_hours_today, { fallback: 0 }),
+    degraded_sections: Array.isArray(obj.degraded_sections)
+      ? (obj.degraded_sections as unknown[]).map((entry) => toString(entry, '')).filter(Boolean)
+      : [],
+    market_data_available: obj.market_data_available == null ? true : Boolean(obj.market_data_available),
+    market_data_message: obj.market_data_message == null ? null : toString(obj.market_data_message, ''),
     action_state_refreshed_at: obj.action_state_refreshed_at == null ? null : toString(obj.action_state_refreshed_at, ''),
     auto_day_rollover:
       obj.auto_day_rollover && typeof obj.auto_day_rollover === 'object'

@@ -37,7 +37,10 @@ from app.models.user import User
 from app.services.basket_pricing_service import BasketPricingError
 from app.services.daily_settlement_service import settle_player_day
 from app.services.day_progression_service import run_player_next_day
-from app.services.market_daily_update_service import generate_next_stock_day
+from app.services.market_daily_update_service import (
+    ensure_stock_market_day,
+    generate_next_stock_day,
+)
 
 
 TICKER_SECTOR = {
@@ -207,6 +210,23 @@ class DayProgressionServiceTests(unittest.TestCase):
         self.assertEqual(len(rows), 10)
         for row in rows:
             self.assertLessEqual(abs(float(row.daily_change_pct)), 6.0)
+
+    def test_ensure_stock_market_day_is_idempotent_for_same_target_day(self) -> None:
+        first = ensure_stock_market_day(self.db, 2, caller="test_same_target_first")
+        second = ensure_stock_market_day(self.db, 2, caller="test_same_target_second")
+
+        day_two_rows = (
+            self.db.query(StockDailyPrice)
+            .filter(StockDailyPrice.day == 2)
+            .order_by(StockDailyPrice.ticker.asc())
+            .all()
+        )
+
+        self.assertEqual(first["latest_market_day"], 2)
+        self.assertEqual(first["generated_days"], [2])
+        self.assertEqual(second["latest_market_day"], 2)
+        self.assertEqual(second["generated_days"], [])
+        self.assertEqual(len(day_two_rows), 10)
 
     def test_settle_player_day_creates_state_and_log(self) -> None:
         result = settle_player_day(self.db, str(self.player.id))
