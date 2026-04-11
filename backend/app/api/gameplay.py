@@ -90,6 +90,9 @@ from app.services.shift_state_service import (
     resolve_expired_shift_if_needed,
     start_main_shift,
 )
+from app.services.player_job_progression_service import (
+    award_training_session_xp,
+)
 from app.services.gameplay_transaction_service import (
     list_gameplay_transactions_for_day,
     record_gameplay_transaction,
@@ -2045,8 +2048,26 @@ def execute_gameplay_action(
                 db=db,
                 player_id=player_id,
                 training_hours=training_hours,
-                commit=True,
+                commit=False,
             )
+            # STEP 93G — +25 XP per 1-hour certification training session,
+            # but only for jobs that require certification.
+            training_progression: dict | None = None
+            training_job_key = normalize_main_job_key(
+                (result or {}).get("job_key") or player.main_job,
+                allow_aliases=True,
+            )
+            training_cfg = CAREER_CONFIG.get(training_job_key or "")
+            if training_cfg is not None and bool(training_cfg.certification_required):
+                sessions = int(training_hours)
+                training_progression = award_training_session_xp(
+                    db,
+                    player_id=player.id,
+                    job_key=training_job_key,
+                    xp_gain=25 * max(1, sessions),
+                )
+            db.commit()
+            db.refresh(player)
             return {
                 "player_id": str(player.id),
                 "action_key": action_key,
@@ -2059,6 +2080,7 @@ def execute_gameplay_action(
                 "health_delta": 0,
                 "raw_result": {
                     **result,
+                    "training_progression": training_progression,
                     "work_state": build_work_state_payload(db, player),
                 },
             }

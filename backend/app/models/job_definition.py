@@ -35,7 +35,7 @@ JOB_CATALOG: dict[str, JobDefinition] = {
     "auto_mechanic": JobDefinition(
         name="auto_mechanic",
         category="main",
-        monthly_salary=4_000.0,
+        monthly_salary=20_000.0,
         base_stress=4,
         stability=0.80,
         growth=0.55,
@@ -46,7 +46,7 @@ JOB_CATALOG: dict[str, JobDefinition] = {
     "aircraft_mechanic": JobDefinition(
         name="aircraft_mechanic",
         category="main",
-        monthly_salary=6_200.0,
+        monthly_salary=31_000.0,
         base_stress=6,
         stability=0.88,
         growth=0.70,
@@ -57,7 +57,7 @@ JOB_CATALOG: dict[str, JobDefinition] = {
     "banker": JobDefinition(
         name="banker",
         category="main",
-        monthly_salary=5_100.0,
+        monthly_salary=25_500.0,
         base_stress=7,
         stability=0.82,
         growth=0.75,
@@ -68,7 +68,7 @@ JOB_CATALOG: dict[str, JobDefinition] = {
     "chef": JobDefinition(
         name="chef",
         category="main",
-        monthly_salary=3_500.0,
+        monthly_salary=17_500.0,
         base_stress=8,
         stability=0.72,
         growth=0.60,
@@ -79,7 +79,7 @@ JOB_CATALOG: dict[str, JobDefinition] = {
     "cleaner": JobDefinition(
         name="cleaner",
         category="main",
-        monthly_salary=2_400.0,
+        monthly_salary=12_000.0,
         base_stress=4,
         stability=0.62,
         growth=0.28,
@@ -90,7 +90,7 @@ JOB_CATALOG: dict[str, JobDefinition] = {
     "warehouse_operator": JobDefinition(
         name="warehouse_operator",
         category="main",
-        monthly_salary=3_200.0,
+        monthly_salary=16_000.0,
         base_stress=6,
         stability=0.70,
         growth=0.45,
@@ -101,7 +101,7 @@ JOB_CATALOG: dict[str, JobDefinition] = {
     "real_estate_agent": JobDefinition(
         name="real_estate_agent",
         category="main",
-        monthly_salary=4_800.0,
+        monthly_salary=24_000.0,
         base_stress=7,
         stability=0.68,
         growth=0.72,
@@ -112,7 +112,7 @@ JOB_CATALOG: dict[str, JobDefinition] = {
     "retail": JobDefinition(
         name="retail",
         category="main",
-        monthly_salary=2_600.0,
+        monthly_salary=13_000.0,
         base_stress=5,
         stability=0.65,
         growth=0.35,
@@ -124,7 +124,7 @@ JOB_CATALOG: dict[str, JobDefinition] = {
     "delivery": JobDefinition(
         name="delivery",
         category="main",
-        monthly_salary=3_000.0,
+        monthly_salary=15_000.0,
         base_stress=3,
         stability=0.60,
         growth=0.20,

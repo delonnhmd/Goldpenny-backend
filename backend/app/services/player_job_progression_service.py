@@ -14,23 +14,20 @@ from app.models.job_definition import JOB_CATALOG
 from app.models.player_job_progression import PlayerJobProgression
 from app.services.job_key_service import normalize_main_job_key
 
-# Level thresholds are TOTAL XP requirements for the target level.
-# Example: total_xp >= 250 means level >= 3.
+# STEP 93G — simplified 2-tier career progression.
+# Level 1 = Junior (0 -> 100 XP), Level 2 = Senior (100 -> 2000 XP cap).
+# Future tiers (Professional, Expert) are intentionally not implemented yet.
 JOB_LEVEL_THRESHOLDS_TOTAL_XP: dict[int, int] = {
-    1: 0,
-    2: 100,
-    3: 250,
-    4: 450,
-    5: 700,
-    6: 1000,
-    7: 1350,
-    8: 1750,
-    9: 2200,
-    10: 2700,
+    1: 0,     # Junior
+    2: 100,   # Senior
 }
 
-SHIFT_COMPLETION_XP_GAIN = 10
-MAX_LEVEL = max(JOB_LEVEL_THRESHOLDS_TOTAL_XP.keys())
+# Senior tier caps at this total XP value. Any further XP is clamped.
+SENIOR_CAP_XP = 2000
+
+SHIFT_COMPLETION_XP_GAIN = 10          # Regular OR Overtime shift completion
+TRAINING_SESSION_XP_GAIN = 25          # Per 1-hour certification training session
+MAX_LEVEL = max(JOB_LEVEL_THRESHOLDS_TOTAL_XP.keys())  # 2
 SALARY_PREVIEW_GROWTH_PER_LEVEL = Decimal("0.03")
 
 
@@ -67,23 +64,18 @@ def resolve_level_from_total_xp(total_xp: int) -> int:
 
 def promotion_tier_for_level(level: int) -> str:
     lvl = max(1, int(level))
-    if lvl <= 2:
+    if lvl <= 1:
         return "Junior"
-    if lvl <= 4:
-        return "Intermediate"
-    if lvl <= 6:
-        return "Senior"
-    if lvl <= 8:
-        return "Lead"
-    return "Expert"
+    return "Senior"
 
 
 def _level_bounds(level: int) -> tuple[int, int | None]:
     safe_level = min(MAX_LEVEL, max(1, int(level)))
     current_floor = JOB_LEVEL_THRESHOLDS_TOTAL_XP.get(safe_level, 0)
+    if safe_level >= MAX_LEVEL:
+        # Senior (top tier) still has an in-tier XP cap for progress UI.
+        return current_floor, SENIOR_CAP_XP
     next_level = safe_level + 1
-    if next_level > MAX_LEVEL:
-        return current_floor, None
     return current_floor, JOB_LEVEL_THRESHOLDS_TOTAL_XP.get(next_level)
 
 
@@ -227,7 +219,10 @@ def award_completed_shift_xp(
     before_tier = str(getattr(row, "promotion_tier", "") or promotion_tier_for_level(before_level))
     gained = max(0, int(xp_gain))
 
-    row.xp_total = max(0, _safe_int(getattr(row, "xp_total", 0), 0) + gained)
+    row.xp_total = min(
+        SENIOR_CAP_XP,
+        max(0, _safe_int(getattr(row, "xp_total", 0), 0) + gained),
+    )
     row.shifts_completed = max(0, _safe_int(getattr(row, "shifts_completed", 0), 0) + 1)
     row.last_worked_at = worked_at or datetime.now(timezone.utc)
     _apply_level_fields(row)
@@ -252,6 +247,57 @@ def award_completed_shift_xp(
             f"{str((snapshot or {}).get('job_key') or job_key or 'Job').replace('_', ' ').title()} reached Level {after_level}"
             if leveled_up
             else f"{str((snapshot or {}).get('job_key') or job_key or 'Job').replace('_', ' ').title()} XP +{gained}"
+        ),
+    }
+
+
+def award_training_session_xp(
+    db: Session,
+    *,
+    player_id: UUID | str,
+    job_key: str | None,
+    xp_gain: int = TRAINING_SESSION_XP_GAIN,
+) -> dict[str, Any] | None:
+    """STEP 93G — award +25 XP for a completed certification training session.
+
+    Unlike shift completion this does NOT increment shifts_completed and does
+    not update last_worked_at. Only certification-track jobs should call this.
+    """
+    row = get_or_create_player_job_progression(db, player_id=player_id, job_key=job_key)
+    if row is None:
+        return None
+
+    _apply_level_fields(row)
+    before_level = max(1, _safe_int(getattr(row, "skill_level", 1), 1))
+    before_tier = str(getattr(row, "promotion_tier", "") or promotion_tier_for_level(before_level))
+    gained = max(0, int(xp_gain))
+
+    row.xp_total = min(
+        SENIOR_CAP_XP,
+        max(0, _safe_int(getattr(row, "xp_total", 0), 0) + gained),
+    )
+    _apply_level_fields(row)
+    db.flush()
+
+    after_level = max(1, _safe_int(getattr(row, "skill_level", 1), 1))
+    after_tier = str(getattr(row, "promotion_tier", "") or promotion_tier_for_level(after_level))
+    snapshot = build_job_progression_snapshot(row)
+    leveled_up = after_level > before_level
+
+    return {
+        "job_key": _canonical_job_key(job_key),
+        "xp_gained": gained,
+        "level_before": before_level,
+        "level_after": after_level,
+        "promotion_tier_before": before_tier,
+        "promotion_tier_after": after_tier,
+        "leveled_up": leveled_up,
+        "tier_changed": after_tier != before_tier,
+        "progression": snapshot,
+        "feedback_message": (
+            f"{str((snapshot or {}).get('job_key') or job_key or 'Job').replace('_', ' ').title()} reached Level {after_level}"
+            if leveled_up
+            else f"{str((snapshot or {}).get('job_key') or job_key or 'Job').replace('_', ' ').title()} training XP +{gained}"
         ),
     }
 

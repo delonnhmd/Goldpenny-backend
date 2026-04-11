@@ -83,13 +83,26 @@ MISSED_SHIFT_STRESS_DELTA = 6
 AUTO_ROLLOVER_MAX_DAYS = 30
 HOUSTON_DAY_RESET_LABEL = "12:00 AM CT"
 GAMEPLAY_TESTING_MODE_DEFAULTS: dict[str, Any] = {
+    # Shift duration in testing mode (used for both regular + overtime).
     "shift_minutes": 15,
-    "two_shift_jobs": ["retail_worker", "warehouse_operator"],
+    # STEP 93G — every main job is now eligible for a second (overtime) shift.
+    # The key is retained for backwards compatibility, but the canonical
+    # gate lives in the weekday rules below (1 Regular + 1 Overtime).
+    "two_shift_jobs": ["retail", "warehouse_operator"],
     "max_daily_shifts_for_two_shift_jobs": 2,
+    # Overtime multiplier applied to:
+    #   - the second (overtime) shift on a weekday
+    #   - any shift clocked in on a weekend (always overtime rate)
     "second_shift_overtime_multiplier": 1.5,
     "weekday_rideshare_cap": 6,
     "weekend_rideshare_cap": 18,
-    "weekend_main_shift_enabled": False,
+    # STEP 93G — weekend is now overtime-only (no regular shift). Players can
+    # clock in at any time and always earn the overtime rate. This flag is kept
+    # as a debug/override but the runtime logic now treats weekends as enabled.
+    "weekend_main_shift_enabled": True,
+    # STEP 93G — on weekdays players may clock in LATE (after the scheduled
+    # window closes), but doing so forfeits the overtime (second-shift) slot.
+    "allow_weekday_late_clock_in": True,
 }
 
 JOB_DISPLAY_NAMES: dict[str, str] = {
@@ -104,16 +117,18 @@ JOB_DISPLAY_NAMES: dict[str, str] = {
     "delivery": "Delivery Driver",
 }
 
+# STEP 93G — every weekday regular shift closes at 16:00 (4 PM CT).
+# Start times still vary per job, but the regular-shift cutoff is uniform.
 JOB_SHIFT_MAP: dict[str, dict[str, str]] = {
-    "banker": {"start": "10:00", "end": "18:00"},
-    "chef": {"start": "09:00", "end": "17:00"},
-    "cleaner": {"start": "07:00", "end": "15:00"},
+    "banker": {"start": "10:00", "end": "16:00"},
+    "chef": {"start": "09:00", "end": "16:00"},
+    "cleaner": {"start": "07:00", "end": "16:00"},
     "warehouse_operator": {"start": "07:00", "end": "16:00"},
-    "real_estate_agent": {"start": "10:00", "end": "18:00"},
-    "retail": {"start": "10:00", "end": "18:00"},
+    "real_estate_agent": {"start": "10:00", "end": "16:00"},
+    "retail": {"start": "10:00", "end": "16:00"},
     "delivery": {"start": "08:00", "end": "16:00"},
-    "auto_mechanic": {"start": "08:00", "end": "17:00"},
-    "aircraft_mechanic": {"start": "06:00", "end": "14:00"},
+    "auto_mechanic": {"start": "08:00", "end": "16:00"},
+    "aircraft_mechanic": {"start": "06:00", "end": "16:00"},
 }
 
 JOB_MARKET_TEMPLATES: tuple[dict[str, Any], ...] = (
@@ -338,24 +353,32 @@ def get_gameplay_testing_mode_config() -> dict[str, Any]:
 
 
 def _testing_mode_job_eligible(job_key: object, *, config: dict[str, Any] | None = None) -> bool:
+    """STEP 93G — every main job is eligible for the Regular + Overtime slots
+    on weekdays (and for the single overtime slot on weekends). The legacy
+    two_shift_jobs list is retained for debug/overrides but is no longer the
+    gate — any normalizable main job returns True in testing mode."""
     resolved = normalize_main_job_key(job_key, allow_aliases=True)
     if not resolved:
         return False
     active_config = config or get_gameplay_testing_mode_config()
-    return bool(active_config.get("testing_mode")) and resolved in set(
-        active_config.get("two_shift_jobs_canonical") or []
-    )
+    return bool(active_config.get("testing_mode"))
 
 
 def _max_daily_main_shifts_for_job(
     job_key: object,
     *,
+    is_weekend: bool = False,
     config: dict[str, Any] | None = None,
 ) -> int:
     active_config = config or get_gameplay_testing_mode_config()
-    if _testing_mode_job_eligible(job_key, config=active_config):
-        return max(1, int(active_config.get("max_daily_shifts_for_two_shift_jobs") or 2))
-    return 1
+    if not bool(active_config.get("testing_mode")):
+        return 1
+    if not _testing_mode_job_eligible(job_key, config=active_config):
+        return 1
+    # STEP 93G — weekend = single overtime shift only.
+    if is_weekend:
+        return 1
+    return max(1, int(active_config.get("max_daily_shifts_for_two_shift_jobs") or 2))
 
 
 def _rideshare_daily_cap(*, is_weekend: bool, config: dict[str, Any] | None = None) -> int:
@@ -424,6 +447,7 @@ def _serialize_shift_salary_audit(row: ShiftSalaryAuditLog | None) -> dict[str, 
         _overtime_multiplier_for_shift(
             job_key=str(getattr(row, "job_key", "") or ""),
             shift_number=int(getattr(row, "shift_number", 0) or 0),
+            shift_type=str(getattr(row, "shift_type", "") or ""),
         )
     )
     return {
@@ -1189,6 +1213,10 @@ def _scheduled_shift_context(player: Player, *, day_number: int, now_houston: da
         scheduled_end_time
         and current_local_time > scheduled_end_time
     )
+    before_shift_start = bool(
+        scheduled_start_time
+        and current_local_time < scheduled_start_time
+    )
     logger.info(
         "shift.calendar_classification_resolved",
         extra={
@@ -1232,6 +1260,7 @@ def _scheduled_shift_context(player: Player, *, day_number: int, now_houston: da
         ),
         "reached_shift_end": reached_shift_end,
         "passed_shift_end": passed_shift_end,
+        "before_shift_start": before_shift_start,
     }
 
 
@@ -1424,6 +1453,7 @@ def sync_shift_day_rules_if_needed(
             or not bool(schedule["has_main_job"])
             or completed_shift_today
             or bool(schedule["reached_shift_end"])
+            or bool(schedule.get("before_shift_start"))
         )
     )
     if rideshare_unlocked:
@@ -1433,6 +1463,8 @@ def sync_shift_day_rules_if_needed(
             rideshare_description = "Rideshare available all day (no required shift)"
         elif completed_shift_today:
             rideshare_description = "Shift completed. You are now off shift."
+        elif bool(schedule.get("before_shift_start")):
+            rideshare_description = f"Rideshare available before shift starts at {schedule['scheduled_shift_start_label'] or 'shift start'}"
         else:
             rideshare_description = f"Rideshare unlocked at {schedule['scheduled_shift_end_label'] or 'shift end'}"
         if _record_gameplay_event_once(
@@ -1578,7 +1610,7 @@ def _build_rideshare_state(
         reason = (
             "Shift completed. You are now off shift."
             if shift_completed_today
-            else f"Unavailable: shift still active until {scheduled_shift_end_label or 'shift end'}."
+            else f"Unavailable: clock in for your shift before {scheduled_shift_end_label or 'shift end'}."
         )
     elif remaining_by_cap <= 0:
         status = "limit_reached"
@@ -1692,19 +1724,57 @@ def _apply_main_job_sync_result_to_work_state(
     return work_state
 
 
+# STEP 93G — canonical shift_type values used to encode pay rules on the
+# player row and on shift_salary_audit_logs.shift_type. They are the single
+# source of truth for the overtime multiplier once a shift has started.
+SHIFT_TYPE_WEEKDAY_REGULAR = "weekday_regular"
+SHIFT_TYPE_WEEKDAY_OVERTIME = "weekday_overtime"
+SHIFT_TYPE_WEEKEND_OVERTIME = "weekend_overtime"
+SHIFT_TYPE_WEEKDAY_LATE = "weekday_late"  # late clock-in — regular pay, no OT bonus
+SHIFT_TYPE_OVERTIME_VALUES: frozenset[str] = frozenset(
+    {SHIFT_TYPE_WEEKDAY_OVERTIME, SHIFT_TYPE_WEEKEND_OVERTIME}
+)
+
+
+def _resolve_shift_type_for_start(
+    *,
+    shift_number: int,
+    is_weekend: bool,
+    late_clock_in: bool,
+) -> str:
+    """Return the canonical shift_type label for a shift being started now."""
+    if is_weekend:
+        # Weekend has only a single slot; it is always overtime rate.
+        return SHIFT_TYPE_WEEKEND_OVERTIME
+    if late_clock_in:
+        return SHIFT_TYPE_WEEKDAY_LATE
+    if int(shift_number) >= 2:
+        return SHIFT_TYPE_WEEKDAY_OVERTIME
+    return SHIFT_TYPE_WEEKDAY_REGULAR
+
+
 def _overtime_multiplier_for_shift(
     *,
     job_key: str,
     shift_number: int,
+    shift_type: str = "",
     config: dict[str, Any] | None = None,
 ) -> Decimal:
     active_config = config or get_gameplay_testing_mode_config()
-    if (
-        bool(active_config.get("testing_mode"))
-        and int(shift_number) == 2
-        and _testing_mode_job_eligible(job_key, config=active_config)
-    ):
-        return Decimal(str(active_config.get("second_shift_overtime_multiplier") or Decimal("1.5")))
+    if not bool(active_config.get("testing_mode")):
+        return Decimal("1.0")
+    ot_rate = Decimal(
+        str(active_config.get("second_shift_overtime_multiplier") or Decimal("1.5"))
+    )
+    normalized_type = str(shift_type or "").strip().lower()
+    if normalized_type in SHIFT_TYPE_OVERTIME_VALUES:
+        return ot_rate
+    if normalized_type in {SHIFT_TYPE_WEEKDAY_REGULAR, SHIFT_TYPE_WEEKDAY_LATE}:
+        return Decimal("1.0")
+    # Legacy fallback (pre-93G audits that never set shift_type): use the
+    # shift_number + job eligibility heuristic so old data reads correctly.
+    if int(shift_number) == 2 and _testing_mode_job_eligible(job_key, config=active_config):
+        return ot_rate
     return Decimal("1.0")
 
 
@@ -1749,6 +1819,7 @@ def _build_shift_salary_snapshot(
         _overtime_multiplier_for_shift(
             job_key=job_key,
             shift_number=shift_number,
+            shift_type=shift_type,
             config=testing_config,
         )
     )
@@ -1848,6 +1919,7 @@ def _shift_salary_snapshot_from_audit(audit_row: ShiftSalaryAuditLog) -> dict[st
         _overtime_multiplier_for_shift(
             job_key=str(getattr(audit_row, "job_key", "") or ""),
             shift_number=int(getattr(audit_row, "shift_number", 0) or 0),
+            shift_type=str(getattr(audit_row, "shift_type", "") or ""),
         )
     )
     return {
@@ -2528,11 +2600,22 @@ def _retry_pending_shift_salary_if_needed(
         return failed
 
 
-def _validate_main_shift_start(player: Player, *, job_name: str, hours_worked: int, shift_number: int) -> None:
+def _validate_main_shift_start(
+    player: Player,
+    *,
+    job_name: str,
+    hours_worked: int,
+    shift_number: int,
+    is_weekend: bool = False,
+) -> None:
     canonical_job_name = _canonical_main_job(job_name)
     canonical_player_job = _canonical_main_job(getattr(player, "main_job", None))
     testing_config = get_gameplay_testing_mode_config()
-    max_daily_main_shifts = _max_daily_main_shifts_for_job(canonical_job_name, config=testing_config)
+    max_daily_main_shifts = _max_daily_main_shifts_for_job(
+        canonical_job_name,
+        is_weekend=is_weekend,
+        config=testing_config,
+    )
     max_main_hours_per_day = MAX_MAIN_HOURS_PER_DAY
     if bool(testing_config.get("testing_mode")) and max_daily_main_shifts > 1:
         max_main_hours_per_day = max(
@@ -2677,6 +2760,7 @@ def _build_testing_mode_work_payload(
     shift_1_completed: bool,
     shift_2_completed: bool,
     active_shift: bool,
+    late_regular_shift_completed: bool = False,
 ) -> dict[str, Any]:
     testing_config = get_gameplay_testing_mode_config()
     current_job_key = normalize_main_job_key(
@@ -2684,24 +2768,34 @@ def _build_testing_mode_work_payload(
         allow_aliases=True,
     )
     eligible_for_two_shifts = _testing_mode_job_eligible(current_job_key, config=testing_config)
-    max_daily_main_shifts = _max_daily_main_shifts_for_job(current_job_key, config=testing_config)
-    weekend_main_shift_enabled = bool(testing_config.get("weekend_main_shift_enabled"))
-    weekend_rideshare_only = bool(
-        testing_config.get("testing_mode") and is_weekend and not weekend_main_shift_enabled
+    # STEP 93G — weekend caps at 1 shift (overtime only). Weekday allows 2 (Regular + Overtime).
+    max_daily_main_shifts = _max_daily_main_shifts_for_job(
+        current_job_key,
+        is_weekend=bool(is_weekend),
+        config=testing_config,
     )
+    weekend_main_shift_enabled = bool(testing_config.get("weekend_main_shift_enabled"))
+    # STEP 93G — weekend is no longer a "rideshare-only" day. Kept as a
+    # compatibility field for clients that still read it; always False now.
+    weekend_rideshare_only = False
+    # Overtime is an extra slot on weekdays only (weekend's single shift is
+    # already an overtime shift by rule, so no separate "overtime_shift_available" flag).
+    # A completed weekday_late shift forfeits the overtime slot for the rest of the day.
     overtime_shift_available = bool(
         testing_config.get("testing_mode")
         and eligible_for_two_shifts
-        and not weekend_rideshare_only
+        and not is_weekend
         and shift_1_completed
         and not shift_2_completed
         and not active_shift
+        and not late_regular_shift_completed
     )
-    daily_shift_limit_reached = bool(
-        shifts_completed_today >= max_daily_main_shifts or (weekend_rideshare_only and shifts_completed_today == 0)
-    )
+    daily_shift_limit_reached = bool(shifts_completed_today >= max_daily_main_shifts)
+    if late_regular_shift_completed and not is_weekend:
+        # A late regular shift consumes the entire daily allowance.
+        daily_shift_limit_reached = True
     next_shift_number_available = None
-    if not active_shift and not daily_shift_limit_reached and not weekend_rideshare_only:
+    if not active_shift and not daily_shift_limit_reached:
         next_shift_number_available = min(max_daily_main_shifts, shifts_completed_today + 1)
 
     return {
@@ -2763,6 +2857,12 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
     shifts_completed_today = len(current_day_shift_audits)
     shift_1_completed = any(int(getattr(row, "shift_number", 0) or 0) == 1 for row in current_day_shift_audits)
     shift_2_completed = any(int(getattr(row, "shift_number", 0) or 0) == 2 for row in current_day_shift_audits)
+    # STEP 93G — detect whether a late weekday clock-in was completed today.
+    # Any such shift forfeits the remaining overtime slot for the day.
+    late_regular_shift_completed = any(
+        str(getattr(row, "shift_type", "") or "").strip().lower() == SHIFT_TYPE_WEEKDAY_LATE
+        for row in current_day_shift_audits
+    )
     shift_expired = bool(active_shift and shift_ends_at and now >= shift_ends_at)
     schedule = _scheduled_shift_context(player, day_number=current_day, now_houston=now)
     testing_mode_payload = _build_testing_mode_work_payload(
@@ -2772,6 +2872,7 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         shift_1_completed=shift_1_completed,
         shift_2_completed=shift_2_completed,
         active_shift=active_shift,
+        late_regular_shift_completed=late_regular_shift_completed,
     )
     resolved_shift_job_name = canonical_shift_job_name or _canonical_main_job(schedule["canonical_main_job"]) or canonical_main_job
     job_truth_context = _resolve_job_truth_context(
@@ -3172,12 +3273,17 @@ def start_main_shift(
         raise ValueError(
             str(current_work_state.get("job_sync_warning_message") or "Your job data is syncing. Please retry in a moment.")
         )
-    if bool((testing_mode_payload or {}).get("weekend_rideshare_only")):
-        raise ValueError("Weekend testing rule active. No required main shift today - rideshare only.")
-    if bool(current_work_state.get("missed_shift_today")):
-        raise ValueError(
-            "Today's required shift window has already ended. Ride share is the available work option now."
-        )
+    # STEP 93G — weekend is overtime-only; no blocker here. Weekday late
+    # clock-in is allowed but forfeits any future overtime slot for the day.
+    schedule_snapshot = _scheduled_shift_context(player, day_number=current_day, now_houston=now)
+    is_weekend_today = bool(schedule_snapshot.get("is_weekend"))
+    passed_shift_end_today = bool(schedule_snapshot.get("passed_shift_end"))
+    was_missed_before = bool(current_work_state.get("missed_shift_today"))
+    late_clock_in = bool(
+        not is_weekend_today
+        and bool(schedule_snapshot.get("shift_required_today"))
+        and (passed_shift_end_today or was_missed_before)
+    )
 
     if bool(getattr(player, "main_shift_active_flag", False)) and str(getattr(player, "main_shift_status", "")) == SHIFT_STATUS_ACTIVE:
         raise ValueError(
@@ -3193,7 +3299,17 @@ def start_main_shift(
             f"Invalid main job key: {job_name}. Expected one of: {supported_main_job_keys_text()}"
         )
     shift_number = _shift_number_for_start(player)
-    _validate_main_shift_start(player, job_name=normalized_job, hours_worked=hours_worked, shift_number=shift_number)
+    # STEP 93G — a late weekday clock-in always occupies the regular slot
+    # (shift_number == 1) and forfeits the overtime slot for the rest of the day.
+    if late_clock_in:
+        shift_number = 1
+    _validate_main_shift_start(
+        player,
+        job_name=normalized_job,
+        hours_worked=hours_worked,
+        shift_number=shift_number,
+        is_weekend=is_weekend_today,
+    )
     logger.info(
         "shift.start_main_shift validating clock-in request.",
         extra={
@@ -3213,7 +3329,13 @@ def start_main_shift(
     cash_before = _money(getattr(player, "cash", 0))
     stress_before = int(player.stress or 0)
     health_before = int(player.health or 0)
-    normalized_shift_type = normalize_shift_type(shift_type)
+    # STEP 93G — canonical shift_type drives the pay multiplier later.
+    canonical_shift_type = _resolve_shift_type_for_start(
+        shift_number=shift_number,
+        is_weekend=is_weekend_today,
+        late_clock_in=late_clock_in,
+    )
+    normalized_shift_type = canonical_shift_type
 
     duration_seconds = _configured_shift_duration_seconds(hours_worked)
     shift_ends_at = now + timedelta(seconds=duration_seconds)
@@ -3256,6 +3378,16 @@ def start_main_shift(
     pds.stress_end = int(player.stress or 0)
     pds.health_end = int(player.health or 0)
     pds.cash_end = _q4(getattr(player, "cash", 0))
+    # STEP 93G — a successful late clock-in clears any prior "missed shift"
+    # flag that was set earlier by the passive miss sweep. The player has now
+    # actually shown up, so they are no longer penalised as absent.
+    if late_clock_in and bool(getattr(pds, "missed_shift", False)):
+        pds.missed_shift = False
+        pds.did_work = True
+        pds.notes = (
+            f"Late clock-in on {schedule_snapshot.get('day_of_week') or 'weekday'} - "
+            "regular pay only, overtime forfeited for the day."
+        )
 
     db.commit()
     db.refresh(player)

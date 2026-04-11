@@ -69,6 +69,11 @@ export default function BriefScreen() {
       ? () => void loop.endCurrentDay()
       : () => onboarding.navigateTo('dashboard');
 
+  // STEP 93G — never render the same label on both primary and secondary.
+  // When primary itself is "Go To Dashboard" we drop the secondary entirely.
+  const primaryIsDashboardNav = primaryLabel === 'Go To Dashboard';
+  const showSecondary = !sessionEnded && !primaryIsDashboardNav;
+
   return (
     <GameplayLoopScaffold
       title="Brief"
@@ -76,8 +81,8 @@ export default function BriefScreen() {
       activeNavKey="brief"
       footer={guidedBriefActive ? null : (
         <GameplayStickyActionArea
-          secondaryLabel={sessionEnded ? undefined : 'Go To Dashboard'}
-          onSecondaryPress={sessionEnded ? undefined : () => onboarding.navigateTo('dashboard')}
+          secondaryLabel={showSecondary ? 'Go To Dashboard' : undefined}
+          onSecondaryPress={showSecondary ? () => onboarding.navigateTo('dashboard') : undefined}
           primaryLabel={primaryLabel}
           onPrimaryPress={onPrimaryPress}
           primaryLoading={!hasSummary && !summaryMissingAfterSettlement && loop.endingDay}
