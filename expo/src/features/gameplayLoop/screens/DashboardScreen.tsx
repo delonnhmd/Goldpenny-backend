@@ -20,7 +20,6 @@ import {
   DailyActionItem,
   EconomySignalChip,
   JobMarketJobSnapshot,
-  RecoveryActionStateSnapshot,
 } from '@/types/gameplay';
 
 import { useGameplayLoop } from '../context';
@@ -80,24 +79,52 @@ interface TimelineNote {
   category: 'work' | 'rideshare' | 'recovery' | 'meal' | 'finance' | 'system';
 }
 
-type RecoveryPresetId = 'watch_tv' | 'watch_movie' | 'read_book' | 'jogging' | 'eat_meal' | 'rest';
+type TimedActivityCardId = 'watch_tv' | 'watch_movie' | 'read_book' | 'jogging' | 'skill_training';
 
-interface RecoveryPreset {
-  id: RecoveryPresetId;
+interface TimedActivityCardPreset {
+  id: TimedActivityCardId;
   title: string;
-  timeCostUnits: number;
-  stressChange: number;
-  healthChange: number;
-  skillChange: number;
+  primaryEffect: string;
+  secondaryEffect: string;
+  timeRule: string;
 }
 
-const RECOVERY_PRESETS: RecoveryPreset[] = [
-  { id: 'watch_tv', title: 'Watch TV', timeCostUnits: 1, stressChange: -4, healthChange: 0, skillChange: 0 },
-  { id: 'watch_movie', title: 'Watch Movie', timeCostUnits: 1, stressChange: -5, healthChange: 0, skillChange: 0 },
-  { id: 'read_book', title: 'Read Book', timeCostUnits: 1, stressChange: -3, healthChange: 0, skillChange: 0 },
-  { id: 'jogging', title: 'Jogging', timeCostUnits: 1, stressChange: -3, healthChange: 2, skillChange: 0 },
-  { id: 'eat_meal', title: 'Eat Meal', timeCostUnits: 0, stressChange: -2, healthChange: 2, skillChange: 0 },
-  { id: 'rest', title: 'Rest', timeCostUnits: 1, stressChange: -6, healthChange: 0, skillChange: 0 },
+const TIMED_ACTIVITY_PRESETS: TimedActivityCardPreset[] = [
+  {
+    id: 'watch_tv',
+    title: 'Watch TV',
+    primaryEffect: '-1 stress every 2 min',
+    secondaryEffect: 'Interruptible any time once started.',
+    timeRule: 'Costs 1 unit every 20 min while running.',
+  },
+  {
+    id: 'watch_movie',
+    title: 'Watch Movie',
+    primaryEffect: '-1 stress every 2 min',
+    secondaryEffect: 'Best for longer off-hours blocks.',
+    timeRule: 'Costs 1 unit every 20 min while running.',
+  },
+  {
+    id: 'read_book',
+    title: 'Read Book',
+    primaryEffect: '-1 stress every 2 min',
+    secondaryEffect: 'Good low-pressure recovery time.',
+    timeRule: 'Costs 1 unit every 20 min while running.',
+  },
+  {
+    id: 'jogging',
+    title: 'Jogging',
+    primaryEffect: '-1 stress every 2 min',
+    secondaryEffect: `+${BALANCE.REALTIME.JOGGING_HEALTH_GAIN} health every ${BALANCE.REALTIME.JOGGING_HEALTH_INTERVAL_MINUTES} min`,
+    timeRule: 'Costs 1 unit every 20 min while running.',
+  },
+  {
+    id: 'skill_training',
+    title: 'Skill Training',
+    primaryEffect: `+${BALANCE.REALTIME.TRAINING_SKILL_GAIN_PER_UNIT} skill every ${BALANCE.REALTIME.MINUTES_PER_UNIT} min`,
+    secondaryEffect: `Efficiency bonus after ${BALANCE.REALTIME.TRAINING_BONUS_THRESHOLD_UNITS * BALANCE.REALTIME.MINUTES_PER_UNIT} min`,
+    timeRule: 'Costs 1 unit every 20 min while running.',
+  },
 ];
 
 function canonicalDashboardActionKey(actionKey: string): string {
@@ -105,9 +132,10 @@ function canonicalDashboardActionKey(actionKey: string): string {
   if (!raw) return '';
   if (raw.includes('work') || raw.includes('shift')) return 'work_shift';
   if (raw.includes('ride') || raw.includes('side_income') || raw.includes('delivery')) return 'side_income';
-  if (raw === 'watch_tv' || raw === 'watch_movie' || raw === 'read_book' || raw === 'jogging') return 'rest';
+  if (raw === 'watch_tv' || raw === 'watch_movie' || raw === 'read_book' || raw === 'jogging') return 'recovery_activity';
   if (raw.includes('rest') || raw.includes('recover')) return 'rest';
-  if (raw.includes('study') || raw.includes('train')) return 'study';
+  if (raw === 'skill_training' || raw === 'study') return 'skill_training';
+  if (raw === 'start_training' || (raw.includes('start') && raw.includes('training'))) return 'start_training';
   if (raw.includes('debt') || raw.includes('loan') || raw.includes('borrow')) return 'finance';
   if (raw.includes('meal') || raw.includes('eat')) return 'meal';
   return raw;
@@ -164,6 +192,16 @@ function formatSecondsRemaining(totalSeconds: number): string {
     return `${hh}h ${String(mm).padStart(2, '0')}m ${String(ss).padStart(2, '0')}s`;
   }
   return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+}
+
+function formatMinutesLabel(totalMinutes: number): string {
+  const rounded = Math.max(0, Math.floor(totalMinutes));
+  if (rounded >= 60) {
+    const hours = Math.floor(rounded / 60);
+    const minutes = rounded % 60;
+    return `${hours}h ${String(minutes).padStart(2, '0')}m`;
+  }
+  return `${rounded} min`;
 }
 
 function shiftWindowLabel(workState?: {
@@ -317,15 +355,16 @@ export default function DashboardScreen() {
     + loop.expenseDebt.debtPressure.slice(1);
   const criticalDebtPressure = String(loop.expenseDebt.debtPressure || '').toLowerCase() === 'critical';
   const cash = stats?.cash_xgp ?? 0;
-  const stress = stats?.stress ?? 0;
-  const health = stats?.health ?? 100;
+  const baseStress = stats?.stress ?? 0;
+  const baseHealth = stats?.health ?? 100;
   const debt = loop.expenseDebt?.debtAmount ?? stats?.debt_xgp ?? 0;
   const cashTone: 'positive' | 'neutral' | 'danger' = cash > 0 ? 'positive' : cash < 0 ? 'danger' : 'neutral';
+  const stress = Math.max(0, baseStress - loop.dailySession.stressRecoveredToday);
+  const health = Math.max(0, Math.min(100, baseHealth + loop.dailySession.healthGainedToday));
 
   const [houstonNow, setHoustonNow] = useState(() => new Date());
   const [autoClockingOut, setAutoClockingOut] = useState(false);
   const [timelineNotes, setTimelineNotes] = useState<TimelineNote[]>([]);
-  const [busyRecoveryId, setBusyRecoveryId] = useState<RecoveryPresetId | null>(null);
   const [rideshareResultCard, setRideshareResultCard] = useState<{
     actionId: string;
     trips: number;
@@ -579,7 +618,6 @@ export default function DashboardScreen() {
   useEffect(() => {
     setAutoClockingOut(false);
     setTimelineNotes([]);
-    setBusyRecoveryId(null);
     previousWorkStateRef.current = null;
     autoFinalizeAttemptRef.current = null;
   }, [loop.dailySession.currentDay]);
@@ -627,17 +665,6 @@ export default function DashboardScreen() {
 
   const dayLabel = loop.dailySession.currentDay || loop.dailyProgression.currentGameDay || 1;
   const recoveryState = workState?.recovery_state || null;
-  const recoveryActionStateByKey = useMemo(() => {
-    const next: Record<string, RecoveryActionStateSnapshot> = {};
-    (recoveryState?.actions || []).forEach((entry) => {
-      const key = String(entry.action_key || '').trim().toLowerCase();
-      if (key) next[key] = entry;
-    });
-    if (recoveryState?.meal_action?.action_key) {
-      next[String(recoveryState.meal_action.action_key).trim().toLowerCase()] = recoveryState.meal_action;
-    }
-    return next;
-  }, [recoveryState?.actions, recoveryState?.meal_action]);
   const passiveRecoverySummary = recoveryState?.passive_off_hours_recovery || null;
   const weekendRecoverySummary = recoveryState?.weekend_recovery || null;
   const rideshareState = workState?.rideshare_state || null;
@@ -765,12 +792,13 @@ export default function DashboardScreen() {
   );
   const jobXp = Math.max(0, Number(currentJobProgression?.job_xp || 0));
   const jobXpToNext = Math.max(0, Number(currentJobProgression?.job_xp_to_next_level || 0));
+  const liveJobXp = jobXp + loop.dailySession.skillProgressGainedToday;
   const promotionTier = String(currentJobProgression?.promotion_tier || 'Junior');
   const projectedNextMonthlyPay = Number(currentJobProgression?.estimated_next_level_monthly_salary_xgp || 0);
   const projectedSalaryIncreasePct = Number(currentJobProgression?.next_level_salary_increase_pct || 3);
   const jobLevelDetail = jobLevel >= jobLevelMax
     ? `Level cap reached (${jobLevelMax})`
-    : `${Math.round(jobXp)} / ${Math.round(jobXpToNext)} XP to next`;
+    : `${Math.round(liveJobXp)} / ${Math.round(jobXpToNext)} XP to next`;
   const employerLabel = String(
     currentJobProgression?.position_title
     || currentJobProgression?.employer_company_name
@@ -807,6 +835,70 @@ export default function DashboardScreen() {
     { label: 'Rideshare demand', signal: rideshareDemandSignal },
     { label: 'Delivery demand', signal: deliveryDemandSignal },
   ];
+  const currentTimedActivity = loop.dailySession.currentActivity;
+  const hasActiveTimedActivity = loop.dailySession.hasActiveTimedActivity;
+  const mealInProgress = currentTimedActivity === 'eat_meal';
+  const activeSessionElapsedLabel = formatMinutesLabel(loop.dailySession.currentActivityElapsedMinutes);
+  const nextUnitCountdownLabel = formatMinutesLabel(loop.dailySession.nextUnitCountdownMinutes);
+  const mealMinimumRemainingMinutes = Math.max(
+    0,
+    BALANCE.REALTIME.MEAL_MIN_MINUTES - loop.dailySession.currentActivityElapsedMinutes,
+  );
+  const idleRecoveryLabel = `1 stress every ${BALANCE.REALTIME.IDLE_STRESS_RECOVERY_MINUTES} min away from the app`;
+  const activeRecoveryLabel = `1 stress every ${BALANCE.REALTIME.ACTIVE_STRESS_RECOVERY_MINUTES} min while active`;
+  const currentTrainingProgressLabel = `+${loop.dailySession.sessionSkillProgress}`;
+  const currentHealthGainLabel = signedWhole(loop.dailySession.sessionHealthGained);
+  const currentStressRecoveryLabel = signedWhole(-loop.dailySession.sessionStressRecovered);
+
+  const stopCurrentTimedActivity = useCallback(() => {
+    const stopped = loop.dailySession.stopTimedActivity();
+    if (!stopped.allowed) {
+      loop.setFeedback({
+        tone: 'error',
+        message: stopped.reason || 'This activity cannot be stopped right now.',
+      });
+      return;
+    }
+    loop.setFeedback({
+      tone: 'success',
+      message: `${loop.dailySession.currentActivityName} stopped.`,
+    });
+  }, [loop.dailySession, loop]);
+
+  const getTimedActivityDisabledReason = useCallback((activityId: TimedActivityCardId): string | null => {
+    if (backendShiftActive || autoClockingOut) {
+      return `Action unavailable during active shift. Available after ${shiftEndLabel}.`;
+    }
+    if (currentTimedActivity === activityId) return null;
+    const guard = loop.dailySession.canStartTimedActivity(activityId);
+    return guard.allowed ? null : guard.reason;
+  }, [autoClockingOut, backendShiftActive, currentTimedActivity, loop.dailySession, shiftEndLabel]);
+
+  const startTimedActivity = useCallback((activityId: TimedActivityCardId) => {
+    const disabledReason = getTimedActivityDisabledReason(activityId);
+    if (disabledReason) {
+      loop.setFeedback({
+        tone: 'error',
+        message: disabledReason,
+      });
+      return;
+    }
+
+    const started = loop.dailySession.startTimedActivity(activityId);
+    if (!started.allowed) {
+      loop.setFeedback({
+        tone: 'error',
+        message: started.reason || 'This activity is unavailable right now.',
+      });
+      return;
+    }
+
+    const preset = TIMED_ACTIVITY_PRESETS.find((entry) => entry.id === activityId);
+    loop.setFeedback({
+      tone: 'success',
+      message: `${preset?.title || 'Activity'} started. Time now deducts over time instead of on button press.`,
+    });
+  }, [getTimedActivityDisabledReason, loop]);
 
   useEffect(() => {
     if (!INTERACTION_DIAGNOSTICS_ENABLED) return;
@@ -893,7 +985,7 @@ export default function DashboardScreen() {
     let category: TimelineNote['category'] = 'system';
     if (key === 'work_shift') category = 'work';
     else if (key === 'side_income') category = 'rideshare';
-    else if (key === 'rest' || key === 'study') category = 'recovery';
+    else if (key === 'recovery_activity' || key === 'rest' || key === 'skill_training' || key === 'start_training') category = 'recovery';
     else if (key === 'meal') category = 'meal';
     else if (key === 'finance') category = 'finance';
 
@@ -928,10 +1020,29 @@ export default function DashboardScreen() {
 
   const actionHubForDisplay = useMemo(() => {
     if (!loop.actionHub) return null;
+    const hiddenKeys = new Set([
+      'rest',
+      'study',
+      'watch_tv',
+      'watch_movie',
+      'read_book',
+      'jogging',
+      'eat_meal',
+      'skill_training',
+      'start_training',
+    ]);
     const stripRoutineActions = (actions: DailyActionItem[]) =>
       actions.filter((action) => {
-        const key = canonicalDashboardActionKey(String(action.action_key || ''));
-        return key !== 'work_shift' && key !== 'side_income';
+        const rawKey = String(action.action_key || '').trim().toLowerCase();
+        const key = canonicalDashboardActionKey(rawKey);
+        return key !== 'work_shift'
+          && key !== 'side_income'
+          && key !== 'recovery_activity'
+          && key !== 'rest'
+          && key !== 'skill_training'
+          && key !== 'start_training'
+          && key !== 'meal'
+          && !hiddenKeys.has(rawKey);
       });
 
     return {
@@ -1186,49 +1297,22 @@ export default function DashboardScreen() {
     await loop.executeAction(tripAction);
   };
 
-  const runRecoveryAction = async (preset: RecoveryPreset) => {
-    const recoveryActionState = recoveryActionStateByKey[preset.id];
-    const disabledReason = (
-      backendShiftActive || autoClockingOut
-        ? `Action unavailable during active shift. Available after ${shiftEndLabel}.`
-        : recoveryActionState && !recoveryActionState.available
-          ? String(recoveryActionState.block_reason || 'Recovery action unavailable right now.')
-          : null
-    );
-    if (disabledReason) {
-      loop.setFeedback({
-        tone: 'error',
-        message: disabledReason,
-      });
+  const handleTimedActivityPress = (activityId: TimedActivityCardId) => {
+    if (currentTimedActivity === activityId) {
+      stopCurrentTimedActivity();
       return;
     }
-
-    setBusyRecoveryId(preset.id);
-
-    try {
-      if (preset.id === 'eat_meal') {
-        await loop.eatMeal('dinner');
-      } else {
-        await loop.executeAction({
-          action_key: preset.id,
-          title: preset.title,
-          description: `${preset.title} to recover before the next pressure spike.`,
-          status: 'available',
-          blockers: [],
-          warnings: [],
-          tradeoffs: [],
-          confidence_level: 'high',
-          parameters: {},
-        });
-      }
-    } finally {
-      setBusyRecoveryId(null);
-    }
+    startTimedActivity(activityId);
   };
 
   // Life / Meals
   const [busyMeal, setBusyMeal] = useState<string | null>(null);
-  const busyLife = loop.executingAction || busyMeal !== null || backendShiftActive || autoClockingOut;
+  const busyLife =
+    loop.executingAction
+    || busyMeal !== null
+    || backendShiftActive
+    || autoClockingOut
+    || mealInProgress;
 
   async function handleEat(mealType: 'breakfast' | 'lunch' | 'dinner') {
     if (backendShiftActive || autoClockingOut) {
@@ -1241,9 +1325,30 @@ export default function DashboardScreen() {
 
     if (busyLife) return;
 
+    const mealGuard = loop.dailySession.canStartTimedActivity('eat_meal', { mealType });
+    if (!mealGuard.allowed) {
+      loop.setFeedback({
+        tone: 'error',
+        message: mealGuard.reason || 'Meal is unavailable right now.',
+      });
+      return;
+    }
+
     setBusyMeal(`eat_${mealType}`);
     try {
-      await loop.eatMeal(mealType);
+      const ok = await loop.eatMeal(mealType);
+      if (ok) {
+        const started = loop.dailySession.startTimedActivity('eat_meal', {
+          mealType,
+          recordHistory: false,
+        });
+        if (!started.allowed && started.reason) {
+          loop.setFeedback({
+            tone: 'info',
+            message: started.reason,
+          });
+        }
+      }
     } finally {
       setBusyMeal(null);
     }
@@ -1464,6 +1569,8 @@ export default function DashboardScreen() {
           <GameplayCompactMetricRows
             items={[
               { label: 'Current day', value: `Day ${dayLabel}` },
+              { label: 'Time left', value: `${loop.dailySession.remainingTimeUnits}/${loop.dailySession.totalTimeUnits} units` },
+              { label: 'Unit size', value: `${BALANCE.REALTIME.MINUTES_PER_UNIT} mins` },
               { label: 'Houston time', value: currentHoustonTimeLabel },
               { label: 'Day reset', value: dayRolloverLabel },
               { label: 'Date', value: currentHoustonDateLabel },
@@ -1961,10 +2068,10 @@ export default function DashboardScreen() {
 
       {/* Recovery */}
       <SlideFadeInOnChange
-        watchValue={`recovery_${dayLabel}_${backendShiftActive ? 'locked' : 'open'}_${busyRecoveryId || 'idle'}`}
+        watchValue={`recovery_${dayLabel}_${currentTimedActivity || 'idle'}_${loop.dailySession.stressRecoveredToday}_${loop.dailySession.skillProgressGainedToday}`}
         delayMs={120}
       >
-      <GameplaySummaryCard eyebrow="Recovery" title="Recovery Actions">
+      <GameplaySummaryCard eyebrow="Recovery" title="Timed Recovery &amp; Training">
         {(backendShiftActive || autoClockingOut) ? (
           <GameplayWarningBanner
             title="Recovery locked during shift"
@@ -1975,64 +2082,124 @@ export default function DashboardScreen() {
         <GameplayCompactMetricRows
           items={[
             {
-              label: 'Recovery actions used',
-              value: `${Number(recoveryState?.category_used || 0)} / ${Number(recoveryState?.category_cap || 4)}`,
+              label: 'Time left',
+              value: `${loop.dailySession.remainingTimeUnits}/${loop.dailySession.totalTimeUnits} units`,
             },
             {
-              label: 'Recovery remaining',
-              value: String(Math.max(0, Number(recoveryState?.category_remaining || 0))),
-              tone: Number(recoveryState?.category_remaining || 0) <= 0 ? 'warning' : 'positive',
+              label: 'Idle recovery',
+              value: idleRecoveryLabel,
+              tone: 'positive',
             },
             {
-              label: 'Passive off-hours',
-              value: `${signedWhole(Number(passiveRecoverySummary?.stress_delta || 0))} ${
-                passiveRecoverySummary?.status === 'applied' ? '(applied)' : '(pending)'
-              }`,
-              tone: Number(passiveRecoverySummary?.stress_delta || 0) < 0 ? 'positive' : 'neutral',
+              label: 'Active recovery',
+              value: activeRecoveryLabel,
+              tone: 'positive',
+            },
+            {
+              label: 'Stress recovered today',
+              value: signedWhole(-loop.dailySession.stressRecoveredToday),
+              tone: loop.dailySession.stressRecoveredToday > 0 ? 'positive' : 'neutral',
+            },
+            {
+              label: 'Health gained today',
+              value: signedWhole(loop.dailySession.healthGainedToday),
+              tone: loop.dailySession.healthGainedToday > 0 ? 'positive' : 'neutral',
+            },
+            {
+              label: 'Skill gained today',
+              value: `+${loop.dailySession.skillProgressGainedToday}`,
+              tone: loop.dailySession.skillProgressGainedToday > 0 ? 'positive' : 'neutral',
             },
             {
               label: 'Weekend recovery',
               value: weekendRecoverySummary?.is_weekend
                 ? `${signedWhole(Number(weekendRecoverySummary?.stress_delta || 0))} (${String(weekendRecoverySummary?.tier || 'pending')})`
-                : 'None',
+                : 'Pending',
               tone: weekendRecoverySummary?.is_weekend ? 'positive' : 'neutral',
             },
           ]}
         />
+        <Text style={styles.helperText}>
+          1 unit = {BALANCE.REALTIME.MINUTES_PER_UNIT} mins. Time cost is deducted over time, not at start.
+        </Text>
+        <Text style={styles.helperText}>
+          Weekend recovery still applies even if you ride share, but the settlement bonus can be reduced.
+        </Text>
+
+        {hasActiveTimedActivity ? (
+          <View style={styles.sessionCard}>
+            <Text style={styles.sessionTitle}>{loop.dailySession.currentActivityName}</Text>
+            <Text style={styles.sessionMeta}>Elapsed: {activeSessionElapsedLabel}</Text>
+            <Text style={styles.sessionMeta}>Next unit cost in: {nextUnitCountdownLabel}</Text>
+            {currentTimedActivity === 'skill_training' ? (
+              <>
+                <Text style={styles.sessionMeta}>Skill progress gained: {currentTrainingProgressLabel}</Text>
+                <Text style={styles.sessionMeta}>
+                  {loop.dailySession.trainingEfficiencyBonusActive
+                    ? 'Efficiency bonus active for this session.'
+                    : `Bonus unlocks after ${BALANCE.REALTIME.TRAINING_BONUS_THRESHOLD_UNITS * BALANCE.REALTIME.MINUTES_PER_UNIT} min.`}
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.sessionMeta}>Stress recovered: {currentStressRecoveryLabel}</Text>
+                <Text style={styles.sessionMeta}>Health gained: {currentHealthGainLabel}</Text>
+              </>
+            )}
+            {mealInProgress ? (
+              <Text style={styles.sessionMeta}>
+                {loop.dailySession.canStopCurrentActivity
+                  ? 'Meal minimum reached. You can stop whenever you are ready.'
+                  : `Meal locked for ${formatMinutesLabel(mealMinimumRemainingMinutes)} more.`}
+              </Text>
+            ) : null}
+            <View style={styles.recoveryActionWrap}>
+              <SecondaryButton
+                label={
+                  mealInProgress && !loop.dailySession.canStopCurrentActivity
+                    ? `Locked (${formatMinutesLabel(mealMinimumRemainingMinutes)} left)`
+                    : 'Stop Activity'
+                }
+                onPress={stopCurrentTimedActivity}
+                disabled={!loop.dailySession.canStopCurrentActivity}
+              />
+            </View>
+          </View>
+        ) : (
+          <GameplayWarningBanner
+            title="Resting automatically"
+            message="Stress recovers 1 point every 10 minutes while you are away from the app and not running another activity."
+            tone="info"
+          />
+        )}
 
         <View style={styles.recoveryList}>
-          {RECOVERY_PRESETS.map((preset) => {
-            const running = busyRecoveryId === preset.id;
-            const actionState = recoveryActionStateByKey[preset.id];
-            const actionRemaining = Math.max(0, Number(actionState?.remaining ?? (preset.id === 'eat_meal' ? 1 : 0)));
-            const actionDisabledReason = (
-              backendShiftActive || autoClockingOut
-                ? `Action unavailable during active shift. Available after ${shiftEndLabel}.`
-                : actionState && !actionState.available
-                  ? String(actionState.block_reason || 'Recovery action unavailable right now.')
-                  : null
-            );
+          {TIMED_ACTIVITY_PRESETS.map((preset) => {
+            const running = currentTimedActivity === preset.id;
+            const actionDisabledReason = running ? null : getTimedActivityDisabledReason(preset.id);
             return (
               <View key={preset.id} style={styles.recoveryRow}>
                 <View style={styles.recoveryInfo}>
                   <Text style={styles.recoveryTitle}>{preset.title}</Text>
-                  <Text style={styles.recoveryMeta}>
-                    Time {preset.timeCostUnits}u | Stress {signedWhole(preset.stressChange)} | Health {signedWhole(preset.healthChange)} | Remaining {actionRemaining}
-                  </Text>
-                  <Text style={styles.recoveryMeta}>
-                    {preset.id === 'eat_meal'
-                      ? 'Meal system separate from recovery cap.'
-                      : `Recovery category remaining: ${Math.max(0, Number(recoveryState?.category_remaining || 0))}`}
-                  </Text>
+                  <Text style={styles.recoveryMeta}>{preset.primaryEffect}</Text>
+                  <Text style={styles.recoveryMeta}>{preset.secondaryEffect}</Text>
+                  <Text style={styles.recoveryMeta}>{preset.timeRule}</Text>
+                  {running ? (
+                    <Text style={styles.recoveryMeta}>
+                      Running now. Elapsed {activeSessionElapsedLabel}. Next unit in {nextUnitCountdownLabel}.
+                    </Text>
+                  ) : null}
                   {actionDisabledReason ? (
                     <Text style={styles.helperText}>{actionDisabledReason}</Text>
                   ) : null}
                 </View>
                 <View style={styles.recoveryActionWrap}>
                   <SecondaryButton
-                    label={running ? 'Running...' : 'Do'}
-                    onPress={() => void runRecoveryAction(preset)}
-                    disabled={Boolean(busyRecoveryId) || loop.executingAction || Boolean(actionDisabledReason)}
+                    label={running ? 'Stop' : 'Start'}
+                    onPress={() => {
+                      handleTimedActivityPress(preset.id);
+                    }}
+                    disabled={Boolean(actionDisabledReason)}
                   />
                 </View>
               </View>
@@ -2093,6 +2260,20 @@ export default function DashboardScreen() {
             tone="info"
           />
         ) : null}
+        {mealInProgress ? (
+          <GameplayWarningBanner
+            title={`Eating ${String(loop.dailySession.currentMealType || 'meal')}`}
+            message={
+              loop.dailySession.canStopCurrentActivity
+                ? 'Meal minimum reached. Time continues to deduct over time until you stop.'
+                : `Meal locked for ${formatMinutesLabel(mealMinimumRemainingMinutes)} more. Minimum required: ${BALANCE.REALTIME.MEAL_MIN_MINUTES} min.`
+            }
+            tone="info"
+          />
+        ) : null}
+        <Text style={styles.helperText}>
+          Meals start immediately, require at least {BALANCE.REALTIME.MEAL_MIN_MINUTES} minutes, and deduct time over time instead of on button press.
+        </Text>
         <View style={styles.buttonRow}>
           <View style={styles.mealBtn}>
             <PrimaryButton
@@ -2293,6 +2474,24 @@ const styles = StyleSheet.create({
   },
   recoveryActionWrap: {
     marginTop: theme.spacing.xxs,
+  },
+  sessionCard: {
+    borderWidth: 1,
+    borderColor: theme.color.info,
+    borderRadius: theme.radius.lg,
+    backgroundColor: theme.color.surfaceAlt,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.sm,
+    gap: theme.spacing.xxs,
+  },
+  sessionTitle: {
+    ...theme.typography.bodyMd,
+    color: theme.color.textPrimary,
+    fontWeight: '800',
+  },
+  sessionMeta: {
+    ...theme.typography.bodySm,
+    color: theme.color.textSecondary,
   },
   rideshareResultCard: {
     borderWidth: 1,

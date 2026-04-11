@@ -23,6 +23,7 @@ import {
   executeAction as executeGameplayAction,
   getTransactionHistory,
 } from '@/lib/api/gameplay';
+import { BALANCE } from '@/lib/balanceConfig';
 import { createGameplayCanonicalState } from '@/lib/gameplayRuntimeState';
 import { recordInfo, recordWarning } from '@/lib/logger';
 import {
@@ -171,13 +172,12 @@ function canonicalActionKey(actionKey: string): string {
 }
 
 function deriveSuggestedTimeUnits(bundle: GameplayLoopBundle | null): number {
-  if (!bundle) return 10;
+  const configuredUnits = Math.max(1, Math.round(Number(BALANCE.DEFAULT_TOTAL_TIME_UNITS) || 20));
+  if (!bundle) return configuredUnits;
   const debug = bundle.dashboard.debug_meta || {};
   const directUnits = Number(debug.daily_time_units ?? debug.time_units ?? debug.hours_available_units);
-  if (Number.isFinite(directUnits)) return Math.max(6, Math.min(16, Math.round(directUnits)));
-  const fromSummary = Number(bundle.economySummary.current_day);
-  if (Number.isFinite(fromSummary) && fromSummary > 0 && fromSummary <= 3) return 8;
-  return 10;
+  if (Number.isFinite(directUnits)) return Math.max(configuredUnits, Math.round(directUnits));
+  return configuredUnits;
 }
 
 function resolveDailyActivityDay(

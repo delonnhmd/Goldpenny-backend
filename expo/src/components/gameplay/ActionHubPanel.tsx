@@ -7,6 +7,7 @@ import SurfaceCard from '@/components/ui/SurfaceCard';
 import { theme } from '@/design/theme';
 import { ActionExecutionGuard } from '@/hooks/useDailySession';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { BALANCE } from '@/lib/balanceConfig';
 import { DailyActionHubResponse, DailyActionItem } from '@/types/gameplay';
 
 import ActionCard from './ActionCard';
@@ -102,6 +103,7 @@ export default function ActionHubPanel({
             {sessionStatus === 'active' ? 'Action window open' : 'Day settled'}
           </Text>
         </View>
+        <Text style={styles.timeHelper}>1 unit = {BALANCE.REALTIME.MINUTES_PER_UNIT} mins</Text>
         <ProgressMeter progress={progressRatio} />
       </SurfaceCard>
 
@@ -151,6 +153,10 @@ const styles = StyleSheet.create({
   timeMeta: {
     color: theme.color.textSecondary,
     ...theme.typography.caption,
+  },
+  timeHelper: {
+    color: theme.color.textSecondary,
+    ...theme.typography.bodySm,
   },
   section: {
     gap: theme.spacing.md,

@@ -4,9 +4,9 @@
 
 export const BALANCE = {
   // ─── Daily time budget ────────────────────────────────────────────────────────
-  DEFAULT_TOTAL_TIME_UNITS: 10,
-  MIN_TOTAL_TIME_UNITS: 6,
-  MAX_TOTAL_TIME_UNITS: 16,
+  DEFAULT_TOTAL_TIME_UNITS: 20,
+  MIN_TOTAL_TIME_UNITS: 20,
+  MAX_TOTAL_TIME_UNITS: 20,
 
   // ─── Time cost per action type (units consumed per use) ───────────────────────
   ACTION_TIME_COST: {
@@ -50,6 +50,19 @@ export const BALANCE = {
   // ─── Random event cash / debt impact (informational display values) ───────────
   RECOVERY_ACTIONS: {
     CATEGORY_CAP: 4,
+  },
+
+  REALTIME: {
+    MINUTES_PER_UNIT: 20,
+    IDLE_STRESS_RECOVERY_MINUTES: 10,
+    ACTIVE_STRESS_RECOVERY_MINUTES: 2,
+    MEAL_MIN_MINUTES: 15,
+    JOGGING_HEALTH_INTERVAL_MINUTES: 6,
+    JOGGING_HEALTH_GAIN: 1,
+    TRAINING_SKILL_GAIN_PER_UNIT: 6,
+    TRAINING_BONUS_THRESHOLD_UNITS: 3,
+    TRAINING_BONUS_SKILL_GAIN_PER_UNIT: 2,
+    UI_TICK_INTERVAL_MS: 10000,
   },
 
   EVENT: {

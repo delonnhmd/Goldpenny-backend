@@ -1,12 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { recordInfo, recordWarning } from '@/lib/logger';
+import { createDefaultTimedActivityState, sanitizeTimedActivityState, TimedActivityState } from '@/lib/realtimeActivity';
 import { DailySessionStatus } from '@/types/gameplay';
 import { RandomEventPersistedState } from '@/types/randomEvent';
 
 // Core logic freeze: this snapshot shape and canonical key are part of gameplay continuity.
 // Change only for a proven persistence bug and version the payload deliberately.
-export const GAMEPLAY_PERSISTENCE_VERSION = 1;
+export const GAMEPLAY_PERSISTENCE_VERSION = 2;
 
 const GAMEPLAY_STATE_STORAGE_KEY = (playerId: string) => `goldpenny:gameplay:state:${playerId}`;
 
@@ -21,6 +22,7 @@ export interface PersistedGameplaySessionState {
   actionCounts: Record<string, number>;
   sessionStatus: DailySessionStatus;
   totalTimeUnits: number;
+  timedActivity: TimedActivityState;
 }
 
 export interface PersistedGameplayState {
@@ -86,6 +88,7 @@ function sanitizeSessionState(value: unknown, expectedDay: number): PersistedGam
     totalTimeUnits: Math.max(0, Math.round(totalTimeUnits)),
     sessionStatus,
     actionCounts: normalizedCounts,
+    timedActivity: sanitizeTimedActivityState((value as { timedActivity?: unknown }).timedActivity),
   };
 }
 
@@ -96,7 +99,7 @@ function sanitizeGameplayState(value: unknown, playerId: string): PersistedGamep
   const storedPlayerId = String((value as { playerId?: unknown }).playerId || '').trim();
   const currentDay = parsePositiveInteger((value as { currentDay?: unknown }).currentDay);
 
-  if (version !== GAMEPLAY_PERSISTENCE_VERSION) return null;
+  if (version !== 1 && version !== GAMEPLAY_PERSISTENCE_VERSION) return null;
   if (!storedPlayerId || storedPlayerId !== playerId || currentDay == null) return null;
 
   const parsedLastProcessed = (value as { lastProcessedDay?: unknown }).lastProcessedDay;
@@ -171,7 +174,14 @@ export function createEmptyPersistedGameplayState(
     playerId,
     currentDay: Math.max(1, Math.round(Number(currentDay) || 1)),
     lastProcessedDay: null,
-    session: null,
+    session: {
+      currentDay: Math.max(1, Math.round(Number(currentDay) || 1)),
+      remainingTimeUnits: 20,
+      actionCounts: {},
+      sessionStatus: 'active',
+      totalTimeUnits: 20,
+      timedActivity: createDefaultTimedActivityState(),
+    },
     randomEvent: null,
   };
 }

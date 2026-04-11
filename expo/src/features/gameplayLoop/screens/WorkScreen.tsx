@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import ActionHubPanel from '@/components/gameplay/ActionHubPanel';
@@ -33,6 +33,35 @@ export default function WorkScreen() {
   const stats = loop.dashboard?.stats;
   const endDayDisabled = !loop.dailyProgression.canAdvanceDay || loop.endingDay;
   const workState = loop.dashboard?.work_state || loop.actionHub?.work_state || null;
+  const actionHubForDisplay = useMemo(() => {
+    if (!loop.actionHub) return null;
+    const hiddenKeys = new Set([
+      'rest',
+      'study',
+      'watch_tv',
+      'watch_movie',
+      'read_book',
+      'jogging',
+      'eat_meal',
+      'skill_training',
+      'start_training',
+    ]);
+    const filterActions = (actions: DailyActionItem[]) =>
+      actions.filter((action) => {
+        const rawKey = String(action.action_key || '').trim().toLowerCase();
+        if (hiddenKeys.has(rawKey)) return false;
+        if (rawKey.includes('recover') || rawKey.includes('watch_') || rawKey.includes('jog') || rawKey.includes('eat_')) {
+          return false;
+        }
+        return true;
+      });
+    return {
+      ...loop.actionHub,
+      recommended_actions: filterActions(loop.actionHub.recommended_actions || []),
+      available_actions: filterActions(loop.actionHub.available_actions || []),
+      blocked_actions: filterActions(loop.actionHub.blocked_actions || []),
+    };
+  }, [loop.actionHub]);
   const jobMarket = workState?.job_market || null;
   const currentJobKey = String(
     jobMarket?.current_job_key
@@ -188,7 +217,7 @@ export default function WorkScreen() {
             label="Time left"
             value={`${loop.dailySession.remainingTimeUnits}/${loop.dailySession.totalTimeUnits}`}
             tone={loop.dailySession.remainingTimeUnits <= 2 ? 'warning' : 'info'}
-            note="Each shift uses time units."
+            note="1 unit = 20 mins. Timed activities now consume units over time."
           />
         </View>
       </GameplaySummaryCard>
@@ -203,10 +232,10 @@ export default function WorkScreen() {
         />
       ) : null}
 
-      {loop.actionHub ? (
+      {actionHubForDisplay ? (
         <OnboardingHighlight target="work-first-action">
           <ActionHubPanel
-            hub={loop.actionHub}
+            hub={actionHubForDisplay}
             onExecuteAction={(action: DailyActionItem) => {
               void loop.openActionPreview(action);
             }}
