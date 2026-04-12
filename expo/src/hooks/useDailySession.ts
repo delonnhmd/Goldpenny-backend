@@ -86,6 +86,10 @@ function actionLimitReason(actionKey: string): string {
   return `${toActionLabel(actionKey)} daily limit reached`;
 }
 
+function canRunDuringTimedMeal(actionKey: string, currentActivity: TimedActivityType | null): boolean {
+  return currentActivity === 'eat_meal' && actionKey === 'debt_payment';
+}
+
 function normalizeActionKey(key: GameplayActionKey): string {
   const raw = String(key || '').toLowerCase().trim();
   if (!raw) return '';
@@ -543,7 +547,10 @@ export function useDailySession(playerId: string) {
       if (sessionStatus !== 'active') {
         return { allowed: false, reason: 'Day already ended. Start next day to continue.', timeCostUnits };
       }
-      if (timedActivityRef.current.currentActivity) {
+      if (
+        timedActivityRef.current.currentActivity
+        && !canRunDuringTimedMeal(normalized, timedActivityRef.current.currentActivity)
+      ) {
         return {
           allowed: false,
           reason: `Finish ${formatTimedActivityName(timedActivityRef.current.currentActivity, timedActivityRef.current.currentMealType)} first.`,
