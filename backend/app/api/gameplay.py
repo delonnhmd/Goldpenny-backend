@@ -15,7 +15,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -445,8 +445,25 @@ def _current_game_day(db: Session) -> int:
     return max(1, _safe_int(getattr(state, "current_day", 1), 1))
 
 
-def _sync_player_work_state(db: Session, player: Player) -> dict[str, Any]:
-    return resolve_expired_shift_if_needed(db, player=player)
+def _normalize_optional_stat_override(value: int | None) -> int | None:
+    if value is None:
+        return None
+    return max(0, min(100, _safe_int(value, 0)))
+
+
+def _sync_player_work_state(
+    db: Session,
+    player: Player,
+    *,
+    current_stress_override: int | None = None,
+    current_health_override: int | None = None,
+) -> dict[str, Any]:
+    return resolve_expired_shift_if_needed(
+        db,
+        player=player,
+        current_stress_override=_normalize_optional_stat_override(current_stress_override),
+        current_health_override=_normalize_optional_stat_override(current_health_override),
+    )
 
 
 def _log_salary_ui_payload_rendered(*, route: str, player: Player, work_state: dict[str, Any] | None) -> None:
@@ -1097,14 +1114,26 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
 
 
 @router.get("/player/{player_id}/dashboard")
-def get_gameplay_dashboard(player_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+def get_gameplay_dashboard(
+    player_id: str,
+    current_stress: int | None = Query(default=None, ge=0, le=100),
+    current_health: int | None = Query(default=None, ge=0, le=100),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
     logger.info(
         "gameplay.dashboard request received.",
         extra={"player_id": player_id, "canonical_route": "/gameplay/player/{player_id}/dashboard"},
     )
     try:
         player = _resolve_player(db, player_id)
-        work_state = _sync_player_work_state(db, player)
+        effective_stress = _normalize_optional_stat_override(current_stress)
+        effective_health = _normalize_optional_stat_override(current_health)
+        work_state = _sync_player_work_state(
+            db,
+            player,
+            current_stress_override=effective_stress,
+            current_health_override=effective_health,
+        )
         playable = get_playable_player_summary(db, player.id)
     except Exception as exc:
         _raise_gameplay_http_error(exc)
@@ -1328,14 +1357,24 @@ def get_gameplay_dashboard(player_id: str, db: Session = Depends(get_db)) -> dic
 
 
 @router.get("/player/{player_id}/actions")
-def get_gameplay_actions(player_id: str, db: Session = Depends(get_db)) -> dict[str, Any]:
+def get_gameplay_actions(
+    player_id: str,
+    current_stress: int | None = Query(default=None, ge=0, le=100),
+    current_health: int | None = Query(default=None, ge=0, le=100),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
     logger.info(
         "gameplay.actions request received.",
         extra={"player_id": player_id, "canonical_route": "/gameplay/player/{player_id}/actions"},
     )
     try:
         player = _resolve_player(db, player_id)
-        work_state = _sync_player_work_state(db, player)
+        work_state = _sync_player_work_state(
+            db,
+            player,
+            current_stress_override=current_stress,
+            current_health_override=current_health,
+        )
         _log_salary_ui_payload_rendered(
             route="/gameplay/player/{player_id}/actions",
             player=player,
@@ -2189,7 +2228,25 @@ def execute_gameplay_action(
             else:
                 requested_trips = 5
         try:
-            result = process_rideshare_action(db=db, player=player, trips=requested_trips)
+            raw_stress_override = params.get("current_stress")
+            raw_health_override = params.get("current_health")
+            current_stress_override = (
+                _normalize_optional_stat_override(_safe_int(raw_stress_override, 0))
+                if raw_stress_override is not None
+                else None
+            )
+            current_health_override = (
+                _normalize_optional_stat_override(_safe_int(raw_health_override, 0))
+                if raw_health_override is not None
+                else None
+            )
+            result = process_rideshare_action(
+                db=db,
+                player=player,
+                trips=requested_trips,
+                current_stress=current_stress_override,
+                current_health=current_health_override,
+            )
             completed_trips = max(0, _safe_int(result.get("trips"), requested_trips))
             time_used = max(1, _safe_int(result.get("time_used"), completed_trips or 1))
             earned = _safe_float(result.get("earned"), _safe_float(result.get("net_income_xgp")))
@@ -2564,11 +2621,6 @@ def execute_gameplay_action(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         detail=f"Unsupported action_key '{action_key}'.",
     )
-
-
-
-
-
 
 
 

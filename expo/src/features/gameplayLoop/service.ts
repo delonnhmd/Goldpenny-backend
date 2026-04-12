@@ -24,6 +24,8 @@ import { GameplayLoopBundle, GameplayLoopDataMode } from './types';
 
 interface LoadGameplayLoopBundleOptions {
   includeEndOfDaySummary?: boolean;
+  currentStress?: number | null;
+  currentHealth?: number | null;
 }
 
 interface ResolvedSection<T> {
@@ -123,20 +125,24 @@ export async function loadGameplayLoopBundle(
   options?: LoadGameplayLoopBundleOptions,
 ): Promise<GameplayLoopBundle> {
   const includeEndOfDaySummary = Boolean(options?.includeEndOfDaySummary);
+  const gameplayStateOverrides = {
+    currentStress: options?.currentStress,
+    currentHealth: options?.currentHealth,
+  };
 
   const [dashboard, actionHub, economySummary, stockMarket, businesses, businessPlan, endOfDaySummary] =
     await Promise.all([
       resolveSection(
         playerId,
         'dashboard',
-        () => getPlayerDashboard(playerId),
+        () => getPlayerDashboard(playerId, gameplayStateOverrides),
         () => createMockDashboard(playerId),
         { allowMockFallback: false },
       ),
       resolveSection(
         playerId,
         'action_hub',
-        () => getPlayerActions(playerId),
+        () => getPlayerActions(playerId, gameplayStateOverrides),
         () => createMockActionHub(playerId),
         { allowMockFallback: false },
       ),

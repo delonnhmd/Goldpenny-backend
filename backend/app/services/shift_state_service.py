@@ -76,7 +76,7 @@ SALARY_PAYMENT_STATUS_POSTED = "posted"
 SALARY_PAYMENT_STATUS_FAILED = "failed"
 RIDESHARE_DAILY_CAP = 6
 RIDESHARE_MIN_HEALTH = 16
-RIDESHARE_MAX_STRESS = 95
+RIDESHARE_MAX_STRESS = 80
 GAME_EPOCH = date(2026, 1, 1)
 MISSED_SHIFT_HEALTH_DELTA = -5
 MISSED_SHIFT_STRESS_DELTA = 6
@@ -1587,24 +1587,44 @@ def _build_rideshare_state(
 
     status = "available"
     reason = "Ride Share is available now."
+    block_reason_code: str | None = None
+    block_reason_value: int | None = None
     if day_settled:
         status = "not_enough_time"
         reason = "Not enough time left today for rideshare."
+        block_reason_code = "not_enough_time"
+        block_reason_value = hours_remaining_today
     elif active_shift:
         status = "shift_active"
         reason = "Unavailable: shift still active."
-    elif health < RIDESHARE_MIN_HEALTH:
-        status = "health_low"
-        reason = f"Unavailable: health too low ({int(health)}/100)."
+        block_reason_code = "shift_active"
+    elif hours_remaining_today <= 0 or remaining_trips <= 0:
+        status = "not_enough_time"
+        reason = "Not enough time left today for rideshare."
+        block_reason_code = "not_enough_time"
+        block_reason_value = hours_remaining_today
+    elif remaining_by_cap <= 0:
+        status = "limit_reached"
+        reason = "Unavailable: daily trip limit reached."
+        block_reason_code = "limit_reached"
+        block_reason_value = trips_today
     elif stress >= RIDESHARE_MAX_STRESS:
         status = "stress_high"
         reason = f"Unavailable: stress too high ({int(stress)}/100)."
+        block_reason_code = "stress_high"
+        block_reason_value = int(stress)
+    elif health < RIDESHARE_MIN_HEALTH:
+        status = "health_low"
+        reason = f"Unavailable: health too low ({int(health)}/100)."
+        block_reason_code = "health_low"
+        block_reason_value = int(health)
     elif not bool(location_profile.get("allowed")):
         status = "location_restricted"
         reason = str(
             location_profile.get("reason_if_blocked")
             or "Unavailable: not at valid rideshare location."
         )
+        block_reason_code = "location_restricted"
     elif not rideshare_unlocked:
         status = "shift_active"
         reason = (
@@ -1612,12 +1632,7 @@ def _build_rideshare_state(
             if shift_completed_today
             else f"Unavailable: clock in for your shift before {scheduled_shift_end_label or 'shift end'}."
         )
-    elif remaining_by_cap <= 0:
-        status = "limit_reached"
-        reason = "Unavailable: daily trip limit reached."
-    elif hours_remaining_today <= 0 or remaining_trips <= 0:
-        status = "not_enough_time"
-        reason = "Not enough time left today for rideshare."
+        block_reason_code = "shift_locked"
     elif is_weekend:
         if bool(active_testing_config.get("testing_mode")) and not bool(
             active_testing_config.get("weekend_main_shift_enabled")
@@ -1639,6 +1654,12 @@ def _build_rideshare_state(
         "status": status,
         "reason": reason,
         "block_reason": reason if status != "available" else None,
+        "block_reason_code": block_reason_code,
+        "block_reason_value": block_reason_value,
+        "current_stress": int(stress),
+        "current_health": int(health),
+        "stress_threshold": int(RIDESHARE_MAX_STRESS),
+        "health_threshold": int(RIDESHARE_MIN_HEALTH),
         "trips_today": trips_today,
         "max_trips": max_trips,
         "remaining_trips": remaining_trips,
@@ -2821,7 +2842,14 @@ def _build_testing_mode_work_payload(
     }
 
 
-def build_work_state_payload(db: Session, player: Player, *, now_houston: datetime | None = None) -> dict[str, Any]:
+def build_work_state_payload(
+    db: Session,
+    player: Player,
+    *,
+    now_houston: datetime | None = None,
+    current_stress_override: int | None = None,
+    current_health_override: int | None = None,
+) -> dict[str, Any]:
     now = _as_houston(now_houston) or get_houston_now()
     current_day = _current_game_day_for_player(db, player)
     testing_config = get_gameplay_testing_mode_config()
@@ -2986,6 +3014,8 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
     current_location_key = ensure_player_location(player)
     current_location_label = get_location_label(current_location_key)
     current_location_region = get_location_region(current_location_key)
+    effective_stress = max(0, min(100, _safe_int(current_stress_override, _safe_int(getattr(player, "stress", 0), 0))))
+    effective_health = max(0, min(100, _safe_int(current_health_override, _safe_int(getattr(player, "health", 100), 100))))
     city_map_snapshot = build_city_map_snapshot(current_location_key=current_location_key)
     if day_settled and (pds is not None) and not bool(getattr(pds, "dinner_resolved", False)):
         ensure_day_dinner_resolved(
@@ -3047,8 +3077,8 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         scheduled_shift_end_label=schedule["scheduled_shift_end_label"],
         side_income_hours_today=side_income_hours_today,
         hours_available=int(getattr(player, "hours_available", 0) or 0),
-        health=_safe_int(getattr(player, "health", 100), 100),
-        stress=_safe_int(getattr(player, "stress", 0), 0),
+        health=effective_health,
+        stress=effective_stress,
         current_location_key=current_location_key,
         now_houston=now,
         testing_config=testing_config,
@@ -3241,6 +3271,8 @@ def build_work_state_payload(db: Session, player: Player, *, now_houston: dateti
         "trips_today": int(rideshare_state.get("trips_today") or 0),
         "trips_remaining": int(rideshare_state.get("remaining_trips") or 0),
         "remaining_time_units": int(rideshare_state.get("hours_remaining_today") or int(getattr(player, "hours_available", 0) or 0)),
+        "effective_current_stress": int(effective_stress),
+        "effective_current_health": int(effective_health),
         "remaining_side_income_hours_today": round(remaining_side_cap, 4),
         "degraded_sections": [],
         "market_data_available": True,
@@ -3544,6 +3576,8 @@ def resolve_expired_shift_if_needed(
     *,
     player_id: UUID | str | None = None,
     now_houston: datetime | None = None,
+    current_stress_override: int | None = None,
+    current_health_override: int | None = None,
 ) -> dict[str, Any]:
     if player is None:
         if player_id is None:
@@ -3580,7 +3614,13 @@ def resolve_expired_shift_if_needed(
 
     preview_state = None
     try:
-        preview_state = build_work_state_payload(db, player, now_houston=now)
+        preview_state = build_work_state_payload(
+            db,
+            player,
+            now_houston=now,
+            current_stress_override=current_stress_override,
+            current_health_override=current_health_override,
+        )
     except Exception:
         preview_state = None
 
@@ -3659,7 +3699,13 @@ def resolve_expired_shift_if_needed(
         if bool(sync_result.get("applied")):
             db.commit()
             db.refresh(player)
-        work_state = build_work_state_payload(db, player, now_houston=now)
+        work_state = build_work_state_payload(
+            db,
+            player,
+            now_houston=now,
+            current_stress_override=current_stress_override,
+            current_health_override=current_health_override,
+        )
         work_state = _apply_main_job_sync_result_to_work_state(work_state, main_job_sync)
         applied_days = int(rollover_result.get("applied_days") or 0)
         recap_lines = [
@@ -3724,7 +3770,13 @@ def resolve_expired_shift_if_needed(
         ):
             db.commit()
             db.refresh(player)
-            finalized_state = build_work_state_payload(db, player, now_houston=now)
+            finalized_state = build_work_state_payload(
+                db,
+                player,
+                now_houston=now,
+                current_stress_override=current_stress_override,
+                current_health_override=current_health_override,
+            )
         finalized_state = _apply_main_job_sync_result_to_work_state(finalized_state, main_job_sync)
         finalized_state["offline_survival_catchup"] = catchup_result
         finalized_state["auto_day_rollover"] = rollover_result
@@ -3763,7 +3815,13 @@ def resolve_expired_shift_if_needed(
         db.commit()
         db.refresh(player)
 
-    work_state = build_work_state_payload(db, player, now_houston=now)
+    work_state = build_work_state_payload(
+        db,
+        player,
+        now_houston=now,
+        current_stress_override=current_stress_override,
+        current_health_override=current_health_override,
+    )
     work_state = _apply_main_job_sync_result_to_work_state(work_state, main_job_sync)
     work_state["offline_survival_catchup"] = catchup_result
     work_state["auto_day_rollover"] = rollover_result
@@ -3776,4 +3834,3 @@ def resolve_expired_shift_if_needed(
         rollover_result=rollover_result,
     )
     return work_state
-

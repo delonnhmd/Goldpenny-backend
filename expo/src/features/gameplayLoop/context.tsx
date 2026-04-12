@@ -7,6 +7,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { AppState, AppStateStatus } from 'react-native';
 
 import { useDailyProgression } from '@/hooks/useDailyProgression';
 import { useDailySession } from '@/hooks/useDailySession';
@@ -225,6 +226,7 @@ export function GameplayLoopProvider({
   const [endingDay, setEndingDay] = useState(false);
   const [pendingTrade, setPendingTrade] = useState<PendingTradeState | null>(null);
   const hasBundleRef = useRef(false);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const promptedFeedbackDaysRef = useRef<Set<number>>(new Set());
   const autoOpenedSummaryDaysRef = useRef<Set<number>>(new Set());
 
@@ -258,6 +260,14 @@ export function GameplayLoopProvider({
   const refresh = useCallback(async (options?: RefreshOptions) => {
     const silent = Boolean(options?.silent);
     const includeEndOfDaySummary = options?.includeEndOfDaySummary ?? dailySession.sessionStatus === 'ended';
+    const baseStress = Number(bundle?.dashboard?.stats?.stress);
+    const baseHealth = Number(bundle?.dashboard?.stats?.health);
+    const currentStress = Number.isFinite(baseStress)
+      ? Math.max(0, Math.min(100, Math.round(baseStress - dailySession.stressRecoveredToday)))
+      : null;
+    const currentHealth = Number.isFinite(baseHealth)
+      ? Math.max(0, Math.min(100, Math.round(baseHealth + dailySession.healthGainedToday)))
+      : null;
     if (INTERACTION_DIAGNOSTICS_ENABLED) {
       recordInfo('gameplayLoop', 'Refreshing gameplay bundle.', {
         action: 'refresh_bundle_start',
@@ -266,6 +276,8 @@ export function GameplayLoopProvider({
           silent,
           includeEndOfDaySummary,
           sessionStatus: dailySession.sessionStatus,
+          currentStress,
+          currentHealth,
         },
       });
     }
@@ -279,6 +291,8 @@ export function GameplayLoopProvider({
     try {
       const nextBundle = await loadGameplayLoopBundle(playerId, {
         includeEndOfDaySummary,
+        currentStress,
+        currentHealth,
       });
       setBundle(nextBundle);
       const activityDay = resolveDailyActivityDay(
@@ -346,7 +360,15 @@ export function GameplayLoopProvider({
       setLoading(false);
       setRefreshing(false);
     }
-  }, [dailyProgression.currentGameDay, dailySession.sessionStatus, playerId]);
+  }, [
+    bundle?.dashboard?.stats?.health,
+    bundle?.dashboard?.stats?.stress,
+    dailyProgression.currentGameDay,
+    dailySession.healthGainedToday,
+    dailySession.sessionStatus,
+    dailySession.stressRecoveredToday,
+    playerId,
+  ]);
 
   const consumeSummaryAutoOpen = useCallback(() => {
     setSummaryAutoOpenDay(null);
@@ -432,6 +454,21 @@ export function GameplayLoopProvider({
   }, [playerId, refresh]);
 
   useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      const previousAppState = appStateRef.current;
+      appStateRef.current = nextAppState;
+      if (previousAppState !== 'active' && nextAppState === 'active' && hasBundleRef.current) {
+        setTimeout(() => {
+          void refresh({ silent: true });
+        }, 50);
+      }
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, [refresh]);
+
+  useEffect(() => {
     if (!bundle || !dailyProgression.isHydrated) return;
     const dayFromSummary = Number(bundle.economySummary.current_day);
     const sessionDay = Number.isFinite(dayFromSummary) && dayFromSummary > 0
@@ -515,10 +552,30 @@ export function GameplayLoopProvider({
     dailySession.setPendingExecution(true);
 
     try {
+      const runtimeBaseStress = Number(bundle?.dashboard?.stats?.stress);
+      const runtimeBaseHealth = Number(bundle?.dashboard?.stats?.health);
+      const canonicalKey = canonicalActionKey(String(action.action_key || ''));
+      const actionParameters: Record<string, unknown> = {
+        ...((action.parameters || {}) as Record<string, unknown>),
+      };
+      if (canonicalKey === 'side_income') {
+        if (Number.isFinite(runtimeBaseStress)) {
+          actionParameters.current_stress = Math.max(
+            0,
+            Math.min(100, Math.round(runtimeBaseStress - dailySession.stressRecoveredToday)),
+          );
+        }
+        if (Number.isFinite(runtimeBaseHealth)) {
+          actionParameters.current_health = Math.max(
+            0,
+            Math.min(100, Math.round(runtimeBaseHealth + dailySession.healthGainedToday)),
+          );
+        }
+      }
       const result = await executeGameplayAction(
         playerId,
         action.action_key,
-        (action.parameters || {}) as Record<string, unknown>,
+        actionParameters,
       );
       dailySession.consumeTime(result.time_cost_units);
       dailySession.addActionToHistory({
@@ -554,7 +611,7 @@ export function GameplayLoopProvider({
       setExecutingAction(false);
       setBusyActionKey(null);
     }
-  }, [dailySession, playerId, refresh]);
+  }, [bundle?.dashboard?.stats?.health, bundle?.dashboard?.stats?.stress, dailySession, playerId, refresh]);
 
   const openActionPreview = useCallback(async (action: DailyActionItem) => {
     setSelectedPreviewAction(action);

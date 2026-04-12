@@ -56,6 +56,8 @@ class RideShareRequest(BaseModel):
         default=False,
         description="Optional frontend guard flag; rideshare is blocked while on shift.",
     )
+    current_stress: int | None = Field(default=None, ge=0, le=100, description="Optional current effective stress override.")
+    current_health: int | None = Field(default=None, ge=0, le=100, description="Optional current effective health override.")
 
 
 class RideShareResponse(BaseModel):
@@ -244,6 +246,8 @@ def run_rideshare_action(
             player=player,
             hours_worked=payload.hours_worked,
             trips=payload.trips,
+            current_stress=payload.current_stress,
+            current_health=payload.current_health,
         )
     except ValueError as exc:
         logger.warning(

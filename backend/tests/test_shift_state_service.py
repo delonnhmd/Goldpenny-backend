@@ -320,7 +320,7 @@ class ShiftStateServiceTests(unittest.TestCase):
         self.assertEqual(int(rideshare_state.get("trips_today") or 0), 6)
         self.assertEqual(int(rideshare_state.get("max_trips") or 0), 6)
         self.assertFalse(bool(rideshare_state.get("can_rideshare")))
-        self.assertEqual(str(rideshare_state.get("status") or ""), "limit_reached")
+        self.assertEqual(str(rideshare_state.get("status") or ""), "not_enough_time")
         self.assertFalse(bool(state.get("rideshare_available")))
 
     def test_rideshare_state_trips_reset_when_game_day_advances(self) -> None:
@@ -567,24 +567,83 @@ class ShiftStateServiceTests(unittest.TestCase):
 
         resolve_expired_shift_if_needed(self.db, player=self.player, now_houston=post_shift)
 
-        self.player.stress = 96
+        self.player.stress = 82
         self.db.commit()
         self.db.refresh(self.player)
         stress_blocked_state = build_work_state_payload(self.db, self.player, now_houston=post_shift)
+        stress_blocked_rideshare = stress_blocked_state.get("rideshare_state") or {}
 
         self.assertFalse(bool(stress_blocked_state.get("rideshare_available")))
-        self.assertEqual(str(stress_blocked_state.get("rideshare_block_reason")), "Unavailable: stress too high (96/100).")
-        self.assertEqual(str((stress_blocked_state.get("rideshare_state") or {}).get("status") or ""), "stress_high")
+        self.assertEqual(str(stress_blocked_state.get("rideshare_block_reason")), "Unavailable: stress too high (82/100).")
+        self.assertEqual(str(stress_blocked_rideshare.get("status") or ""), "stress_high")
+        self.assertEqual(str(stress_blocked_rideshare.get("block_reason_code") or ""), "stress_high")
+        self.assertEqual(int(stress_blocked_rideshare.get("block_reason_value") or 0), 82)
+        self.assertEqual(int(stress_blocked_rideshare.get("stress_threshold") or 0), 80)
 
         self.player.stress = 12
         self.player.health = 12
         self.db.commit()
         self.db.refresh(self.player)
         health_blocked_state = build_work_state_payload(self.db, self.player, now_houston=post_shift)
+        health_blocked_rideshare = health_blocked_state.get("rideshare_state") or {}
 
         self.assertFalse(bool(health_blocked_state.get("rideshare_available")))
         self.assertEqual(str(health_blocked_state.get("rideshare_block_reason")), "Unavailable: health too low (12/100).")
-        self.assertEqual(str((health_blocked_state.get("rideshare_state") or {}).get("status") or ""), "health_low")
+        self.assertEqual(str(health_blocked_rideshare.get("status") or ""), "health_low")
+        self.assertEqual(str(health_blocked_rideshare.get("block_reason_code") or ""), "health_low")
+        self.assertEqual(int(health_blocked_rideshare.get("health_threshold") or 0), 16)
+
+    def test_rideshare_state_recomputes_from_effective_stress_override(self) -> None:
+        shift_start = self._houston_datetime(2026, 1, 1, 9, 0)
+        post_shift = self._houston_datetime(2026, 1, 1, 15, 30)
+
+        start_main_shift(
+            self.db,
+            player=self.player,
+            job_name="banker",
+            shift_type="standard_shift",
+            hours_worked=6,
+            now_houston=shift_start,
+        )
+        resolve_expired_shift_if_needed(self.db, player=self.player, now_houston=post_shift)
+
+        self.player.stress = 100
+        self.player.hours_available = 3
+        self.db.commit()
+        self.db.refresh(self.player)
+
+        stale_state = build_work_state_payload(self.db, self.player, now_houston=post_shift)
+        stale_rideshare = stale_state.get("rideshare_state") or {}
+        self.assertFalse(bool(stale_state.get("rideshare_available")))
+        self.assertEqual(str(stale_rideshare.get("block_reason_code") or ""), "stress_high")
+        self.assertEqual(int(stale_rideshare.get("block_reason_value") or 0), 100)
+
+        refreshed_state = build_work_state_payload(
+            self.db,
+            self.player,
+            now_houston=post_shift,
+            current_stress_override=61,
+        )
+        refreshed_rideshare = refreshed_state.get("rideshare_state") or {}
+        self.assertTrue(bool(refreshed_state.get("rideshare_available")))
+        self.assertTrue(bool(refreshed_rideshare.get("can_rideshare")))
+        self.assertIsNone(refreshed_state.get("rideshare_block_reason"))
+        self.assertEqual(int(refreshed_rideshare.get("current_stress") or 0), 61)
+        self.assertEqual(int(refreshed_state.get("effective_current_stress") or 0), 61)
+
+        self.player.hours_available = 0
+        self.db.commit()
+        self.db.refresh(self.player)
+        time_blocked_state = build_work_state_payload(
+            self.db,
+            self.player,
+            now_houston=post_shift,
+            current_stress_override=61,
+        )
+        time_blocked_rideshare = time_blocked_state.get("rideshare_state") or {}
+        self.assertFalse(bool(time_blocked_state.get("rideshare_available")))
+        self.assertEqual(str(time_blocked_rideshare.get("block_reason_code") or ""), "not_enough_time")
+        self.assertEqual(str(time_blocked_state.get("rideshare_block_reason") or ""), "Not enough time left today for rideshare.")
 
     def test_weekday_missed_shift_logs_penalty_and_unlock_event(self) -> None:
         after_shift = self._houston_datetime(2026, 1, 1, 19, 5)
@@ -618,7 +677,7 @@ class ShiftStateServiceTests(unittest.TestCase):
         self.assertEqual(self.player.stress, 18)
         self.assertTrue(bool(getattr(pds, "missed_shift", False)))
         self.assertTrue({"missed_work", "health_penalty", "ride_share"}.issubset(categories))
-        self.assertIn("Rideshare unlocked at 6:00 PM", descriptions)
+        self.assertIn("Rideshare unlocked at 4:00 PM", descriptions)
 
     def test_weekend_rules_skip_required_shift_and_unlock_rideshare_all_day(self) -> None:
         game_state = self.db.query(GameState).first()
@@ -649,7 +708,7 @@ class ShiftStateServiceTests(unittest.TestCase):
         self.assertEqual(str(work_state.get("day_of_week")), "Thursday")
         self.assertFalse(bool(work_state.get("is_weekend")))
         self.assertEqual(str(work_state.get("phase_status_label")), "Weekday")
-        self.assertEqual(str(work_state.get("scheduled_shift_window_label")), "10:00 AM-6:00 PM")
+        self.assertEqual(str(work_state.get("scheduled_shift_window_label")), "10:00 AM-4:00 PM")
 
     def test_rollover_market_failure_degrades_work_state_without_crashing(self) -> None:
         self.player.last_survival_resolved_date = self._houston_datetime(2026, 4, 8, 9, 0).date()

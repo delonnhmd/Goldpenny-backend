@@ -147,10 +147,26 @@ def process_rideshare_action(
     player: Player,
     hours_worked: float | None = None,
     trips: int | None = None,
+    current_stress: int | None = None,
+    current_health: int | None = None,
 ) -> dict:
     """Process rideshare as trip-based execution with Houston-time mode buckets."""
     try:
-        work_state = resolve_expired_shift_if_needed(db, player=player)
+        effective_stress = None if current_stress is None else _clamp_int(int(current_stress), 0, 100)
+        effective_health = None if current_health is None else _clamp_int(int(current_health), 0, 100)
+        if effective_stress is not None:
+            player.stress = effective_stress
+        if effective_health is not None:
+            player.health = effective_health
+        if effective_stress is not None or effective_health is not None:
+            db.flush()
+
+        work_state = resolve_expired_shift_if_needed(
+            db,
+            player=player,
+            current_stress_override=effective_stress,
+            current_health_override=effective_health,
+        )
         current_day = int(work_state.get("current_game_day") or 1)
         previous_day = int(getattr(player, "last_worked_day", 0) or 0)
         daily_reset_applied = False

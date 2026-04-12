@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 
 import ActionHubPanel from '@/components/gameplay/ActionHubPanel';
 import AnimatedMoneyValue from '@/components/motion/AnimatedMoneyValue';
@@ -284,6 +285,171 @@ function stripUnavailablePrefix(reason: string | null | undefined): string {
   return normalized.replace(/^Unavailable:\s*/i, '').trim();
 }
 
+interface DerivedRideshareState {
+  canRideshare: boolean;
+  status: string;
+  reason: string;
+  blockReasonCode: string | null;
+  blockReasonValue: number | null;
+}
+
+function deriveRideshareState(options: {
+  sessionStatus: 'active' | 'ended';
+  hasSideIncomeAction: boolean;
+  autoClockingOut: boolean;
+  backendShiftActive: boolean;
+  daySettled: boolean;
+  rideshareState: {
+    can_rideshare: boolean;
+    status: string;
+    reason: string;
+    block_reason?: string | null;
+    block_reason_code?: string | null;
+    block_reason_value?: number | null;
+    rideshare_allowed_here?: boolean;
+  } | null;
+  currentStress: number;
+  currentHealth: number;
+  stressThreshold: number;
+  healthThreshold: number;
+  rideshareRemainingTrips: number;
+  rideshareHoursRemainingToday: number;
+  shiftEndLabel: string;
+}): DerivedRideshareState {
+  const {
+    sessionStatus,
+    hasSideIncomeAction,
+    autoClockingOut,
+    backendShiftActive,
+    daySettled,
+    rideshareState,
+    currentStress,
+    currentHealth,
+    stressThreshold,
+    healthThreshold,
+    rideshareRemainingTrips,
+    rideshareHoursRemainingToday,
+    shiftEndLabel,
+  } = options;
+
+  if (sessionStatus !== 'active') {
+    return {
+      canRideshare: false,
+      status: 'day_ended',
+      reason: 'Day ended.',
+      blockReasonCode: 'day_ended',
+      blockReasonValue: null,
+    };
+  }
+  if (!hasSideIncomeAction) {
+    return {
+      canRideshare: false,
+      status: 'unavailable',
+      reason: 'Ride share action is not available yet.',
+      blockReasonCode: 'action_unavailable',
+      blockReasonValue: null,
+    };
+  }
+  if (autoClockingOut) {
+    return {
+      canRideshare: false,
+      status: 'shift_sync',
+      reason: 'Auto-finalizing shift. Ride share unlocks after sync.',
+      blockReasonCode: 'shift_sync',
+      blockReasonValue: null,
+    };
+  }
+  if (backendShiftActive) {
+    return {
+      canRideshare: false,
+      status: 'shift_active',
+      reason: `Action unavailable during active shift. Available after ${shiftEndLabel}.`,
+      blockReasonCode: 'shift_active',
+      blockReasonValue: null,
+    };
+  }
+  if (!rideshareState) {
+    return {
+      canRideshare: false,
+      status: 'syncing',
+      reason: 'Ride share status syncing...',
+      blockReasonCode: 'syncing',
+      blockReasonValue: null,
+    };
+  }
+  if (String(rideshareState.status || '') === 'shift_active' && !rideshareState.can_rideshare) {
+    const reason = sanitizeRideShareReason(rideshareState.block_reason || rideshareState.reason);
+    return {
+      canRideshare: false,
+      status: 'shift_active',
+      reason,
+      blockReasonCode: rideshareState.block_reason_code || 'shift_active',
+      blockReasonValue: rideshareState.block_reason_value ?? null,
+    };
+  }
+  if (daySettled || rideshareHoursRemainingToday <= 0) {
+    return {
+      canRideshare: false,
+      status: 'not_enough_time',
+      reason: 'Not enough time left today for rideshare.',
+      blockReasonCode: 'not_enough_time',
+      blockReasonValue: rideshareHoursRemainingToday,
+    };
+  }
+  if (rideshareRemainingTrips <= 0) {
+    return {
+      canRideshare: false,
+      status: 'limit_reached',
+      reason: 'Unavailable: daily trip limit reached.',
+      blockReasonCode: 'limit_reached',
+      blockReasonValue: 0,
+    };
+  }
+  if (currentStress >= stressThreshold) {
+    return {
+      canRideshare: false,
+      status: 'stress_high',
+      reason: `Unavailable: stress too high (${Math.round(currentStress)}/100).`,
+      blockReasonCode: 'stress_high',
+      blockReasonValue: Math.round(currentStress),
+    };
+  }
+  if (currentHealth < healthThreshold) {
+    return {
+      canRideshare: false,
+      status: 'health_low',
+      reason: `Unavailable: health too low (${Math.round(currentHealth)}/100).`,
+      blockReasonCode: 'health_low',
+      blockReasonValue: Math.round(currentHealth),
+    };
+  }
+  if (rideshareState.rideshare_allowed_here === false) {
+    return {
+      canRideshare: false,
+      status: 'location_restricted',
+      reason: sanitizeRideShareReason(rideshareState.block_reason || rideshareState.reason),
+      blockReasonCode: rideshareState.block_reason_code || 'location_restricted',
+      blockReasonValue: rideshareState.block_reason_value ?? null,
+    };
+  }
+  if (!rideshareState.can_rideshare) {
+    return {
+      canRideshare: false,
+      status: String(rideshareState.status || 'blocked'),
+      reason: sanitizeRideShareReason(rideshareState.block_reason || rideshareState.reason),
+      blockReasonCode: rideshareState.block_reason_code || String(rideshareState.status || 'blocked'),
+      blockReasonValue: rideshareState.block_reason_value ?? null,
+    };
+  }
+  return {
+    canRideshare: true,
+    status: 'available',
+    reason: sanitizeRideShareReason(rideshareState.reason || 'Ride Share is available now.'),
+    blockReasonCode: null,
+    blockReasonValue: null,
+  };
+}
+
 function sanitizeSalaryText(value: string | null | undefined, fallback: string): string {
   const normalized = String(value || fallback).replace(/Â·/g, '-').trim();
   return normalized || fallback;
@@ -391,6 +557,11 @@ export default function DashboardScreen() {
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  useFocusEffect(useCallback(() => {
+    void refreshGameplay({ silent: true });
+    return undefined;
+  }, [refreshGameplay]));
 
   useEffect(() => {
     const latest = [...loop.dailySession.actionsTakenToday]
@@ -526,18 +697,6 @@ export default function DashboardScreen() {
   const salaryPaymentStatus = String(workState?.salary_payment_status || '').toLowerCase();
   const salaryStatusLabel = sanitizeSalaryText(workState?.salary_status_label, 'No salary posted');
   const salaryStatusMessage = sanitizeSalaryText(workState?.salary_status_message, 'No salary posted yet.');
-  const rideshareBlockReason = sanitizeRideShareReason(
-    workState?.rideshare_block_reason
-    || workState?.rideshare_state?.block_reason
-    || (!workState?.rideshare_state?.can_rideshare ? workState?.rideshare_state?.reason : ''),
-  );
-  const postShiftBannerMessage = backendShiftCompleted
-    ? (
-      workState?.rideshare_state?.can_rideshare
-        ? 'Shift completed - You are now off shift. Ride share available now.'
-        : `Shift completed - Rideshare blocked: ${stripUnavailablePrefix(rideshareBlockReason) || 'Unavailable right now.'}`
-    )
-    : '';
   const currentSalaryAudit = workState?.current_shift_salary_audit || null;
   const lastSalaryPosted = workState?.last_salary_posted || null;
   const recentSalaryAudits = Array.isArray(workState?.recent_salary_audits)
@@ -691,6 +850,8 @@ export default function DashboardScreen() {
   const rideshareDailyCap = rideshareState?.max_trips ?? Math.max(1, rideshareCapToday || Number(BALANCE.ACTION_CAPS.side_income || 6));
   const rideshareRemainingTrips = rideshareState?.remaining_trips ?? Math.max(0, rideshareDailyCap - rideshareTripsToday);
   const rideshareHoursRemainingToday = rideshareState?.hours_remaining_today ?? Math.max(0, Number(workState?.hours_available || 0));
+  const rideshareStressThreshold = Math.max(1, Number(rideshareState?.stress_threshold || BALANCE.RIDESHARE.MAX_STRESS));
+  const rideshareHealthThreshold = Math.max(0, Number(rideshareState?.health_threshold || BALANCE.RIDESHARE.MIN_HEALTH));
   const rideshareEarnedToday = useMemo(
     () => {
       const backendEarned = Number(workState?.rideshare_earned_today ?? Number.NaN);
@@ -715,15 +876,44 @@ export default function DashboardScreen() {
     [loop.dailyActivity?.transactions, loop.dailySession.actionsTakenToday, workState?.rideshare_earned_today],
   );
 
-  const rideshareStatusLabel = useMemo(() => {
-    if (loop.dailySession.sessionStatus !== 'active') return 'Day ended';
-    if (!sideIncomeAction) return 'Ride share action unavailable right now.';
-    if (!rideshareState) return 'Ride share status syncing...';
-    if (!rideshareState.can_rideshare) {
-      return rideshareBlockReason;
-    }
-    return sanitizeRideShareReason(rideshareState.reason || 'Ride Share is available now.');
-  }, [loop.dailySession.sessionStatus, rideshareBlockReason, rideshareState, sideIncomeAction]);
+  const rideshareDerivedState = useMemo(() => deriveRideshareState({
+    sessionStatus: loop.dailySession.sessionStatus,
+    hasSideIncomeAction: Boolean(sideIncomeAction),
+    autoClockingOut,
+    backendShiftActive,
+    daySettled: Boolean(workState?.day_settled),
+    rideshareState,
+    currentStress: stress,
+    currentHealth: health,
+    stressThreshold: rideshareStressThreshold,
+    healthThreshold: rideshareHealthThreshold,
+    rideshareRemainingTrips,
+    rideshareHoursRemainingToday,
+    shiftEndLabel,
+  }), [
+    autoClockingOut,
+    backendShiftActive,
+    health,
+    loop.dailySession.sessionStatus,
+    rideshareHealthThreshold,
+    rideshareHoursRemainingToday,
+    rideshareRemainingTrips,
+    rideshareState,
+    rideshareStressThreshold,
+    shiftEndLabel,
+    sideIncomeAction,
+    stress,
+    workState?.day_settled,
+  ]);
+  const rideshareBlockReason = rideshareDerivedState.reason;
+  const rideshareStatusLabel = rideshareDerivedState.reason;
+  const postShiftBannerMessage = backendShiftCompleted
+    ? (
+      rideshareDerivedState.canRideshare
+        ? 'Shift completed - You are now off shift. Ride share available now.'
+        : `Shift completed - Rideshare blocked: ${stripUnavailablePrefix(rideshareDerivedState.reason) || 'Unavailable right now.'}`
+    )
+    : '';
   const busyActionKey = canonicalDashboardActionKey(String(loop.busyActionKey || ''));
   const runningSideIncome = loop.executingAction && busyActionKey === 'side_income';
   const runningWorkAction = loop.executingAction && busyActionKey === 'work_shift';
@@ -734,10 +924,10 @@ export default function DashboardScreen() {
     if (autoClockingOut) return 'Auto-finalizing shift. Ride share unlocks after sync.';
     if (runningSideIncome || loop.executingAction) return 'Another action is running.';
     if (!rideshareState) return 'Ride share status syncing...';
-    if (!rideshareState.can_rideshare) return rideshareBlockReason;
+    if (!rideshareDerivedState.canRideshare) return rideshareDerivedState.reason;
     if (requestedTrips > rideshareRemainingTrips) {
       if (rideshareRemainingTrips <= 0) {
-        return rideshareBlockReason || sanitizeRideShareReason(rideshareState.reason || 'Daily ride share limit reached.');
+        return rideshareDerivedState.reason || sanitizeRideShareReason(rideshareState.reason || 'Daily ride share limit reached.');
       }
       return `Only ${rideshareRemainingTrips} ${rideshareRemainingTrips === 1 ? 'trip' : 'trips'} remaining today.`;
     }
@@ -751,7 +941,8 @@ export default function DashboardScreen() {
     loop.executingAction,
     rideshareHoursRemainingToday,
     rideshareRemainingTrips,
-    rideshareBlockReason,
+    rideshareDerivedState.canRideshare,
+    rideshareDerivedState.reason,
     rideshareState,
     runningSideIncome,
     sideIncomeAction,
@@ -763,7 +954,7 @@ export default function DashboardScreen() {
     5: getRideShareDisabledReason(5),
   }), [getRideShareDisabledReason]);
 
-  const rideshareAvailable = !rideshareDisableReasonsByTrip[1];
+  const rideshareAvailable = rideshareDerivedState.canRideshare && !rideshareDisableReasonsByTrip[1];
 
   const jobMarket = workState?.job_market || null;
   const currentJobKey = String(
@@ -1134,6 +1325,11 @@ export default function DashboardScreen() {
         shiftStatus: workState.shift_status,
         backendActive: workState.main_shift_active_flag,
         rideshareStatePayload: workState.rideshare_state || null,
+        effectiveStress: stress,
+        effectiveHealth: health,
+        derivedStatus: rideshareDerivedState.status,
+        derivedBlockReasonCode: rideshareDerivedState.blockReasonCode,
+        derivedBlockReasonValue: rideshareDerivedState.blockReasonValue,
         statusLabelShown: rideshareStatusLabel,
         buttonDisabledReasonRun1: rideshareDisableReasonsByTrip[1],
         buttonDisabledReasonRun3: rideshareDisableReasonsByTrip[3],
@@ -1141,9 +1337,14 @@ export default function DashboardScreen() {
       },
     });
   }, [
+    health,
     loopPlayerId,
+    rideshareDerivedState.blockReasonCode,
+    rideshareDerivedState.blockReasonValue,
+    rideshareDerivedState.status,
     rideshareDisableReasonsByTrip,
     rideshareStatusLabel,
+    stress,
     workState,
   ]);
 

@@ -65,6 +65,11 @@ export const BALANCE = {
     UI_TICK_INTERVAL_MS: 10000,
   },
 
+  RIDESHARE: {
+    MIN_HEALTH: 16,
+    MAX_STRESS: 80,
+  },
+
   EVENT: {
     GROCERY_SPIKE_LOSS: 25,
     MISSED_OPPORTUNITY_LOSS: 15,

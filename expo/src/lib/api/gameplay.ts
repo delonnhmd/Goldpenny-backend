@@ -530,12 +530,18 @@ function normalizeRideshareState(raw: unknown): WorkStateSnapshot['rideshare_sta
     status: toString(obj.status, 'not_enough_time'),
     reason: toString(obj.reason, ''),
     block_reason: obj.block_reason == null ? null : toString(obj.block_reason, ''),
+    block_reason_code: obj.block_reason_code == null ? null : toString(obj.block_reason_code, ''),
+    block_reason_value: obj.block_reason_value == null ? null : Math.round(toNumber(obj.block_reason_value, 0)),
     trips_today: Math.max(0, Math.round(toNumber(obj.trips_today, 0))),
     max_trips: Math.max(1, Math.round(toNumber(obj.max_trips, 6))),
     remaining_trips: Math.max(0, Math.round(toNumber(obj.remaining_trips, 0))),
     trips_remaining: Math.max(0, Math.round(toNumber(obj.trips_remaining ?? obj.remaining_trips, 0))),
     hours_remaining_today: Math.max(0, Math.round(toNumber(obj.hours_remaining_today, 0))),
     remaining_time_units: Math.max(0, Math.round(toNumber(obj.remaining_time_units ?? obj.hours_remaining_today, 0))),
+    current_stress: Math.max(0, Math.round(toNumber(obj.current_stress, 0))),
+    current_health: Math.max(0, Math.round(toNumber(obj.current_health, 100))),
+    stress_threshold: Math.max(0, Math.round(toNumber(obj.stress_threshold, 0))),
+    health_threshold: Math.max(0, Math.round(toNumber(obj.health_threshold, 0))),
     mode: toString(obj.mode, 'midday'),
     time_cost_per_trip_units: Math.max(1, Math.round(toNumber(obj.time_cost_per_trip_units, 1))),
     current_location_key: toString(obj.current_location_key, ''),
@@ -874,6 +880,8 @@ function normalizeWorkState(raw: unknown, playerId: string): WorkStateSnapshot |
     trips_today: Math.max(0, Math.round(toNumber(obj.trips_today ?? ((obj.rideshare_state as Record<string, unknown> | undefined)?.trips_today), 0))),
     trips_remaining: Math.max(0, Math.round(toNumber(obj.trips_remaining ?? ((obj.rideshare_state as Record<string, unknown> | undefined)?.remaining_trips), 0))),
     remaining_time_units: Math.max(0, Math.round(toNumber(obj.remaining_time_units ?? obj.hours_available, 0))),
+    effective_current_stress: Math.max(0, Math.round(toNumber(obj.effective_current_stress, 0))),
+    effective_current_health: Math.max(0, Math.round(toNumber(obj.effective_current_health, 100))),
     remaining_side_income_hours_today: normalizeFiniteNumber(obj.remaining_side_income_hours_today, { fallback: 0 }),
     degraded_sections: Array.isArray(obj.degraded_sections)
       ? (obj.degraded_sections as unknown[]).map((entry) => toString(entry, '')).filter(Boolean)
@@ -1116,15 +1124,42 @@ function normalizeEndDay(raw: Record<string, unknown>, playerId: string): EndDay
   };
 }
 
-export async function getPlayerDashboard(playerId: string): Promise<PlayerDashboardResponse> {
-  const path = `/gameplay/player/${playerId}/dashboard`;
+interface GameplayStateOverrideOptions {
+  currentStress?: number | null;
+  currentHealth?: number | null;
+}
+
+function appendGameplayStateOverrides(
+  path: string,
+  options?: GameplayStateOverrideOptions,
+): string {
+  const params = new URLSearchParams();
+  if (Number.isFinite(options?.currentStress)) {
+    params.set('current_stress', String(Math.max(0, Math.min(100, Math.round(Number(options?.currentStress))))));
+  }
+  if (Number.isFinite(options?.currentHealth)) {
+    params.set('current_health', String(Math.max(0, Math.min(100, Math.round(Number(options?.currentHealth))))));
+  }
+  const query = params.toString();
+  if (!query) return path;
+  return `${path}?${query}`;
+}
+
+export async function getPlayerDashboard(
+  playerId: string,
+  options?: GameplayStateOverrideOptions,
+): Promise<PlayerDashboardResponse> {
+  const path = appendGameplayStateOverrides(`/gameplay/player/${playerId}/dashboard`, options);
   logCanonicalRoute('dashboard', playerId, path);
   const raw = await fetchApi<Record<string, unknown>>(path);
   return normalizeDashboard(raw, playerId);
 }
 
-export async function getPlayerActions(playerId: string): Promise<DailyActionHubResponse> {
-  const path = `/gameplay/player/${playerId}/actions`;
+export async function getPlayerActions(
+  playerId: string,
+  options?: GameplayStateOverrideOptions,
+): Promise<DailyActionHubResponse> {
+  const path = appendGameplayStateOverrides(`/gameplay/player/${playerId}/actions`, options);
   try {
     logCanonicalRoute('actions', playerId, path);
     const raw = await fetchApi<Record<string, unknown>>(path);

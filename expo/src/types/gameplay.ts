@@ -166,12 +166,18 @@ export interface RideshareStateSnapshot {
   status: 'available' | 'shift_active' | 'limit_reached' | 'not_enough_time' | 'location_restricted' | 'health_low' | 'stress_high' | string;
   reason: string;
   block_reason?: string | null;
+  block_reason_code?: string | null;
+  block_reason_value?: number | null;
   trips_today: number;
   max_trips: number;
   remaining_trips: number;
   trips_remaining?: number;
   hours_remaining_today: number;
   remaining_time_units?: number;
+  current_stress?: number;
+  current_health?: number;
+  stress_threshold?: number;
+  health_threshold?: number;
   mode: 'morning_peak' | 'midday' | 'evening_peak' | 'night' | string;
   time_cost_per_trip_units?: number;
   current_location_key?: string;
@@ -378,6 +384,8 @@ export interface WorkStateSnapshot {
   trips_today?: number;
   trips_remaining?: number;
   remaining_time_units?: number;
+  effective_current_stress?: number;
+  effective_current_health?: number;
   remaining_side_income_hours_today: number;
   degraded_sections?: string[];
   market_data_available?: boolean;
