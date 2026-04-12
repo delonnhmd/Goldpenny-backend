@@ -340,6 +340,25 @@ class DayProgressionServiceTests(unittest.TestCase):
         if float(result.get("weekly_gas_expense_xgp", 0.0)) > 0.0 or float(result.get("commute_fuel_cost_xgp", 0.0)) > 0.0:
             self.assertIn("gas", categories)
 
+    def test_settlement_uses_actual_meal_spend_instead_of_daily_food_basket_charge(self) -> None:
+        result = settle_player_day(self.db, str(self.player.id))
+        summary = result.get("summary_json", {})
+        expense_breakdown = ((summary.get("settlement_breakdown") or {}).get("expense_breakdown") or {})
+        food_rows = (
+            self.db.query(GameplayTransaction)
+            .filter(
+                GameplayTransaction.player_id == self.player.id,
+                GameplayTransaction.day == 1,
+                GameplayTransaction.category == "food",
+            )
+            .all()
+        )
+
+        self.assertEqual(float(expense_breakdown.get("food_expense", 0.0)), 6.0)
+        self.assertEqual(float(summary.get("food_expense_cash_xgp", 0.0)), 6.0)
+        self.assertTrue(any("dinner" in str(row.description).lower() for row in food_rows))
+        self.assertFalse(any(str(row.description) == "Daily food cost" for row in food_rows))
+
     def test_settlement_applies_survival_penalty_when_day_has_no_activity(self) -> None:
         employment = self.db.query(PlayerEmploymentState).first()
         if employment is not None:

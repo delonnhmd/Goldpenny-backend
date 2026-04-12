@@ -1534,35 +1534,6 @@ export async function executeAction(
     );
   }
 
-  if (canonical === 'work_shift') {
-    const jobName = normalizeJobName(
-      normalizedParams.job_name ?? normalizedParams.job ?? normalizedParams.current_job,
-    );
-    if (!jobName) {
-      throw new Error(
-        'Work shift requires an active job assignment. Acquire a job before performing a work shift.',
-      );
-    }
-    const raw = await fetchApiWithFallback<Record<string, unknown>>(
-      [`/jobs/work`],
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          job_name: jobName,
-          hours_worked: Math.max(1, Math.min(12, Math.round(toNumber(normalizedParams.hours_worked, 4)))),
-        }),
-      },
-    );
-    return executionResponseBase(
-      playerId,
-      canonical,
-      toString(raw.message, 'Work shift completed'),
-      toString(raw.message, 'Work shift applied.'),
-      toNumber(params.time_cost_units, 3),
-      raw,
-    );
-  }
-
   if (canonical === 'side_income') {
     const requestedTripsRaw = Math.round(toNumber(params.trips, toNumber(params.trip_count, 1)));
     const requestedTrips = requestedTripsRaw === 3 || requestedTripsRaw === 5 ? requestedTripsRaw : 1;
@@ -1596,6 +1567,10 @@ export async function executeAction(
       toNumber(raw.time_used, toNumber(raw.trips, toNumber(params.time_cost_units, requestedTrips))),
       shapedRaw,
     );
+  }
+
+  if (canonical === 'work_shift') {
+    throw new Error('Canonical work shift route is unavailable. Refresh and retry.');
   }
 
   throw new Error(`No mapped execution endpoint for action '${String(actionKey)}'.`);

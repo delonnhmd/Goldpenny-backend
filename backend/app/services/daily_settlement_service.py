@@ -287,6 +287,26 @@ def _count_gameplay_transactions_for_category(
     )
 
 
+def _sum_gameplay_transaction_amounts(
+    db: Session,
+    *,
+    player_id: UUID,
+    day_number: int,
+    transaction_type: str | None = None,
+    categories: tuple[str, ...] = (),
+) -> Decimal:
+    query = db.query(func.coalesce(func.sum(GameplayTransaction.amount), 0)).filter(
+        GameplayTransaction.player_id == player_id,
+        GameplayTransaction.day == int(day_number),
+    )
+    if transaction_type is not None:
+        query = query.filter(GameplayTransaction.type == str(transaction_type or "").strip().lower())
+    normalized_categories = tuple(str(category or "").strip().lower() for category in categories if str(category or "").strip())
+    if normalized_categories:
+        query = query.filter(GameplayTransaction.category.in_(normalized_categories))
+    return _money(_d(query.scalar() or 0))
+
+
 def _apply_survival_penalty_if_needed(
     db: Session,
     *,
@@ -349,7 +369,7 @@ def _build_settlement_breakdown(
     business_maintenance_cost: Decimal,
     stock_sale_income: Decimal,
     stock_fee: Decimal,
-    basket_spend: Decimal,
+    food_expense_cash: Decimal,
     housing_cost_daily: Decimal,
     utilities_cost_daily: Decimal,
     debt_cash_deduction: Decimal,
@@ -382,7 +402,7 @@ def _build_settlement_breakdown(
     }
 
     expense_breakdown = {
-        "food_expense": _money(basket_spend),
+        "food_expense": _money(food_expense_cash),
         "gas_expense": _money(weekly_gas_expense),
         "rent_expense": _money(housing_cost_daily + utilities_cost_daily),
         "debt_payment": _money(debt_cash_deduction),
@@ -658,12 +678,22 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
         stress_spend_modifier = _q4(_d(consumption_result["stress_spend_modifier"]))
         nutrition_pressure_score = _q4(_d(consumption_result["nutrition_pressure_score"]))
         weekly_gas_expense = _money(WEEKLY_GAS_EXPENSE_XGP if int(settled_day) % 7 == 0 else Decimal("0.00"))
+        food_expense_cash = _money(
+            abs(
+                _sum_gameplay_transaction_amounts(
+                    db,
+                    player_id=player.id,
+                    day_number=settled_day,
+                    transaction_type="expense",
+                    categories=("food",),
+                )
+            )
+        )
 
         cash_after_non_debt_costs = _money(
             max(
                 Decimal("0.00"),
                 cash_before
-                - basket_spend
                 - housing_cost
                 - utilities_cost_daily
                 - weekly_gas_expense,
@@ -1009,8 +1039,7 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
         distress_credit_delta = int(financial_survival_credit_delta)
 
         settlement_expenses = _money(
-            basket_spend
-            + debt_cash_deduction
+            debt_cash_deduction
             + housing_cost
             + utilities_cost_daily
             + weekly_gas_expense
@@ -1047,7 +1076,7 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
             business_maintenance_cost=business_maintenance_cost,
             stock_sale_income=stock_sale_income,
             stock_fee=stock_fee,
-            basket_spend=basket_spend,
+            food_expense_cash=food_expense_cash,
             housing_cost_daily=housing_cost_daily,
             utilities_cost_daily=utilities_cost_daily,
             debt_cash_deduction=debt_cash_deduction,
@@ -1131,16 +1160,6 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
                 amount=side_income_net,
                 description="Ride Share payout",
             )
-        if basket_spend > Decimal("0.00"):
-            record_gameplay_transaction(
-                db,
-                player=player,
-                day=settled_day,
-                transaction_type="expense",
-                category="food",
-                amount=basket_spend,
-                description="Daily food cost",
-            )
         gas_total = _money(weekly_gas_expense + commute_fuel_cost_xgp)
         if gas_total > Decimal("0.00"):
             record_gameplay_transaction(
@@ -1189,6 +1208,7 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
                 "side_income_net_xgp": float(side_income_net),
                 "business_net_xgp": float(business_net),
                 "shock_income_bonus_xgp": float(shock_income_bonus),
+                "food_expense_cash_xgp": float(food_expense_cash),
                 "basket_spend_xgp": float(basket_spend),
                 "debt_cash_deduction_xgp": float(debt_cash_deduction),
                 "housing_cost_xgp": float(housing_cost),
@@ -1430,6 +1450,7 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
             "total_business_profit_xgp": float(business_summary.get("total_business_profit_xgp", 0)),
             "business_count_run": business_count_run,
             "per_business_results": business_summary.get("per_business_results", []),
+            "food_expense_cash_xgp": float(food_expense_cash),
             "essentials_spend_xgp": float(essentials_spend),
             "protein_spend_xgp": float(protein_spend),
             "produce_spend_xgp": float(produce_spend),
@@ -1817,6 +1838,7 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
             "wage_adjustment_pct": float(wage_adjustment_pct),
             "monthly_pay_xgp_after_event": float(monthly_pay_after_event),
             "job_income_capture_factor": float(job_income_capture_factor),
+            "food_expense_cash_xgp": float(food_expense_cash),
             "essentials_spend_xgp": float(essentials_spend),
             "protein_spend_xgp": float(protein_spend),
             "produce_spend_xgp": float(produce_spend),

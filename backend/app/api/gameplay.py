@@ -650,6 +650,8 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
     next_shift_number_available = testing_mode.get("next_shift_number_available")
     shift_length_label = str(testing_mode.get("shift_length_label") or "").strip() or "Standard shift schedule"
     overtime_multiplier = float(testing_mode.get("second_shift_overtime_multiplier") or 1.5)
+    standard_shift_hours = int(SHIFT_PROFILES["standard_shift"]["hours_worked"])
+    standard_shift_time_cost_units = max(1, min(4, standard_shift_hours // 2))
     shift_active = bool(work_state.get("main_shift_active_flag"))
     shift_completed_today = bool(work_state.get("shift_completed_today"))
     missed_shift_today = bool(work_state.get("missed_shift_today"))
@@ -746,7 +748,8 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
                 "parameters": {
                     "job_name": current_job,
                     "shift_type": "standard_shift",
-                    "hours_worked": SHIFT_PROFILES["standard_shift"]["hours_worked"],
+                    "hours_worked": standard_shift_hours,
+                    "time_cost_units": standard_shift_time_cost_units,
                     "testing_mode": testing_mode,
                 },
             }
@@ -772,7 +775,8 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
                 "parameters": {
                     "job_name": current_job,
                     "shift_type": "standard_shift",
-                    "hours_worked": SHIFT_PROFILES["standard_shift"]["hours_worked"],
+                    "hours_worked": standard_shift_hours,
+                    "time_cost_units": standard_shift_time_cost_units,
                     "testing_mode": testing_mode,
                     "shift_options": [
                         {
@@ -780,6 +784,7 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
                             "label": shift_meta["label"],
                             "window": shift_meta["window"],
                             "hours_worked": shift_meta["hours_worked"],
+                            "time_cost_units": max(1, min(4, int(shift_meta["hours_worked"]) // 2)),
                         }
                         for shift_type, shift_meta in SHIFT_PROFILES.items()
                     ],
@@ -800,7 +805,8 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
                 "parameters": {
                     "job_name": current_job,
                     "shift_type": "standard_shift",
-                    "hours_worked": SHIFT_PROFILES["standard_shift"]["hours_worked"],
+                    "hours_worked": standard_shift_hours,
+                    "time_cost_units": standard_shift_time_cost_units,
                     "testing_mode": testing_mode,
                     "shift_options": [
                         {
@@ -808,6 +814,7 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
                             "label": meta["label"],
                             "window": meta["window"],
                             "hours_worked": meta["hours_worked"],
+                            "time_cost_units": max(1, min(4, int(meta["hours_worked"]) // 2)),
                         }
                         for shift_type, meta in SHIFT_PROFILES.items()
                     ],
@@ -828,7 +835,8 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
                 "parameters": {
                     "job_name": current_job,
                     "shift_type": "standard_shift",
-                    "hours_worked": SHIFT_PROFILES["standard_shift"]["hours_worked"],
+                    "hours_worked": standard_shift_hours,
+                    "time_cost_units": standard_shift_time_cost_units,
                     "testing_mode": testing_mode,
                 },
             }
@@ -881,7 +889,8 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
                 "parameters": {
                     "job_name": current_job,
                     "shift_type": "standard_shift",
-                    "hours_worked": SHIFT_PROFILES["standard_shift"]["hours_worked"],
+                    "hours_worked": standard_shift_hours,
+                    "time_cost_units": standard_shift_time_cost_units,
                     "testing_mode": testing_mode,
                 },
             }
@@ -1648,6 +1657,14 @@ def preview_gameplay_action(
     shift_profile = SHIFT_PROFILES[shift_type]
     hours = max(1, _safe_int(params.get("hours_worked"), int(shift_profile["hours_worked"])))
     training = max(1, _safe_int(params.get("training_hours"), 2))
+    testing_mode = (
+        work_state.get("testing_mode")
+        if isinstance(work_state.get("testing_mode"), dict)
+        else {}
+    )
+    testing_mode_enabled = bool(testing_mode.get("enabled"))
+    shift_length_label = str(testing_mode.get("shift_length_label") or "").strip() or "Standard shift schedule"
+    work_shift_time_cost_units = max(1, min(4, hours // 2))
 
     base = {
         "player_id": str(player.id),
@@ -1656,7 +1673,12 @@ def preview_gameplay_action(
         "expected_cash_impact": {"label": "Cash", "direction": "flat", "amount": 0, "text": "0"},
         "expected_stress_impact": {"label": "Stress", "direction": "flat", "amount": 0, "text": "0"},
         "expected_health_impact": {"label": "Health", "direction": "flat", "amount": 0, "text": "0"},
-        "expected_time_impact": {"label": "Time", "direction": "down", "amount": -hours, "text": f"-{hours} units"},
+        "expected_time_impact": {
+            "label": "Time",
+            "direction": "down",
+            "amount": -work_shift_time_cost_units,
+            "text": f"-{work_shift_time_cost_units} units",
+        },
         "expected_career_impact": {"label": "Career", "direction": "flat", "amount": 0, "text": "No material change"},
         "expected_distress_impact": {"label": "Distress", "direction": "flat", "amount": 0, "text": "No material change"},
         "blockers": [],
@@ -1674,15 +1696,28 @@ def preview_gameplay_action(
         return base
 
     if key == "work_shift":
-        base["summary"] = "Work shift should improve cash and add moderate stress."
+        base["summary"] = (
+            f"Testing mode active. This shift uses a {shift_length_label} live timer."
+            if testing_mode_enabled
+            else "Work shift should improve cash and add moderate stress."
+        )
         base["expected_cash_impact"] = {"label": "Cash", "direction": "up", "amount": 65 * hours, "text": f"+~{65 * hours} xgp"}
         base["expected_stress_impact"] = {"label": "Stress", "direction": "up", "amount": max(1, hours), "text": f"+{max(1, hours)}"}
         base["expected_health_impact"] = {"label": "Health", "direction": "down", "amount": -max(0, hours // 4), "text": f"-{max(0, hours // 4)}"}
+        base["expected_time_impact"] = {
+            "label": "Time",
+            "direction": "down",
+            "amount": -work_shift_time_cost_units,
+            "text": f"-{work_shift_time_cost_units} units",
+        }
+        if testing_mode_enabled:
+            base["warnings"] = [f"Live shift timer: {shift_length_label}."]
         base["debug_meta"] = {
             "preview_route": "canonical",
             "shift_type": shift_type,
-            "shift_window": shift_profile["window"],
+            "shift_window": shift_length_label if testing_mode_enabled else shift_profile["window"],
             "shift_label": shift_profile["label"],
+            "time_cost_units": work_shift_time_cost_units,
             "work_state": work_state,
         }
     elif key == "switch_job":
@@ -2621,8 +2656,6 @@ def execute_gameplay_action(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         detail=f"Unsupported action_key '{action_key}'.",
     )
-
-
 
 
 

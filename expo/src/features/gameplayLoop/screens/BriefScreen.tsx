@@ -39,10 +39,18 @@ export default function BriefScreen() {
   const dailyActivity = loop.dailyActivity;
   const transactions = dailyActivity?.transactions ?? [];
   const workState = loop.dashboard?.work_state ?? loop.actionHub?.work_state ?? null;
+  const testingMode = workState?.testing_mode ?? null;
+  const testingModeEnabled = Boolean(testingMode?.enabled);
+  const testingShiftLabel = String(testingMode?.shift_length_label || '').trim();
   const salaryEarned = workState?.salary_earned_today ?? 0;
   const salaryEarnedYesterday = workState?.salary_earned_yesterday ?? 0;
-  const shiftWindow = workState?.scheduled_shift_window_label ?? 'Scheduled shift';
   const weekend = Boolean(workState?.is_weekend);
+  const shiftWindow = weekend
+    ? 'Weekend - no required shift'
+    : testingModeEnabled && testingShiftLabel
+      ? `On-demand - ${testingShiftLabel}`
+      : workState?.scheduled_shift_window_label ?? 'Scheduled shift';
+  const shiftWindowMetricLabel = testingModeEnabled ? 'Timer' : 'Window';
   const noShiftScheduled = Boolean(workState?.no_shift_scheduled);
   const workedToday = Boolean(workState?.did_work_today) || salaryEarned > 0;
   const missedToday = Boolean(workState?.missed_shift_today);
@@ -195,7 +203,7 @@ export default function BriefScreen() {
                 value: salaryStatusLabel,
                 tone: salaryPaymentStatus === 'failed' ? 'danger' : salaryPaymentStatus === 'pending' ? 'warning' : 'positive',
               },
-              { label: 'Window', value: shiftWindow, tone: 'neutral' },
+              { label: shiftWindowMetricLabel, value: shiftWindow, tone: 'neutral' },
               {
                 label: 'Earned',
                 value: salaryEarned > 0 ? `+${formatMoney(salaryEarned)}` : 'Pending',
@@ -238,7 +246,7 @@ export default function BriefScreen() {
           <GameplayCompactMetricRows
             items={[
               { label: 'Status', value: 'Weekday shift pending', tone: 'warning' },
-              { label: 'Window', value: shiftWindow, tone: 'neutral' },
+              { label: shiftWindowMetricLabel, value: shiftWindow, tone: 'neutral' },
               {
                 label: 'Ride Share',
                 value: workState?.rideshare_available ? 'Available now' : `Available after ${workState?.rideshare_unlock_time_label ?? 'shift end'}`,

@@ -2,6 +2,7 @@ import os
 import unittest
 import uuid
 from decimal import Decimal
+from unittest.mock import patch
 
 from fastapi import HTTPException
 from sqlalchemy import create_engine
@@ -9,7 +10,13 @@ from sqlalchemy.orm import sessionmaker
 
 os.environ["DATABASE_URL"] = "postgresql://goldpenny:goldpenny@localhost:5432/goldpenny_test"
 
-from app.api.gameplay import GameplayActionRequest, execute_gameplay_action, get_gameplay_actions
+from app.api.gameplay import (
+    GameplayActionPreviewRequest,
+    GameplayActionRequest,
+    execute_gameplay_action,
+    get_gameplay_actions,
+    preview_gameplay_action,
+)
 from app.db.database import Base
 from app.models.game_state import GameState
 from app.models.macro_state import MacroState
@@ -170,6 +177,25 @@ class JobSelectionFlowTests(unittest.TestCase):
         self.assertTrue(bool(work_result["success"]))
         self.assertEqual(self.player.main_job, "warehouse_operator")
         self.assertTrue(bool(self.player.main_shift_active_flag))
+
+    def test_work_shift_preview_uses_testing_timer_copy_and_unit_cost(self) -> None:
+        self.player.main_job = "delivery"
+        self.db.commit()
+
+        with patch.dict(os.environ, {"GAMEPLAY_TESTING_MODE": "1"}, clear=False):
+            preview = preview_gameplay_action(
+                str(self.player.id),
+                GameplayActionPreviewRequest(
+                    action_key="work_shift",
+                    parameters={"job_name": "delivery", "hours_worked": 6, "shift_type": "standard_shift"},
+                ),
+                db=self.db,
+            )
+
+        self.assertIn("15 minutes", preview["summary"])
+        self.assertEqual(preview["expected_time_impact"]["text"], "-3 units")
+        self.assertEqual(preview["debug_meta"]["shift_window"], "15 minutes")
+        self.assertEqual(preview["debug_meta"]["time_cost_units"], 3)
 
 
 if __name__ == "__main__":

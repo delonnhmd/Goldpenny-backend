@@ -208,8 +208,17 @@ function formatMinutesLabel(totalMinutes: number): string {
 function shiftWindowLabel(workState?: {
   is_weekend?: boolean | null;
   scheduled_shift_window_label?: string | null;
+  testing_mode?: {
+    enabled?: boolean | null;
+    shift_length_label?: string | null;
+  } | null;
 } | null): string {
   if (workState?.is_weekend) return 'Weekend - no required shift';
+  const testingMode = workState?.testing_mode;
+  const testingShiftLabel = String(testingMode?.shift_length_label || '').trim();
+  if (testingMode?.enabled && testingShiftLabel) {
+    return `On-demand - ${testingShiftLabel}`;
+  }
   return workState?.scheduled_shift_window_label || 'No scheduled window';
 }
 
@@ -680,11 +689,26 @@ export default function DashboardScreen() {
     ? Math.max(0, Math.floor((backendShiftEndsAtMs - houstonNow.getTime()) / 1000))
     : 0;
   const shiftRemainingLabel = formatSecondsRemaining(shiftRemainingSeconds);
+  const testingMode = workState?.testing_mode || null;
+  const testingModeEnabled = Boolean(testingMode?.enabled);
+  const testingShiftLabel = String(
+    testingMode?.shift_length_label
+    || (SHIFT_SHORT_MODE ? '15 minutes' : 'Standard shift schedule'),
+  );
   const shiftEndLabel = String(
     workState?.shift_end_time_label
     || (workState?.shift_ends_at ? `${formatHoustonNow(new Date(workState.shift_ends_at))} CT` : '5:00 PM CT'),
   );
   const scheduledShiftWindowLabel = shiftWindowLabel(workState);
+  const shiftScheduleCardLabel = testingModeEnabled && !backendShiftActive ? 'Shift timer' : 'Shift end (CT)';
+  const shiftScheduleCardValue = backendShiftActive
+    ? shiftEndLabel
+    : testingModeEnabled
+      ? `Clock in + ${testingShiftLabel}`
+      : `${workState?.scheduled_shift_end_label || '5:00 PM'} CT`;
+  const shiftScheduleCardNote = testingModeEnabled && !backendShiftActive
+    ? 'Starts when you clock in.'
+    : 'Houston local time.';
   const shiftEndedLabel = String(
     workState?.shift_completed_time_label
     || workState?.shift_end_time_label
@@ -730,12 +754,6 @@ export default function DashboardScreen() {
   const currentHoustonDayOfWeekLabel = String(
     workState?.day_of_week
     || formatHoustonWeekday(backendHoustonDate),
-  );
-  const testingMode = workState?.testing_mode || null;
-  const testingModeEnabled = Boolean(testingMode?.enabled);
-  const testingShiftLabel = String(
-    testingMode?.shift_length_label
-    || (SHIFT_SHORT_MODE ? '15 minutes' : 'Standard shift schedule'),
   );
   const shiftsCompletedToday = Number(testingMode?.shifts_completed_today ?? workState?.shifts_completed_today ?? 0);
   const maxDailyMainShifts = Number(testingMode?.max_daily_main_shifts || 1);
@@ -1887,10 +1905,10 @@ export default function DashboardScreen() {
             }
           />
           <GameplayStatCard
-            label="Shift end (CT)"
-            value={backendShiftActive ? shiftEndLabel : `${workState?.scheduled_shift_end_label || '5:00 PM'} CT`}
+            label={shiftScheduleCardLabel}
+            value={shiftScheduleCardValue}
             tone={backendShiftActive ? 'warning' : 'info'}
-            note="Houston local time."
+            note={shiftScheduleCardNote}
           />
           <GameplayStatCard
             label="Testing mode"
