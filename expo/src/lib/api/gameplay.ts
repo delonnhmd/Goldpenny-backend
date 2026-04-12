@@ -25,12 +25,15 @@ import {
   EconomyRiskOverview,
   EndDayResponse,
   EndOfDaySummaryResponse,
+  GameplayAuthoritativeState,
   GameplayActionKey,
+  GameplayLoopCoreResponse,
   JobProgressionTrackSnapshot,
   JobProgressionFeedbackSnapshot,
   PlayerDashboardResponse,
   PlayerNotificationItem,
   PlayerNotificationResponse,
+  RecoverySummarySnapshot,
   TransactionHistoryItem,
   TransactionHistoryResponse,
   TrendDirection,
@@ -343,6 +346,7 @@ function normalizeJobProgressFeedback(raw: unknown): JobProgressionFeedbackSnaps
 
 function normalizeDashboard(raw: Record<string, unknown>, playerId: string): PlayerDashboardResponse {
   const stats = (raw.stats as Record<string, unknown>) || {};
+  const debugMeta = (raw.debug_meta as Record<string, unknown>) || {};
   const jobProgressRaw = (raw.job_progress && typeof raw.job_progress === 'object')
     ? (raw.job_progress as Record<string, unknown>)
     : null;
@@ -361,10 +365,13 @@ function normalizeDashboard(raw: Record<string, unknown>, playerId: string): Pla
       : [];
   const workState = normalizeWorkState(
     raw.work_state
-      ?? ((raw.debug_meta && typeof raw.debug_meta === 'object')
-        ? (raw.debug_meta as Record<string, unknown>).work_state
-        : null),
+      ?? debugMeta.work_state,
     playerId,
+  );
+  const authoritativeState = normalizeAuthoritativeState(
+    raw.authoritative_state ?? debugMeta.authoritative_state,
+    playerId,
+    workState,
   );
   const economyRiskOverview = normalizeEconomyRiskOverview(raw.economy_risk_overview);
 
@@ -433,7 +440,8 @@ function normalizeDashboard(raw: Record<string, unknown>, playerId: string): Pla
       toString(stats.current_job || ''),
     ),
     work_state: workState,
-    debug_meta: (raw.debug_meta as Record<string, unknown>) || {},
+    authoritative_state: authoritativeState,
+    debug_meta: debugMeta,
   };
 }
 
@@ -443,6 +451,11 @@ function normalizeActionHub(raw: Record<string, unknown>, playerId: string): Dai
   const blockedRaw = Array.isArray(raw.blocked_actions) ? raw.blocked_actions : [];
   const debugMeta = (raw.debug_meta as Record<string, unknown>) || {};
   const workState = normalizeWorkState(raw.work_state ?? debugMeta.work_state, playerId);
+  const authoritativeState = normalizeAuthoritativeState(
+    raw.authoritative_state ?? debugMeta.authoritative_state,
+    playerId,
+    workState,
+  );
 
   return {
     player_id: toString(raw.player_id, playerId),
@@ -457,7 +470,153 @@ function normalizeActionHub(raw: Record<string, unknown>, playerId: string): Dai
       ? raw.next_risk_warnings.map((entry) => toString(entry))
       : [],
     work_state: workState,
+    authoritative_state: authoritativeState,
     debug_meta: debugMeta,
+  };
+}
+
+function normalizeRecoverySummaryContract(raw: unknown): RecoverySummarySnapshot | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  return {
+    points: Math.max(0, Math.round(toNumber(obj.points, 0))),
+    stress_delta: clampDeltaRange(obj.stress_delta, { min: -100, max: 100, fallback: 0 }),
+    status: obj.status == null ? undefined : toString(obj.status, ''),
+    pure_off_hours: Math.max(0, Math.round(toNumber(obj.pure_off_hours, 0))),
+    rideshare_hours: Math.max(0, Math.round(toNumber(obj.rideshare_hours, 0))),
+    pure_blocks: Math.max(0, Math.round(toNumber(obj.pure_blocks, 0))),
+    rideshare_blocks: Math.max(0, Math.round(toNumber(obj.rideshare_blocks, 0))),
+    daily_cap: Math.max(0, Math.round(toNumber(obj.daily_cap, 0))),
+    window_hours: Math.max(0, Math.round(toNumber(obj.window_hours, 0))),
+    tier: obj.tier == null ? undefined : toString(obj.tier, ''),
+    is_weekend: Boolean(obj.is_weekend),
+  };
+}
+
+function normalizeAuthoritativeState(
+  raw: unknown,
+  playerId: string,
+  fallbackWorkState?: WorkStateSnapshot | null,
+): GameplayAuthoritativeState | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  const shiftStateRaw = obj.shift_state && typeof obj.shift_state === 'object'
+    ? (obj.shift_state as Record<string, unknown>)
+    : {};
+  const playerStateRaw = obj.player_state && typeof obj.player_state === 'object'
+    ? (obj.player_state as Record<string, unknown>)
+    : {};
+  const rideshareRaw = obj.rideshare_state && typeof obj.rideshare_state === 'object'
+    ? (obj.rideshare_state as Record<string, unknown>)
+    : {};
+  const debtPaymentRaw = obj.debt_payment_state && typeof obj.debt_payment_state === 'object'
+    ? (obj.debt_payment_state as Record<string, unknown>)
+    : {};
+  const recoveryRaw = obj.recovery_state && typeof obj.recovery_state === 'object'
+    ? (obj.recovery_state as Record<string, unknown>)
+    : {};
+  const mealStateRaw = recoveryRaw.meal_state && typeof recoveryRaw.meal_state === 'object'
+    ? (recoveryRaw.meal_state as Record<string, unknown>)
+    : {};
+  const workState = normalizeWorkState(obj.work_state ?? fallbackWorkState, playerId);
+
+  return {
+    player_id: toString(obj.player_id, playerId),
+    day_number: normalizeCurrentDay(obj.day_number, 1),
+    houston_time: obj.houston_time == null ? null : toString(obj.houston_time, ''),
+    houston_date: obj.houston_date == null ? null : toString(obj.houston_date, ''),
+    houston_timezone: obj.houston_timezone == null ? null : toString(obj.houston_timezone, ''),
+    day_phase: obj.day_phase == null ? null : toString(obj.day_phase, ''),
+    current_job_key: obj.current_job_key == null ? null : toString(obj.current_job_key, ''),
+    current_job_label: obj.current_job_label == null ? null : toString(obj.current_job_label, ''),
+    refreshed_at: obj.refreshed_at == null ? null : toString(obj.refreshed_at, ''),
+    shift_state: {
+      is_on_shift: Boolean(shiftStateRaw.is_on_shift),
+      shift_active: Boolean(shiftStateRaw.shift_active),
+      shift_completed_today: Boolean(shiftStateRaw.shift_completed_today),
+      shifts_completed_today: Math.max(0, Math.round(toNumber(shiftStateRaw.shifts_completed_today, 0))),
+      can_start_shift: Boolean(shiftStateRaw.can_start_shift),
+      can_start_overtime_shift: Boolean(shiftStateRaw.can_start_overtime_shift),
+      shift_status: shiftStateRaw.shift_status == null ? null : toString(shiftStateRaw.shift_status, ''),
+      block_reason_code: shiftStateRaw.block_reason_code == null ? null : toString(shiftStateRaw.block_reason_code, ''),
+      shift_end_time_label: shiftStateRaw.shift_end_time_label == null ? null : toString(shiftStateRaw.shift_end_time_label, ''),
+    },
+    player_state: {
+      cash: normalizeMoneyValue(playerStateRaw.cash, { allowNegative: true, fallback: 0 }),
+      debt: normalizeMoneyValue(playerStateRaw.debt, { allowNegative: false, fallback: 0 }),
+      health: normalizePercentageStat(playerStateRaw.health, 100),
+      stress: normalizePercentageStat(playerStateRaw.stress, 0),
+      credit_score: normalizeCreditScore(playerStateRaw.credit_score, 650),
+    },
+    rideshare_state: {
+      can_rideshare: Boolean(rideshareRaw.can_rideshare),
+      status: rideshareRaw.status == null ? null : toString(rideshareRaw.status, ''),
+      reason: rideshareRaw.reason == null ? null : toString(rideshareRaw.reason, ''),
+      block_reason: rideshareRaw.block_reason == null ? null : toString(rideshareRaw.block_reason, ''),
+      block_reason_code: rideshareRaw.block_reason_code == null ? null : toString(rideshareRaw.block_reason_code, ''),
+      block_reason_value: rideshareRaw.block_reason_value == null ? null : Math.round(toNumber(rideshareRaw.block_reason_value, 0)),
+      stress_threshold: rideshareRaw.stress_threshold == null ? null : Math.round(toNumber(rideshareRaw.stress_threshold, 0)),
+      health_threshold: rideshareRaw.health_threshold == null ? null : Math.round(toNumber(rideshareRaw.health_threshold, 0)),
+      trips_today: Math.max(0, Math.round(toNumber(rideshareRaw.trips_today, 0))),
+      max_trips: Math.max(0, Math.round(toNumber(rideshareRaw.trip_cap_today ?? rideshareRaw.max_trips, 0))),
+      trip_cap_today: Math.max(0, Math.round(toNumber(rideshareRaw.trip_cap_today ?? rideshareRaw.max_trips, 0))),
+      remaining_trips: Math.max(0, Math.round(toNumber(rideshareRaw.remaining_trips, 0))),
+      hours_remaining_today: Math.max(0, Math.round(toNumber(rideshareRaw.time_remaining_units ?? rideshareRaw.hours_remaining_today, 0))),
+      remaining_time_units: Math.max(0, Math.round(toNumber(rideshareRaw.time_remaining_units, 0))),
+      time_remaining_units: Math.max(0, Math.round(toNumber(rideshareRaw.time_remaining_units, 0))),
+      current_location_key: rideshareRaw.current_location_key == null ? null : toString(rideshareRaw.current_location_key, ''),
+      current_location_label: rideshareRaw.current_location_label == null ? null : toString(rideshareRaw.current_location_label, ''),
+      current_location_region: rideshareRaw.current_location_region == null ? null : toString(rideshareRaw.current_location_region, ''),
+      rideshare_allowed_here: rideshareRaw.rideshare_allowed_here == null ? null : Boolean(rideshareRaw.rideshare_allowed_here),
+      mode: rideshareRaw.mode == null ? null : toString(rideshareRaw.mode, ''),
+      time_cost_per_trip_units: rideshareRaw.time_cost_per_trip_units == null ? null : Math.max(0, Math.round(toNumber(rideshareRaw.time_cost_per_trip_units, 0))),
+      demand_bonus_pct: rideshareRaw.demand_bonus_pct == null ? null : normalizeFiniteNumber(rideshareRaw.demand_bonus_pct, { fallback: 0 }),
+      stress_delta_modifier: rideshareRaw.stress_delta_modifier == null ? null : Math.round(toNumber(rideshareRaw.stress_delta_modifier, 0)),
+      estimated_pay_min_per_trip: rideshareRaw.estimated_pay_min_per_trip == null
+        ? null
+        : normalizeMoneyValue(rideshareRaw.estimated_pay_min_per_trip, { allowNegative: false, fallback: 0 }),
+      estimated_pay_max_per_trip: rideshareRaw.estimated_pay_max_per_trip == null
+        ? null
+        : normalizeMoneyValue(rideshareRaw.estimated_pay_max_per_trip, { allowNegative: false, fallback: 0 }),
+    },
+    debt_payment_state: {
+      can_pay_debt: Boolean(debtPaymentRaw.can_pay_debt),
+      max_payable_now: normalizeMoneyValue(debtPaymentRaw.max_payable_now, { allowNegative: false, fallback: 0 }),
+      block_reason_code: debtPaymentRaw.block_reason_code == null ? null : toString(debtPaymentRaw.block_reason_code, ''),
+      block_reason_value: debtPaymentRaw.block_reason_value == null ? null : normalizeMoneyValue(debtPaymentRaw.block_reason_value, { allowNegative: true, fallback: 0 }),
+    },
+    recovery_state: {
+      recovery_actions_remaining: Math.max(0, Math.round(toNumber(recoveryRaw.recovery_actions_remaining, 0))),
+      category_cap: Math.max(0, Math.round(toNumber(recoveryRaw.category_cap, 0))),
+      category_used: Math.max(0, Math.round(toNumber(recoveryRaw.category_used, 0))),
+      category_label: toString(recoveryRaw.category_label, 'Recovery / Leisure'),
+      actions: Array.isArray(recoveryRaw.actions)
+        ? recoveryRaw.actions.map((entry) => {
+          const row = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : {};
+          return {
+            action_key: toString(row.action_key, ''),
+            available: Boolean(row.available),
+            remaining: Math.max(0, Math.round(toNumber(row.remaining, 0))),
+            used: Math.max(0, Math.round(toNumber(row.used, 0))),
+            daily_cap: Math.max(0, Math.round(toNumber(row.daily_cap, 0))),
+            block_reason: row.block_reason == null ? null : toString(row.block_reason, ''),
+            block_reason_code: row.block_reason_code == null ? null : toString(row.block_reason_code, ''),
+          };
+        })
+        : [],
+      meal_state: {
+        can_eat_meal: Boolean(mealStateRaw.can_eat_meal),
+        remaining: Math.max(0, Math.round(toNumber(mealStateRaw.remaining, 0))),
+        block_reason: mealStateRaw.block_reason == null ? null : toString(mealStateRaw.block_reason, ''),
+        block_reason_code: mealStateRaw.block_reason_code == null ? null : toString(mealStateRaw.block_reason_code, ''),
+      },
+      passive_off_hours_recovery: normalizeRecoverySummaryContract(recoveryRaw.passive_off_hours_recovery),
+      weekend_recovery: normalizeRecoverySummaryContract(recoveryRaw.weekend_recovery),
+    },
+    work_state: workState,
+    degraded_sections: Array.isArray(obj.degraded_sections)
+      ? obj.degraded_sections.map((entry) => toString(entry, '')).filter(Boolean)
+      : [],
   };
 }
 
@@ -1086,6 +1245,14 @@ function executionResponseBase(
   timeCostUnits: number,
   rawResult: Record<string, unknown>,
 ): ActionExecutionResponse {
+  const updatedState = normalizeAuthoritativeState(
+    rawResult.updated_state ?? rawResult.authoritative_state,
+    playerId,
+    normalizeWorkState(rawResult.work_state, playerId),
+  );
+  const result = rawResult.result && typeof rawResult.result === 'object'
+    ? (rawResult.result as Record<string, unknown>)
+    : undefined;
   return {
     player_id: playerId,
     action_key: actionKey,
@@ -1103,6 +1270,8 @@ function executionResponseBase(
     health_delta: rawResult.health_delta != null
       ? clampDeltaRange(rawResult.health_delta, { min: -100, max: 100, fallback: 0 })
       : undefined,
+    result,
+    updated_state: updatedState,
     raw_result: rawResult,
   };
 }
@@ -1186,6 +1355,41 @@ export async function getPlayerActions(
       debug_meta: { source: 'brief_fallback' },
     };
   }
+}
+
+export async function getPlayerLoopBundle(
+  playerId: string,
+  options?: GameplayStateOverrideOptions,
+): Promise<GameplayLoopCoreResponse> {
+  const path = appendGameplayStateOverrides(`/gameplay/player/${playerId}/loop`, options);
+  logCanonicalRoute('loop_bundle', playerId, path);
+  const raw = await fetchApi<Record<string, unknown>>(path);
+  const dashboard = normalizeDashboard(
+    raw.dashboard && typeof raw.dashboard === 'object'
+      ? (raw.dashboard as Record<string, unknown>)
+      : {},
+    playerId,
+  );
+  const actionHub = normalizeActionHub(
+    raw.action_hub && typeof raw.action_hub === 'object'
+      ? (raw.action_hub as Record<string, unknown>)
+      : {},
+    playerId,
+  );
+  const authoritativeState = normalizeAuthoritativeState(
+    raw.authoritative_state
+      ?? dashboard.authoritative_state
+      ?? actionHub.authoritative_state,
+    playerId,
+    actionHub.work_state ?? dashboard.work_state ?? null,
+  );
+  return {
+    player_id: toString(raw.player_id, playerId),
+    dashboard,
+    action_hub: actionHub,
+    authoritative_state: authoritativeState,
+    debug_meta: (raw.debug_meta as Record<string, unknown>) || {},
+  };
 }
 
 export async function getPlayerWorkState(playerId: string): Promise<WorkStateSnapshot | null> {

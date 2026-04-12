@@ -62,29 +62,8 @@ const UI_TICK_INTERVAL_MS = BALANCE.REALTIME.UI_TICK_INTERVAL_MS;
 const TRAINING_BONUS_THRESHOLD_UNITS = BALANCE.REALTIME.TRAINING_BONUS_THRESHOLD_UNITS;
 const MEAL_MIN_MINUTES = BALANCE.REALTIME.MEAL_MIN_MINUTES;
 const ZERO_TIME_ACTION_KEYS = new Set(['quick_loan', 'debt_payment', 'select_housing']);
-const TIMED_ACTIVITY_LABELS: Record<string, string> = {
-  watch_tv: 'Watch TV',
-  watch_movie: 'Watch Movie',
-  read_book: 'Read Book',
-  jogging: 'Jogging',
-  eat_meal: 'Eat Meal',
-  skill_training: 'Skill Training',
-};
 
 const MAX_PERSISTED_ACTION_COUNT = 99;
-
-function toActionLabel(actionKey: string): string {
-  return TIMED_ACTIVITY_LABELS[actionKey]
-    || actionKey
-      .split('_')
-      .filter(Boolean)
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(' ');
-}
-
-function actionLimitReason(actionKey: string): string {
-  return `${toActionLabel(actionKey)} daily limit reached`;
-}
 
 function canRunDuringTimedMeal(actionKey: string, currentActivity: TimedActivityType | null): boolean {
   return currentActivity === 'eat_meal' && actionKey === 'debt_payment';
@@ -563,16 +542,12 @@ export function useDailySession(playerId: string) {
           : 'Action is currently blocked.';
         return { allowed: false, reason: blockedReason, timeCostUnits };
       }
-      const cap = DEFAULT_ACTION_CAPS[normalized];
-      if (cap && getActionCount(normalized) >= cap) {
-        return { allowed: false, reason: actionLimitReason(normalized), timeCostUnits };
-      }
       if (remainingTimeUnits < timeCostUnits) {
         return { allowed: false, reason: 'Not enough time today.', timeCostUnits };
       }
       return { allowed: true, reason: null, timeCostUnits };
     },
-    [canStartTimedActivity, currentDay, estimateTimeCost, getActionCount, pendingExecution, remainingTimeUnits, sessionStatus],
+    [canStartTimedActivity, currentDay, estimateTimeCost, pendingExecution, remainingTimeUnits, sessionStatus],
   );
 
   const consumeTime = useCallback((amount: number) => {

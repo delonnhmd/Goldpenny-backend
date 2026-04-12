@@ -15,15 +15,18 @@ from app.api.gameplay import (
     GameplayActionRequest,
     execute_gameplay_action,
     get_gameplay_actions,
+    get_gameplay_loop_bundle,
     preview_gameplay_action,
 )
 from app.db.database import Base
+from app.models.daily_settlement_log import DailySettlementLog
 from app.models.game_state import GameState
 from app.models.macro_state import MacroState
 from app.models.player import Player
 from app.models.player_career import PlayerCareer
 from app.models.player_daily_state import PlayerDailyState
 from app.models.player_employment_state import PlayerEmploymentState
+from app.models.player_housing_state import PlayerHousingState
 from app.models.user import User
 from app.services.job_key_service import supported_main_job_keys_text
 
@@ -39,9 +42,11 @@ class JobSelectionFlowTests(unittest.TestCase):
                 Player.__table__,
                 GameState.__table__,
                 MacroState.__table__,
+                DailySettlementLog.__table__,
                 PlayerCareer.__table__,
                 PlayerDailyState.__table__,
                 PlayerEmploymentState.__table__,
+                PlayerHousingState.__table__,
             ],
         )
         self.db = self.SessionLocal()
@@ -196,6 +201,66 @@ class JobSelectionFlowTests(unittest.TestCase):
         self.assertEqual(preview["expected_time_impact"]["text"], "-3 units")
         self.assertEqual(preview["debug_meta"]["shift_window"], "15 minutes")
         self.assertEqual(preview["debug_meta"]["time_cost_units"], 3)
+
+    def test_loop_bundle_uses_shared_authoritative_state_contract(self) -> None:
+        with patch(
+            "app.api.gameplay.get_playable_player_summary",
+            return_value={
+                "cash_xgp": float(self.player.cash),
+                "debt_xgp": float(self.player.debt_xgp or 0),
+                "stress": int(self.player.stress or 0),
+                "health": int(self.player.health or 100),
+                "credit_score": int(self.player.credit_score or 650),
+                "region": str(self.player.region or "suburban"),
+            },
+        ), patch("app.api.gameplay.get_player_latest_daily_brief", return_value=None), patch(
+            "app.api.gameplay.build_economy_presentation_summary",
+            return_value=None,
+        ), patch(
+            "app.api.gameplay.get_player_job_summary",
+            return_value={"current_job_code": self.player.main_job or "banker"},
+        ):
+            bundle = get_gameplay_loop_bundle(str(self.player.id), db=self.db)
+
+        top_level = bundle["authoritative_state"]
+        dashboard_state = bundle["dashboard"]["authoritative_state"]
+        action_hub_state = bundle["action_hub"]["authoritative_state"]
+
+        self.assertEqual(top_level["player_id"], str(self.player.id))
+        self.assertEqual(dashboard_state["player_id"], str(self.player.id))
+        self.assertEqual(action_hub_state["player_id"], str(self.player.id))
+        self.assertEqual(top_level["current_job_key"], dashboard_state["current_job_key"])
+        self.assertEqual(top_level["current_job_key"], action_hub_state["current_job_key"])
+        self.assertEqual(
+            top_level["player_state"]["stress"],
+            action_hub_state["player_state"]["stress"],
+        )
+        self.assertEqual(
+            top_level["rideshare_state"]["can_rideshare"],
+            dashboard_state["rideshare_state"]["can_rideshare"],
+        )
+
+    def test_execute_action_returns_updated_authoritative_state(self) -> None:
+        result = execute_gameplay_action(
+            str(self.player.id),
+            GameplayActionRequest(
+                action_key="switch_job",
+                parameters={"new_job_key": "delivery"},
+            ),
+            db=self.db,
+        )
+
+        updated_state = result["updated_state"]
+        raw_updated_state = result["raw_result"]["updated_state"]
+
+        self.assertTrue(bool(result["success"]))
+        self.assertEqual(updated_state["player_id"], str(self.player.id))
+        self.assertEqual(updated_state["current_job_key"], "delivery")
+        self.assertEqual(raw_updated_state["current_job_key"], "delivery")
+        self.assertEqual(
+            updated_state["shift_state"]["can_start_shift"],
+            raw_updated_state["shift_state"]["can_start_shift"],
+        )
 
 
 if __name__ == "__main__":

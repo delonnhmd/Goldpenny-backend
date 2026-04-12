@@ -1122,54 +1122,263 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
     }
 
 
-@router.get("/player/{player_id}/dashboard")
-def get_gameplay_dashboard(
-    player_id: str,
-    current_stress: int | None = Query(default=None, ge=0, le=100),
-    current_health: int | None = Query(default=None, ge=0, le=100),
-    db: Session = Depends(get_db),
+def _recovery_block_reason_code(reason: Any) -> str | None:
+    normalized = str(reason or "").strip().lower()
+    if not normalized:
+        return None
+    if "day already settled" in normalized:
+        return "day_settled"
+    if "active shift" in normalized:
+        return "shift_active"
+    if "daily limit reached" in normalized:
+        return "action_limit_reached"
+    if "category limit reached" in normalized:
+        return "category_limit_reached"
+    if "not enough time" in normalized:
+        return "not_enough_time"
+    if "meal already completed" in normalized:
+        return "meal_completed"
+    return "blocked"
+
+
+def _build_shift_state_contract(
+    player: Player,
+    *,
+    work_state: dict[str, Any],
 ) -> dict[str, Any]:
-    logger.info(
-        "gameplay.dashboard request received.",
-        extra={"player_id": player_id, "canonical_route": "/gameplay/player/{player_id}/dashboard"},
+    testing_mode = (
+        work_state.get("testing_mode")
+        if isinstance(work_state.get("testing_mode"), dict)
+        else {}
     )
-    try:
-        player = _resolve_player(db, player_id)
-        effective_stress = _normalize_optional_stat_override(current_stress)
-        effective_health = _normalize_optional_stat_override(current_health)
-        work_state = _sync_player_work_state(
-            db,
-            player,
-            current_stress_override=effective_stress,
-            current_health_override=effective_health,
+    has_job = bool(
+        normalize_main_job_key(
+            work_state.get("authoritative_current_job_id") or getattr(player, "main_job", None),
+            allow_aliases=True,
         )
-        playable = get_playable_player_summary(db, player.id)
-    except Exception as exc:
-        _raise_gameplay_http_error(exc)
+    )
+    shift_active = bool(work_state.get("main_shift_active_flag"))
+    day_settled = bool(work_state.get("day_settled"))
+    shift_completed_today = bool(work_state.get("shift_completed_today"))
+    overtime_available = bool(testing_mode.get("overtime_shift_available"))
+    daily_limit_reached = bool(testing_mode.get("daily_shift_limit_reached"))
+    weekend_rideshare_only = bool(testing_mode.get("weekend_rideshare_only"))
+    weekend_main_shift_enabled = bool(testing_mode.get("weekend_main_shift_enabled"))
+    missed_shift_today = bool(work_state.get("missed_shift_today"))
+    is_weekend = bool(work_state.get("is_weekend"))
 
-    brief_payload: dict[str, Any] | None = None
-    economy_payload: dict[str, Any] | None = None
-    job_payload: dict[str, Any] | None = None
-    degraded_sections: list[str] = []
+    block_reason_code: str | None = None
+    block_reason_value: Any = None
+    if not has_job:
+        block_reason_code = "no_job_selected"
+    elif day_settled:
+        block_reason_code = "day_settled"
+    elif shift_active:
+        block_reason_code = "shift_active"
+        block_reason_value = str(
+            work_state.get("shift_end_time_label")
+            or work_state.get("scheduled_shift_end_label")
+            or ""
+        ) or None
+    elif weekend_rideshare_only and is_weekend and not weekend_main_shift_enabled:
+        block_reason_code = "weekend_rideshare_only"
+    elif daily_limit_reached:
+        block_reason_code = "daily_shift_limit_reached"
+        block_reason_value = int(testing_mode.get("shifts_completed_today") or 0)
+    elif missed_shift_today and not overtime_available:
+        block_reason_code = "shift_window_ended"
+        block_reason_value = str(work_state.get("scheduled_shift_end_label") or "") or None
+    elif shift_completed_today and not overtime_available:
+        block_reason_code = "shift_completed_today"
 
-    try:
-        brief_payload = get_player_latest_daily_brief(db, player.id)
-    except Exception:
-        brief_payload = None
-        degraded_sections.append("daily_brief")
+    can_start_shift = bool(has_job and block_reason_code is None)
+    can_start_overtime_shift = bool(
+        has_job
+        and overtime_available
+        and not shift_active
+        and not day_settled
+    )
+    if can_start_overtime_shift:
+        can_start_shift = True
 
-    try:
-        economy_payload = build_economy_presentation_summary(db=db, player_id=str(player.id))
-    except Exception:
-        economy_payload = None
-        degraded_sections.append("economy")
+    return {
+        "is_on_shift": bool(work_state.get("is_on_shift") or shift_active),
+        "shift_active": shift_active,
+        "shift_completed_today": shift_completed_today,
+        "shifts_completed_today": int(
+            testing_mode.get("shifts_completed_today")
+            or work_state.get("shifts_completed_today")
+            or 0
+        ),
+        "can_start_shift": can_start_shift,
+        "can_start_overtime_shift": can_start_overtime_shift,
+        "block_reason_code": block_reason_code,
+        "block_reason_value": block_reason_value,
+        "shift_number": int(work_state.get("shift_number") or 0),
+        "next_shift_number_available": (
+            int(testing_mode.get("next_shift_number_available") or 0)
+            if testing_mode.get("next_shift_number_available") is not None
+            else None
+        ),
+        "scheduled_shift_window_label": str(work_state.get("scheduled_shift_window_label") or "") or None,
+        "scheduled_shift_end_label": str(work_state.get("scheduled_shift_end_label") or "") or None,
+        "shift_end_time_label": str(work_state.get("shift_end_time_label") or "") or None,
+    }
 
-    try:
-        job_payload = get_player_job_summary(db=db, player_id=str(player.id))
-    except Exception:
-        job_payload = None
-        degraded_sections.append("job_summary")
 
+def _build_debt_payment_state_contract(
+    *,
+    cash_xgp: float,
+    debt_xgp: float,
+) -> dict[str, Any]:
+    max_payable_now = round(max(0.0, min(cash_xgp, debt_xgp)), 2)
+    block_reason_code: str | None = None
+    block_reason_value: float | None = None
+    if debt_xgp <= 0:
+        block_reason_code = "no_debt"
+        block_reason_value = round(debt_xgp, 2)
+    elif cash_xgp <= 0:
+        block_reason_code = "no_cash"
+        block_reason_value = round(cash_xgp, 2)
+    return {
+        "can_pay_debt": max_payable_now > 0,
+        "max_payable_now": max_payable_now,
+        "block_reason_code": block_reason_code,
+        "block_reason_value": block_reason_value,
+    }
+
+
+def _build_recovery_state_contract(work_state: dict[str, Any]) -> dict[str, Any]:
+    recovery_state = (
+        work_state.get("recovery_state")
+        if isinstance(work_state.get("recovery_state"), dict)
+        else {}
+    )
+    actions: list[dict[str, Any]] = []
+    for raw_action in list(recovery_state.get("actions") or []):
+        if not isinstance(raw_action, dict):
+            continue
+        block_reason = str(raw_action.get("block_reason") or "").strip() or None
+        actions.append(
+            {
+                "action_key": str(raw_action.get("action_key") or ""),
+                "available": bool(raw_action.get("available")),
+                "remaining": int(raw_action.get("remaining") or 0),
+                "used": int(raw_action.get("used") or 0),
+                "daily_cap": int(raw_action.get("daily_cap") or 0),
+                "block_reason": block_reason,
+                "block_reason_code": _recovery_block_reason_code(block_reason),
+            }
+        )
+    meal_action = recovery_state.get("meal_action") if isinstance(recovery_state.get("meal_action"), dict) else {}
+    meal_block_reason = str(meal_action.get("block_reason") or "").strip() or None
+    return {
+        "recovery_actions_remaining": int(recovery_state.get("category_remaining") or 0),
+        "category_cap": int(recovery_state.get("category_cap") or 0),
+        "category_used": int(recovery_state.get("category_used") or 0),
+        "category_label": str(recovery_state.get("category_label") or "Recovery / Leisure"),
+        "actions": actions,
+        "meal_state": {
+            "can_eat_meal": bool(meal_action.get("available")),
+            "remaining": int(meal_action.get("remaining") or 0),
+            "block_reason": meal_block_reason,
+            "block_reason_code": _recovery_block_reason_code(meal_block_reason),
+        },
+        "passive_off_hours_recovery": recovery_state.get("passive_off_hours_recovery") or None,
+        "weekend_recovery": recovery_state.get("weekend_recovery") or None,
+    }
+
+
+def _build_authoritative_gameplay_state(
+    player: Player,
+    *,
+    work_state: dict[str, Any],
+    playable: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    player_summary = playable or {}
+    cash_xgp = _safe_float(
+        player_summary.get("cash_xgp"),
+        _safe_float(getattr(player, "cash_xgp", getattr(player, "cash", 0)), 0.0),
+    )
+    debt_xgp = _safe_float(
+        player_summary.get("debt_xgp"),
+        _safe_float(getattr(player, "debt_xgp", 0), 0.0),
+    )
+    stress = _safe_int(
+        work_state.get("effective_current_stress"),
+        _safe_int(player_summary.get("stress"), _safe_int(getattr(player, "stress", 0), 0)),
+    )
+    health = _safe_int(
+        work_state.get("effective_current_health"),
+        _safe_int(player_summary.get("health"), _safe_int(getattr(player, "health", 100), 100)),
+    )
+    current_job_key = normalize_main_job_key(
+        work_state.get("authoritative_current_job_id") or getattr(player, "main_job", None),
+        allow_aliases=True,
+    ) or ""
+    rideshare_state = (
+        work_state.get("rideshare_state")
+        if isinstance(work_state.get("rideshare_state"), dict)
+        else {}
+    )
+    shift_state = _build_shift_state_contract(player, work_state=work_state)
+    return {
+        "player_id": str(player.id),
+        "day_number": int(work_state.get("current_game_day") or 1),
+        "houston_time": str(work_state.get("current_houston_time") or ""),
+        "houston_date": str(work_state.get("current_houston_date") or ""),
+        "houston_timezone": "America/Chicago",
+        "day_phase": "weekend" if bool(work_state.get("is_weekend")) else "weekday",
+        "current_job_key": current_job_key or None,
+        "current_job_label": str(
+            work_state.get("current_job_display_name")
+            or _job_display_name(current_job_key)
+        ),
+        "refreshed_at": str(work_state.get("action_state_refreshed_at") or "") or None,
+        "shift_state": shift_state,
+        "player_state": {
+            "cash": round(cash_xgp, 2),
+            "debt": round(debt_xgp, 2),
+            "health": int(health),
+            "stress": int(stress),
+            "credit_score": _safe_int(
+                player_summary.get("credit_score"),
+                _safe_int(getattr(player, "credit_score", 650), 650),
+            ),
+        },
+        "rideshare_state": {
+            "can_rideshare": bool(rideshare_state.get("can_rideshare")),
+            "block_reason_code": str(rideshare_state.get("block_reason_code") or "") or None,
+            "block_reason_value": rideshare_state.get("block_reason_value"),
+            "stress_threshold": int(rideshare_state.get("stress_threshold") or 0),
+            "health_threshold": int(rideshare_state.get("health_threshold") or 0),
+            "trips_today": int(rideshare_state.get("trips_today") or 0),
+            "trip_cap_today": int(rideshare_state.get("max_trips") or 0),
+            "remaining_trips": int(rideshare_state.get("remaining_trips") or 0),
+            "time_remaining_units": int(rideshare_state.get("remaining_time_units") or 0),
+            "current_location_key": str(rideshare_state.get("current_location_key") or ""),
+        },
+        "debt_payment_state": _build_debt_payment_state_contract(
+            cash_xgp=cash_xgp,
+            debt_xgp=debt_xgp,
+        ),
+        "recovery_state": _build_recovery_state_contract(work_state),
+        "work_state": work_state,
+        "degraded_sections": list(work_state.get("degraded_sections") or []),
+    }
+
+
+def _build_dashboard_payload(
+    db: Session,
+    *,
+    player: Player,
+    work_state: dict[str, Any],
+    playable: dict[str, Any],
+    brief_payload: dict[str, Any] | None,
+    economy_payload: dict[str, Any] | None,
+    job_payload: dict[str, Any] | None,
+    degraded_sections: list[str],
+) -> dict[str, Any]:
     is_first_session = _is_new_player_first_session(player)
     authoritative_job = normalize_main_job_key(
         (work_state or {}).get("authoritative_current_job_id"),
@@ -1310,8 +1519,12 @@ def get_gameplay_dashboard(
             ),
         }
     ]
-
-    dashboard = {
+    authoritative_state = _build_authoritative_gameplay_state(
+        player,
+        work_state=work_state,
+        playable=playable,
+    )
+    return {
         "player_id": str(player.id),
         "as_of_date": str(
             (brief_payload or {}).get("day")
@@ -1337,6 +1550,7 @@ def get_gameplay_dashboard(
         "recommended_actions": recommended_actions,
         "job_progress": job_progress,
         "work_state": work_state,
+        "authoritative_state": authoritative_state,
         "debug_meta": {
             "new_player_first_session": is_first_session,
             "has_starter_job_selected": bool(current_job),
@@ -1345,8 +1559,110 @@ def get_gameplay_dashboard(
             "source_economy_available": economy_payload is not None,
             "degraded_sections": sorted({str(section) for section in degraded_sections if str(section).strip()}),
             "work_state": work_state,
+            "authoritative_state": authoritative_state,
         },
     }
+
+
+def _successful_action_response(
+    db: Session,
+    *,
+    player: Player,
+    action_key: str,
+    message: str,
+    result_summary: str,
+    time_cost_units: int,
+    cash_delta_xgp: float = 0.0,
+    stress_delta: int = 0,
+    health_delta: int = 0,
+    raw_result: dict[str, Any] | None = None,
+    result: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    combined_raw_result = dict(raw_result or {})
+    work_state = (
+        combined_raw_result.get("work_state")
+        if isinstance(combined_raw_result.get("work_state"), dict)
+        else build_work_state_payload(db, player)
+    )
+    authoritative_state = _build_authoritative_gameplay_state(
+        player,
+        work_state=work_state,
+    )
+    combined_raw_result["work_state"] = work_state
+    combined_raw_result["updated_state"] = authoritative_state
+    return {
+        "player_id": str(player.id),
+        "action_key": action_key,
+        "success": True,
+        "message": message,
+        "result_summary": result_summary,
+        "time_cost_units": int(time_cost_units),
+        "cash_delta_xgp": float(cash_delta_xgp),
+        "stress_delta": int(stress_delta),
+        "health_delta": int(health_delta),
+        "result": result or dict(raw_result or {}),
+        "updated_state": authoritative_state,
+        "raw_result": combined_raw_result,
+    }
+
+
+@router.get("/player/{player_id}/dashboard")
+def get_gameplay_dashboard(
+    player_id: str,
+    current_stress: int | None = Query(default=None, ge=0, le=100),
+    current_health: int | None = Query(default=None, ge=0, le=100),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    logger.info(
+        "gameplay.dashboard request received.",
+        extra={"player_id": player_id, "canonical_route": "/gameplay/player/{player_id}/dashboard"},
+    )
+    try:
+        player = _resolve_player(db, player_id)
+        effective_stress = _normalize_optional_stat_override(current_stress)
+        effective_health = _normalize_optional_stat_override(current_health)
+        work_state = _sync_player_work_state(
+            db,
+            player,
+            current_stress_override=effective_stress,
+            current_health_override=effective_health,
+        )
+        playable = get_playable_player_summary(db, player.id)
+    except Exception as exc:
+        _raise_gameplay_http_error(exc)
+    brief_payload: dict[str, Any] | None = None
+    economy_payload: dict[str, Any] | None = None
+    job_payload: dict[str, Any] | None = None
+    degraded_sections: list[str] = []
+
+    try:
+        brief_payload = get_player_latest_daily_brief(db, player.id)
+    except Exception:
+        brief_payload = None
+        degraded_sections.append("daily_brief")
+
+    try:
+        economy_payload = build_economy_presentation_summary(db=db, player_id=str(player.id))
+    except Exception:
+        economy_payload = None
+        degraded_sections.append("economy")
+
+    try:
+        job_payload = get_player_job_summary(db=db, player_id=str(player.id))
+    except Exception:
+        job_payload = None
+        degraded_sections.append("job_summary")
+
+    dashboard = _build_dashboard_payload(
+        db,
+        player=player,
+        work_state=work_state,
+        playable=playable,
+        brief_payload=brief_payload,
+        economy_payload=economy_payload,
+        job_payload=job_payload,
+        degraded_sections=degraded_sections,
+    )
     _log_salary_ui_payload_rendered(
         route="/gameplay/player/{player_id}/dashboard",
         player=player,
@@ -1363,6 +1679,75 @@ def get_gameplay_dashboard(
         },
     )
     return dashboard
+
+
+@router.get("/player/{player_id}/loop")
+def get_gameplay_loop_bundle(
+    player_id: str,
+    current_stress: int | None = Query(default=None, ge=0, le=100),
+    current_health: int | None = Query(default=None, ge=0, le=100),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    try:
+        player = _resolve_player(db, player_id)
+        effective_stress = _normalize_optional_stat_override(current_stress)
+        effective_health = _normalize_optional_stat_override(current_health)
+        work_state = _sync_player_work_state(
+            db,
+            player,
+            current_stress_override=effective_stress,
+            current_health_override=effective_health,
+        )
+        playable = get_playable_player_summary(db, player.id)
+    except Exception as exc:
+        _raise_gameplay_http_error(exc)
+
+    brief_payload: dict[str, Any] | None = None
+    economy_payload: dict[str, Any] | None = None
+    job_payload: dict[str, Any] | None = None
+    degraded_sections: list[str] = []
+
+    try:
+        brief_payload = get_player_latest_daily_brief(db, player.id)
+    except Exception:
+        degraded_sections.append("daily_brief")
+    try:
+        economy_payload = build_economy_presentation_summary(db=db, player_id=str(player.id))
+    except Exception:
+        degraded_sections.append("economy")
+    try:
+        job_payload = get_player_job_summary(db=db, player_id=str(player.id))
+    except Exception:
+        degraded_sections.append("job_summary")
+
+    dashboard = _build_dashboard_payload(
+        db,
+        player=player,
+        work_state=work_state,
+        playable=playable,
+        brief_payload=brief_payload,
+        economy_payload=economy_payload,
+        job_payload=job_payload,
+        degraded_sections=degraded_sections,
+    )
+    authoritative_state = dashboard.get("authoritative_state") or _build_authoritative_gameplay_state(
+        player,
+        work_state=work_state,
+        playable=playable,
+    )
+    action_hub = _build_action_hub_payload(player, work_state=work_state)
+    action_hub["authoritative_state"] = authoritative_state
+    debug_meta = dict(dashboard.get("debug_meta") or {})
+    return {
+        "player_id": str(player.id),
+        "dashboard": dashboard,
+        "action_hub": action_hub,
+        "authoritative_state": authoritative_state,
+        "debug_meta": {
+            **debug_meta,
+            "degraded_sections": sorted({str(section) for section in degraded_sections if str(section).strip()}),
+        },
+    }
 
 
 @router.get("/player/{player_id}/actions")
@@ -1390,6 +1775,10 @@ def get_gameplay_actions(
             work_state=work_state,
         )
         payload = _build_action_hub_payload(player, work_state=work_state)
+        payload["authoritative_state"] = _build_authoritative_gameplay_state(
+            player,
+            work_state=work_state,
+        )
         logger.info(
             "gameplay.actions resolved player action hub.",
             extra={
@@ -1935,31 +2324,30 @@ def execute_gameplay_action(
                     "job_progress": job_progress,
                 },
             )
-            return {
-                "player_id": str(player.id),
-                "action_key": action_key,
-                "success": True,
-                "message": str(result.get("message") or "Job switched."),
-                "result_summary": str(result.get("message") or f"Switched to {target}."),
-                "time_cost_units": 1,
-                "cash_delta_xgp": 0.0,
-                "stress_delta": 0,
-                "health_delta": 0,
-                "raw_result": {
-                    **result,
-                    "main_job_key": str(result.get("main_job_key") or result.get("new_job_key") or ""),
-                    "current_job_label": str(
-                        result.get("current_job_label")
-                        or _job_display_name(str(result.get("main_job_key") or result.get("new_job_key") or ""))
-                    ),
-                    "work_state": build_work_state_payload(db, player),
-                    "employer_company_symbol": JOB_COMPANY_MAP.get(str(result.get("new_job_key") or ""), {}).get("symbol"),
-                    "employer_company_name": JOB_COMPANY_MAP.get(str(result.get("new_job_key") or ""), {}).get("name"),
-                    "position_title": JOB_COMPANY_MAP.get(str(result.get("new_job_key") or ""), {}).get("position"),
-                    "shift_type": shift_type,
-                    "job_progress": job_progress,
-                },
+            detailed_result = {
+                **result,
+                "main_job_key": str(result.get("main_job_key") or result.get("new_job_key") or ""),
+                "current_job_label": str(
+                    result.get("current_job_label")
+                    or _job_display_name(str(result.get("main_job_key") or result.get("new_job_key") or ""))
+                ),
+                "work_state": build_work_state_payload(db, player),
+                "employer_company_symbol": JOB_COMPANY_MAP.get(str(result.get("new_job_key") or ""), {}).get("symbol"),
+                "employer_company_name": JOB_COMPANY_MAP.get(str(result.get("new_job_key") or ""), {}).get("name"),
+                "position_title": JOB_COMPANY_MAP.get(str(result.get("new_job_key") or ""), {}).get("position"),
+                "shift_type": shift_type,
+                "job_progress": job_progress,
             }
+            return _successful_action_response(
+                db,
+                player=player,
+                action_key=action_key,
+                message=str(result.get("message") or "Job switched."),
+                result_summary=str(result.get("message") or f"Switched to {target}."),
+                time_cost_units=1,
+                raw_result=detailed_result,
+                result=detailed_result,
+            )
         except Exception as exc:
             db.rollback()
             logger.exception(
@@ -1995,24 +2383,24 @@ def execute_gameplay_action(
                 or certification_key.replace("_", " ").title()
             )
             remaining_days = int(result.get("training_days_remaining") or 0)
-            return {
-                "player_id": str(player.id),
-                "action_key": action_key,
-                "success": True,
-                "message": str(result.get("message") or f"Training started for {cert_label}."),
-                "result_summary": (
+            detailed_result = {
+                **result,
+                "certification_key": certification_key,
+                "work_state": build_work_state_payload(db, player),
+            }
+            return _successful_action_response(
+                db,
+                player=player,
+                action_key=action_key,
+                message=str(result.get("message") or f"Training started for {cert_label}."),
+                result_summary=(
                     f"Training started: {cert_label} - {remaining_days} day{'s' if remaining_days != 1 else ''} remaining"
                 ),
-                "time_cost_units": 1,
-                "cash_delta_xgp": -_safe_float(result.get("cost_xgp"), 0.0),
-                "stress_delta": 0,
-                "health_delta": 0,
-                "raw_result": {
-                    **result,
-                    "certification_key": certification_key,
-                    "work_state": build_work_state_payload(db, player),
-                },
-            }
+                time_cost_units=1,
+                cash_delta_xgp=-_safe_float(result.get("cost_xgp"), 0.0),
+                raw_result=detailed_result,
+                result=detailed_result,
+            )
         except Exception as exc:
             db.rollback()
             _raise_gameplay_http_error(exc)
@@ -2063,31 +2451,30 @@ def execute_gameplay_action(
                     "job_progress": job_progress,
                 },
             )
-            return {
-                "player_id": str(player.id),
-                "action_key": action_key,
-                "success": True,
-                "message": "Shift clocked in.",
-                "result_summary": (
+            detailed_result = {
+                "job_name": job_name,
+                "hours_worked": hours_worked,
+                "work_state": work_state,
+                "shift_type": shift_type,
+                "shift_window": shift_profile["window"],
+                "shift_label": shift_profile["label"],
+                "employer_company_symbol": JOB_COMPANY_MAP.get(job_name, {}).get("symbol"),
+                "employer_company_name": JOB_COMPANY_MAP.get(job_name, {}).get("name"),
+                "job_progress": job_progress,
+            }
+            return _successful_action_response(
+                db,
+                player=player,
+                action_key=action_key,
+                message="Shift clocked in.",
+                result_summary=(
                     f"Clocked in as {str(work_state.get('current_job_display_name') or _job_display_name(job_name))}"
                     f" - Shift ends at {str(work_state.get('shift_end_time_label') or _safe_iso_to_houston_label(work_state.get('shift_ends_at')) or 'scheduled Houston end')}"
                 ),
-                "time_cost_units": max(1, min(4, hours_worked // 2)),
-                "cash_delta_xgp": 0.0,
-                "stress_delta": 0,
-                "health_delta": 0,
-                "raw_result": {
-                    "job_name": job_name,
-                    "hours_worked": hours_worked,
-                    "work_state": work_state,
-                    "shift_type": shift_type,
-                    "shift_window": shift_profile["window"],
-                    "shift_label": shift_profile["label"],
-                    "employer_company_symbol": JOB_COMPANY_MAP.get(job_name, {}).get("symbol"),
-                    "employer_company_name": JOB_COMPANY_MAP.get(job_name, {}).get("name"),
-                    "job_progress": job_progress,
-                },
-            }
+                time_cost_units=max(1, min(4, hours_worked // 2)),
+                raw_result=detailed_result,
+                result=detailed_result,
+            )
         except ValueError as exc:
             logger.warning(
                 "gameplay.actions.execute work_shift rejected.",
@@ -2142,22 +2529,22 @@ def execute_gameplay_action(
                 )
             db.commit()
             db.refresh(player)
-            return {
-                "player_id": str(player.id),
-                "action_key": action_key,
-                "success": True,
-                "message": "Training logged.",
-                "result_summary": "Training completed. Career progression updated.",
-                "time_cost_units": int(training_hours),
-                "cash_delta_xgp": 0.0,
-                "stress_delta": 1,
-                "health_delta": 0,
-                "raw_result": {
-                    **result,
-                    "training_progression": training_progression,
-                    "work_state": build_work_state_payload(db, player),
-                },
+            detailed_result = {
+                **result,
+                "training_progression": training_progression,
+                "work_state": build_work_state_payload(db, player),
             }
+            return _successful_action_response(
+                db,
+                player=player,
+                action_key=action_key,
+                message="Training logged.",
+                result_summary="Training completed. Career progression updated.",
+                time_cost_units=int(training_hours),
+                stress_delta=1,
+                raw_result=detailed_result,
+                result=detailed_result,
+            )
         except Exception as exc:
             db.rollback()
             _raise_gameplay_http_error(exc)
@@ -2225,31 +2612,32 @@ def execute_gameplay_action(
             f"{', Stress +' + str(stress_delta) if stress_delta > 0 else ''}"
             f"{', -' + format(travel_cash_cost, '.2f') + ' XGP' if travel_cash_cost > Decimal('0.00') else ''})."
         )
-        return {
-            "player_id": str(player.id),
-            "action_key": action_key,
-            "success": True,
-            "message": "Travel completed.",
-            "result_summary": result_summary,
-            "time_cost_units": time_cost_units,
-            "cash_delta_xgp": -float(travel_cash_cost),
-            "stress_delta": _safe_int(getattr(player, "stress", 0), stress_before) - stress_before,
-            "health_delta": 0,
-            "raw_result": {
-                "from_location_key": from_location_key,
-                "from_location_label": get_location_label(from_location_key),
-                "to_location_key": destination_key,
-                "to_location_label": get_location_label(destination_key),
-                "destination_region": get_location_region(destination_key),
-                "travel_time_units": time_cost_units,
-                "travel_stress_delta": stress_delta,
-                "travel_cash_cost_xgp": float(travel_cash_cost),
-                "route_label": travel_rule.route_label,
-                "hours_before": hours_before,
-                "hours_after": _safe_int(getattr(player, "hours_available", 0), 0),
-                "work_state": build_work_state_payload(db, player),
-            },
+        detailed_result = {
+            "from_location_key": from_location_key,
+            "from_location_label": get_location_label(from_location_key),
+            "to_location_key": destination_key,
+            "to_location_label": get_location_label(destination_key),
+            "destination_region": get_location_region(destination_key),
+            "travel_time_units": time_cost_units,
+            "travel_stress_delta": stress_delta,
+            "travel_cash_cost_xgp": float(travel_cash_cost),
+            "route_label": travel_rule.route_label,
+            "hours_before": hours_before,
+            "hours_after": _safe_int(getattr(player, "hours_available", 0), 0),
+            "work_state": build_work_state_payload(db, player),
         }
+        return _successful_action_response(
+            db,
+            player=player,
+            action_key=action_key,
+            message="Travel completed.",
+            result_summary=result_summary,
+            time_cost_units=time_cost_units,
+            cash_delta_xgp=-float(travel_cash_cost),
+            stress_delta=_safe_int(getattr(player, "stress", 0), stress_before) - stress_before,
+            raw_result=detailed_result,
+            result=detailed_result,
+        )
 
     if action_key == "side_income":
         _assert_no_active_main_shift(work_state, action_key=action_key)
@@ -2304,21 +2692,23 @@ def execute_gameplay_action(
                     "health_change": _safe_int(result.get("health_change")),
                 },
             )
-            return {
-                "player_id": str(player.id),
-                "action_key": action_key,
-                "success": True,
-                "message": "Ride share completed.",
-                "result_summary": f"Ride share {mode_used}{completion_note}: +{earned:.2f} XGP.",
-                "time_cost_units": time_used,
-                "cash_delta_xgp": earned,
-                "stress_delta": _safe_int(result.get("stress_change")),
-                "health_delta": _safe_int(result.get("health_change")),
-                "raw_result": {
-                    **result,
-                    "work_state": build_work_state_payload(db, player),
-                },
+            detailed_result = {
+                **result,
+                "work_state": build_work_state_payload(db, player),
             }
+            return _successful_action_response(
+                db,
+                player=player,
+                action_key=action_key,
+                message="Ride share completed.",
+                result_summary=f"Ride share {mode_used}{completion_note}: +{earned:.2f} XGP.",
+                time_cost_units=time_used,
+                cash_delta_xgp=earned,
+                stress_delta=_safe_int(result.get("stress_change")),
+                health_delta=_safe_int(result.get("health_change")),
+                raw_result=detailed_result,
+                result=detailed_result,
+            )
         except ValueError as exc:
             logger.warning(
                 "gameplay.actions.execute side_income rejected.",
@@ -2365,21 +2755,22 @@ def execute_gameplay_action(
             db.rollback()
             _raise_gameplay_http_error(exc)
 
-        return {
-            "player_id": str(player.id),
-            "action_key": resolved_recovery_action,
-            "success": True,
-            "message": f"{str(result.get('title') or resolved_recovery_action.replace('_', ' ').title())} complete.",
-            "result_summary": _recovery_action_summary(resolved_recovery_action),
-            "time_cost_units": int(result.get("time_cost_units") or 0),
-            "cash_delta_xgp": 0.0,
-            "stress_delta": int(result.get("stress_delta") or 0),
-            "health_delta": int(result.get("health_delta") or 0),
-            "raw_result": {
-                **result,
-                "work_state": build_work_state_payload(db, player),
-            },
+        detailed_result = {
+            **result,
+            "work_state": build_work_state_payload(db, player),
         }
+        return _successful_action_response(
+            db,
+            player=player,
+            action_key=resolved_recovery_action,
+            message=f"{str(result.get('title') or resolved_recovery_action.replace('_', ' ').title())} complete.",
+            result_summary=_recovery_action_summary(resolved_recovery_action),
+            time_cost_units=int(result.get("time_cost_units") or 0),
+            stress_delta=int(result.get("stress_delta") or 0),
+            health_delta=int(result.get("health_delta") or 0),
+            raw_result=detailed_result,
+            result=detailed_result,
+        )
 
     # ── Step 74: eat_meal ─────────────────────────────────────────────────────
     if action_key == "eat_meal":
@@ -2413,24 +2804,26 @@ def execute_gameplay_action(
 
         debt_added = _safe_float(result.get("debt_added_xgp"), 0.0)
         debt_note = f", +{debt_added:.2f} debt" if debt_added > 0 else ""
-        return {
-            "player_id": str(player.id),
-            "action_key": action_key,
-            "success": True,
-            "message": f"{meal_type.capitalize()} eaten.",
-            "result_summary": (
+        detailed_result = {
+            **result,
+            "work_state": build_work_state_payload(db, player),
+        }
+        return _successful_action_response(
+            db,
+            player=player,
+            action_key=action_key,
+            message=f"{meal_type.capitalize()} eaten.",
+            result_summary=(
                 f"You ate {meal_type} (-{_safe_float(result.get('meal_cost_xgp'), 6.0):.2f} XGP"
                 f"{debt_note}, +2 health, -2 stress)."
             ),
-            "time_cost_units": 0,
-            "cash_delta_xgp": -_safe_float(result.get("cash_used_xgp"), 0.0),
-            "stress_delta": _safe_int(result.get("stress_delta"), 0),
-            "health_delta": _safe_int(result.get("health_delta"), 0),
-            "raw_result": {
-                **result,
-                "work_state": build_work_state_payload(db, player),
-            },
-        }
+            time_cost_units=0,
+            cash_delta_xgp=-_safe_float(result.get("cash_used_xgp"), 0.0),
+            stress_delta=_safe_int(result.get("stress_delta"), 0),
+            health_delta=_safe_int(result.get("health_delta"), 0),
+            raw_result=detailed_result,
+            result=detailed_result,
+        )
 
     # ── Step 74: quick_loan ───────────────────────────────────────────────────
     if action_key == "quick_loan":
@@ -2445,25 +2838,27 @@ def execute_gameplay_action(
         player.debt_xgp = debt_before + due_amount  # type: ignore[assignment]
         player.stress = min(100, stress_before + 5)
         db.commit()
-        return {
-            "player_id": str(player.id),
-            "action_key": action_key,
-            "success": True,
-            "message": f"Borrowed {loan_amount} XGP.",
-            "result_summary": f"Quick loan of {loan_amount} XGP received. You owe {due_amount} XGP (15% interest).",
-            "time_cost_units": 0,
-            "cash_delta_xgp": float(loan_amount),
-            "stress_delta": player.stress - stress_before,
-            "health_delta": 0,
-            "raw_result": {
-                "loan_amount_xgp": float(loan_amount),
-                "interest_rate": float(interest_rate),
-                "due_amount_xgp": float(due_amount),
-                "cash_after": float(player.cash),  # type: ignore[arg-type]
-                "debt_after": float(player.debt_xgp),  # type: ignore[arg-type]
-                "stress_after": _safe_int(player.stress, stress_before),
-            },
+        detailed_result = {
+            "loan_amount_xgp": float(loan_amount),
+            "interest_rate": float(interest_rate),
+            "due_amount_xgp": float(due_amount),
+            "cash_after": float(player.cash),  # type: ignore[arg-type]
+            "debt_after": float(player.debt_xgp),  # type: ignore[arg-type]
+            "stress_after": _safe_int(player.stress, stress_before),
+            "work_state": build_work_state_payload(db, player),
         }
+        return _successful_action_response(
+            db,
+            player=player,
+            action_key=action_key,
+            message=f"Borrowed {loan_amount} XGP.",
+            result_summary=f"Quick loan of {loan_amount} XGP received. You owe {due_amount} XGP (15% interest).",
+            time_cost_units=0,
+            cash_delta_xgp=float(loan_amount),
+            stress_delta=player.stress - stress_before,
+            raw_result=detailed_result,
+            result=detailed_result,
+        )
 
     # ── Step 74: select_housing ───────────────────────────────────────────────
     if action_key == "debt_payment":
@@ -2489,30 +2884,30 @@ def execute_gameplay_action(
                 existing_cash_after = _safe_float(metadata.get("cash_after"), _safe_float(getattr(player, "cash", 0), 0.0))
                 existing_debt_before = _safe_float(metadata.get("debt_before"), _safe_float(getattr(player, "debt_xgp", 0), 0.0))
                 existing_debt_after = _safe_float(metadata.get("debt_after"), _safe_float(getattr(player, "debt_xgp", 0), 0.0))
-                return {
-                    "player_id": str(player.id),
-                    "action_key": action_key,
-                    "success": True,
-                    "message": f"Paid {existing_payment_amount:.2f} XGP toward debt.",
-                    "result_summary": (
+                detailed_result = {
+                    "payment_amount_xgp": float(existing_payment_amount),
+                    "cash_before": existing_cash_before,
+                    "cash_after": existing_cash_after,
+                    "debt_before": existing_debt_before,
+                    "debt_after": existing_debt_after,
+                    "request_id": request_id,
+                    "idempotent_replay": True,
+                    "work_state": build_work_state_payload(db, player),
+                }
+                return _successful_action_response(
+                    db,
+                    player=player,
+                    action_key=action_key,
+                    message=f"Paid {existing_payment_amount:.2f} XGP toward debt.",
+                    result_summary=(
                         f"Debt payment already processed: -{existing_payment_amount:.2f} XGP cash, "
                         f"debt reduced by {existing_payment_amount:.2f} XGP."
                     ),
-                    "time_cost_units": 0,
-                    "cash_delta_xgp": -float(existing_payment_amount),
-                    "stress_delta": 0,
-                    "health_delta": 0,
-                    "raw_result": {
-                        "payment_amount_xgp": float(existing_payment_amount),
-                        "cash_before": existing_cash_before,
-                        "cash_after": existing_cash_after,
-                        "debt_before": existing_debt_before,
-                        "debt_after": existing_debt_after,
-                        "request_id": request_id,
-                        "idempotent_replay": True,
-                        "work_state": build_work_state_payload(db, player),
-                    },
-                }
+                    time_cost_units=0,
+                    cash_delta_xgp=-float(existing_payment_amount),
+                    raw_result=detailed_result,
+                    result=detailed_result,
+                )
 
         raw_amount = params.get("payment_amount")
         if raw_amount is None:
@@ -2593,27 +2988,27 @@ def execute_gameplay_action(
             pds.debt_payment_paid_xgp = Decimal(str(getattr(pds, "debt_payment_paid_xgp", 0) or 0)) + requested_amount
         db.commit()
 
-        return {
-            "player_id": str(player.id),
-            "action_key": action_key,
-            "success": True,
-            "message": f"Paid {requested_amount:.2f} XGP toward debt.",
-            "result_summary": f"Debt payment: -{requested_amount:.2f} XGP cash, debt reduced by {requested_amount:.2f} XGP.",
-            "time_cost_units": 0,
-            "cash_delta_xgp": -float(requested_amount),
-            "stress_delta": 0,
-            "health_delta": 0,
-            "raw_result": {
-                "payment_amount_xgp": float(requested_amount),
-                "cash_before": float(cash_before),
-                "cash_after": _safe_float(getattr(player, "cash", 0), 0.0),
-                "debt_before": float(debt_before),
-                "debt_after": _safe_float(getattr(player, "debt_xgp", 0), 0.0),
-                "request_id": request_id or None,
-                "idempotent_replay": False,
-                "work_state": build_work_state_payload(db, player),
-            },
+        detailed_result = {
+            "payment_amount_xgp": float(requested_amount),
+            "cash_before": float(cash_before),
+            "cash_after": _safe_float(getattr(player, "cash", 0), 0.0),
+            "debt_before": float(debt_before),
+            "debt_after": _safe_float(getattr(player, "debt_xgp", 0), 0.0),
+            "request_id": request_id or None,
+            "idempotent_replay": False,
+            "work_state": build_work_state_payload(db, player),
         }
+        return _successful_action_response(
+            db,
+            player=player,
+            action_key=action_key,
+            message=f"Paid {requested_amount:.2f} XGP toward debt.",
+            result_summary=f"Debt payment: -{requested_amount:.2f} XGP cash, debt reduced by {requested_amount:.2f} XGP.",
+            time_cost_units=0,
+            cash_delta_xgp=-float(requested_amount),
+            raw_result=detailed_result,
+            result=detailed_result,
+        )
 
     if action_key == "select_housing":
         housing_type = str(params.get("housing_type") or "suburban").strip().lower()
@@ -2630,37 +3025,33 @@ def execute_gameplay_action(
             "downtown": {"rent_xgp": 140, "stress_modifier": +5, "gas_xgp": 20},
         }
         info = HOUSING_INFO[housing_type]
-        return {
-            "player_id": str(player.id),
-            "action_key": action_key,
-            "success": True,
-            "message": f"Housing set to {housing_type}.",
-            "result_summary": (
+        detailed_result = {
+            "housing_type": housing_type,
+            "weekly_rent_xgp": info["rent_xgp"],
+            "weekly_gas_xgp": info["gas_xgp"],
+            "stress_modifier": info["stress_modifier"],
+            "work_state": build_work_state_payload(db, player),
+        }
+        return _successful_action_response(
+            db,
+            player=player,
+            action_key=action_key,
+            message=f"Housing set to {housing_type}.",
+            result_summary=(
                 f"You chose {housing_type.capitalize()} housing. "
                 f"Weekly rent: {info['rent_xgp']} XGP. "
                 f"Weekly gas: {info['gas_xgp']} XGP."
             ),
-            "time_cost_units": 0,
-            "cash_delta_xgp": 0.0,
-            "stress_delta": info["stress_modifier"],
-            "health_delta": 0,
-            "raw_result": {
-                "housing_type": housing_type,
-                "weekly_rent_xgp": info["rent_xgp"],
-                "weekly_gas_xgp": info["gas_xgp"],
-                "stress_modifier": info["stress_modifier"],
-            },
-        }
+            time_cost_units=0,
+            stress_delta=info["stress_modifier"],
+            raw_result=detailed_result,
+            result=detailed_result,
+        )
 
     raise HTTPException(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         detail=f"Unsupported action_key '{action_key}'.",
     )
-
-
-
-
-
 
 
 

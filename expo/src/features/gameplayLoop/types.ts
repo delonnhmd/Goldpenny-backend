@@ -4,6 +4,7 @@ import { EconomyPresentationSummaryResponse } from '@/types/economyPresentation'
 import {
   DailyActionHubResponse,
   EndOfDaySummaryResponse,
+  GameplayAuthoritativeState,
   PlayerDashboardResponse,
 } from '@/types/gameplay';
 import { StockMarketSnapshotResponse } from '@/types/stocks';
@@ -19,6 +20,7 @@ export interface GameplayLoopBundle {
   playerId: string;
   dashboard: PlayerDashboardResponse;
   actionHub: DailyActionHubResponse;
+  authoritativeState: GameplayAuthoritativeState | null;
   economySummary: EconomyPresentationSummaryResponse;
   stockMarket: StockMarketSnapshotResponse;
   businesses: PlayerBusinessesResponse;

@@ -232,6 +232,108 @@ export interface RecoveryStateSnapshot {
   weekend_recovery?: RecoverySummarySnapshot | null;
 }
 
+export interface GameplayShiftStateContract {
+  is_on_shift: boolean;
+  shift_active: boolean;
+  shift_completed_today: boolean;
+  shifts_completed_today: number;
+  can_start_shift: boolean;
+  can_start_overtime_shift: boolean;
+  shift_status?: string | null;
+  block_reason_code?: string | null;
+  shift_end_time_label?: string | null;
+}
+
+export interface GameplayPlayerStateContract {
+  cash: number;
+  debt: number;
+  health: number;
+  stress: number;
+  credit_score: number;
+}
+
+export interface GameplayRideshareStateContract {
+  can_rideshare: boolean;
+  status?: string | null;
+  reason?: string | null;
+  block_reason?: string | null;
+  block_reason_code?: string | null;
+  block_reason_value?: number | null;
+  stress_threshold?: number | null;
+  health_threshold?: number | null;
+  trips_today: number;
+  max_trips?: number | null;
+  trip_cap_today: number;
+  remaining_trips: number;
+  hours_remaining_today?: number | null;
+  remaining_time_units?: number | null;
+  time_remaining_units: number;
+  current_location_key?: string | null;
+  current_location_label?: string | null;
+  current_location_region?: string | null;
+  rideshare_allowed_here?: boolean | null;
+  mode?: string | null;
+  time_cost_per_trip_units?: number | null;
+  demand_bonus_pct?: number | null;
+  stress_delta_modifier?: number | null;
+  estimated_pay_min_per_trip?: number | null;
+  estimated_pay_max_per_trip?: number | null;
+}
+
+export interface GameplayDebtPaymentStateContract {
+  can_pay_debt: boolean;
+  max_payable_now: number;
+  block_reason_code?: string | null;
+  block_reason_value?: number | null;
+}
+
+export interface GameplayRecoveryActionContract {
+  action_key: string;
+  available: boolean;
+  remaining: number;
+  used: number;
+  daily_cap: number;
+  block_reason?: string | null;
+  block_reason_code?: string | null;
+}
+
+export interface GameplayRecoveryMealStateContract {
+  can_eat_meal: boolean;
+  remaining: number;
+  block_reason?: string | null;
+  block_reason_code?: string | null;
+}
+
+export interface GameplayRecoveryStateContract {
+  recovery_actions_remaining: number;
+  category_cap: number;
+  category_used: number;
+  category_label: string;
+  actions: GameplayRecoveryActionContract[];
+  meal_state?: GameplayRecoveryMealStateContract | null;
+  passive_off_hours_recovery?: RecoverySummarySnapshot | null;
+  weekend_recovery?: RecoverySummarySnapshot | null;
+}
+
+export interface GameplayAuthoritativeState {
+  player_id: string;
+  day_number: number;
+  houston_time?: string | null;
+  houston_date?: string | null;
+  houston_timezone?: string | null;
+  day_phase?: 'weekday' | 'weekend' | string | null;
+  current_job_key?: string | null;
+  current_job_label?: string | null;
+  refreshed_at?: string | null;
+  shift_state: GameplayShiftStateContract;
+  player_state: GameplayPlayerStateContract;
+  rideshare_state: GameplayRideshareStateContract;
+  debt_payment_state: GameplayDebtPaymentStateContract;
+  recovery_state: GameplayRecoveryStateContract;
+  work_state?: WorkStateSnapshot | null;
+  degraded_sections?: string[];
+}
+
 export interface CityMapNodeSnapshot {
   key: string;
   label: string;
@@ -517,6 +619,7 @@ export interface PlayerDashboardResponse {
   recommended_actions: ActionRecommendation[];
   job_progress?: JobProgressSnapshot | null;
   work_state?: WorkStateSnapshot | null;
+  authoritative_state?: GameplayAuthoritativeState | null;
   debug_meta?: Record<string, unknown>;
 }
 
@@ -543,6 +646,15 @@ export interface DailyActionHubResponse {
   top_tradeoffs: string[];
   next_risk_warnings: string[];
   work_state?: WorkStateSnapshot | null;
+  authoritative_state?: GameplayAuthoritativeState | null;
+  debug_meta?: Record<string, unknown>;
+}
+
+export interface GameplayLoopCoreResponse {
+  player_id: string;
+  dashboard: PlayerDashboardResponse;
+  action_hub: DailyActionHubResponse;
+  authoritative_state?: GameplayAuthoritativeState | null;
   debug_meta?: Record<string, unknown>;
 }
 
@@ -687,6 +799,8 @@ export interface ActionExecutionResponse {
   cash_delta_xgp?: number;
   stress_delta?: number;
   health_delta?: number;
+  result?: Record<string, unknown>;
+  updated_state?: GameplayAuthoritativeState | null;
   raw_result?: Record<string, unknown>;
 }
 

@@ -1,8 +1,7 @@
 import { getPlayerBusinesses } from '@/lib/api/business';
 import {
   getEndOfDaySummary,
-  getPlayerActions,
-  getPlayerDashboard,
+  getPlayerLoopBundle,
   previewPlayerAction,
 } from '@/lib/api/gameplay';
 import { getEconomyPresentationSummary } from '@/lib/api/economyPresentation';
@@ -130,20 +129,19 @@ export async function loadGameplayLoopBundle(
     currentHealth: options?.currentHealth,
   };
 
-  const [dashboard, actionHub, economySummary, stockMarket, businesses, businessPlan, endOfDaySummary] =
+  const [coreLoop, economySummary, stockMarket, businesses, businessPlan, endOfDaySummary] =
     await Promise.all([
       resolveSection(
         playerId,
-        'dashboard',
-        () => getPlayerDashboard(playerId, gameplayStateOverrides),
-        () => createMockDashboard(playerId),
-        { allowMockFallback: false },
-      ),
-      resolveSection(
-        playerId,
-        'action_hub',
-        () => getPlayerActions(playerId, gameplayStateOverrides),
-        () => createMockActionHub(playerId),
+        'loop_core',
+        () => getPlayerLoopBundle(playerId, gameplayStateOverrides),
+        () => ({
+          player_id: playerId,
+          dashboard: createMockDashboard(playerId),
+          action_hub: createMockActionHub(playerId),
+          authoritative_state: null,
+          debug_meta: {},
+        }),
         { allowMockFallback: false },
       ),
       resolveSection(
@@ -183,7 +181,7 @@ export async function loadGameplayLoopBundle(
         }),
     ]);
 
-  const sourceSections = [dashboard, actionHub, economySummary, stockMarket, businesses, businessPlan];
+  const sourceSections = [coreLoop, economySummary, stockMarket, businesses, businessPlan];
   const mockCount = sourceSections.filter((entry) => entry.usedMock).length;
   const notes = [...sourceSections, endOfDaySummary]
     .map((entry) => entry.note)
@@ -201,8 +199,9 @@ export async function loadGameplayLoopBundle(
 
   return {
     playerId,
-    dashboard: dashboard.value,
-    actionHub: actionHub.value,
+    dashboard: coreLoop.value.dashboard,
+    actionHub: coreLoop.value.action_hub,
+    authoritativeState: coreLoop.value.authoritative_state || null,
     economySummary: economySummary.value,
     stockMarket: stockMarket.value,
     businesses: businesses.value,

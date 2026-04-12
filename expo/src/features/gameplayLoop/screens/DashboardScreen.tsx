@@ -525,14 +525,16 @@ export default function DashboardScreen() {
 
   // Stats
   const stats = loop.dashboard?.stats;
+  const authoritativeState = loop.authoritativeState;
+  const authoritativePlayerState = authoritativeState?.player_state || null;
   const netCashFlow = loop.economyState.netCashFlow ?? 0;
   const pressureLabel = loop.expenseDebt.debtPressure.charAt(0).toUpperCase()
     + loop.expenseDebt.debtPressure.slice(1);
   const criticalDebtPressure = String(loop.expenseDebt.debtPressure || '').toLowerCase() === 'critical';
-  const cash = stats?.cash_xgp ?? 0;
-  const baseStress = stats?.stress ?? 0;
-  const baseHealth = stats?.health ?? 100;
-  const debt = loop.expenseDebt?.debtAmount ?? stats?.debt_xgp ?? 0;
+  const cash = authoritativePlayerState?.cash ?? stats?.cash_xgp ?? 0;
+  const baseStress = stats?.stress ?? authoritativePlayerState?.stress ?? 0;
+  const baseHealth = stats?.health ?? authoritativePlayerState?.health ?? 100;
+  const debt = authoritativePlayerState?.debt ?? loop.expenseDebt?.debtAmount ?? stats?.debt_xgp ?? 0;
   const cashTone: 'positive' | 'neutral' | 'danger' = cash > 0 ? 'positive' : cash < 0 ? 'danger' : 'neutral';
   const stress = Math.max(0, baseStress - loop.dailySession.stressRecoveredToday);
   const health = Math.max(0, Math.min(100, baseHealth + loop.dailySession.healthGainedToday));
@@ -649,7 +651,7 @@ export default function DashboardScreen() {
     () => allActionItems.find((action) => canonicalDashboardActionKey(String(action.action_key || '')) === 'side_income') || null,
     [allActionItems],
   );
-  const workState = loop.dashboard?.work_state || loop.actionHub?.work_state || null;
+  const workState = authoritativeState?.work_state || loop.dashboard?.work_state || loop.actionHub?.work_state || null;
   const backendHoustonDate = workState?.current_houston_time
     ? new Date(workState.current_houston_time)
     : houstonNow;
@@ -841,10 +843,10 @@ export default function DashboardScreen() {
   ), [workState?.is_weekend, workState?.phase_status_label]);
 
   const dayLabel = loop.dailySession.currentDay || loop.dailyProgression.currentGameDay || 1;
-  const recoveryState = workState?.recovery_state || null;
+  const recoveryState = authoritativeState?.recovery_state || workState?.recovery_state || null;
   const passiveRecoverySummary = recoveryState?.passive_off_hours_recovery || null;
   const weekendRecoverySummary = recoveryState?.weekend_recovery || null;
-  const rideshareState = workState?.rideshare_state || null;
+  const rideshareState = authoritativeState?.rideshare_state || workState?.rideshare_state || null;
   const currentLocationLabel = String(
     workState?.current_location_label
     || rideshareState?.current_location_label
@@ -893,6 +895,19 @@ export default function DashboardScreen() {
     },
     [loop.dailyActivity?.transactions, loop.dailySession.actionsTakenToday, workState?.rideshare_earned_today],
   );
+  const rideshareEligibilitySnapshot = useMemo(() => (
+    rideshareState
+      ? {
+        can_rideshare: Boolean(rideshareState.can_rideshare),
+        status: String(rideshareState.status || 'unavailable'),
+        reason: String(rideshareState.reason || rideshareState.block_reason || 'Ride share unavailable right now.'),
+        block_reason: rideshareState.block_reason ?? null,
+        block_reason_code: rideshareState.block_reason_code ?? null,
+        block_reason_value: rideshareState.block_reason_value ?? null,
+        rideshare_allowed_here: rideshareState.rideshare_allowed_here ?? undefined,
+      }
+      : null
+  ), [rideshareState]);
 
   const rideshareDerivedState = useMemo(() => deriveRideshareState({
     sessionStatus: loop.dailySession.sessionStatus,
@@ -900,7 +915,7 @@ export default function DashboardScreen() {
     autoClockingOut,
     backendShiftActive,
     daySettled: Boolean(workState?.day_settled),
-    rideshareState,
+    rideshareState: rideshareEligibilitySnapshot,
     currentStress: stress,
     currentHealth: health,
     stressThreshold: rideshareStressThreshold,
@@ -916,7 +931,7 @@ export default function DashboardScreen() {
     rideshareHealthThreshold,
     rideshareHoursRemainingToday,
     rideshareRemainingTrips,
-    rideshareState,
+    rideshareEligibilitySnapshot,
     rideshareStressThreshold,
     shiftEndLabel,
     sideIncomeAction,
@@ -976,7 +991,8 @@ export default function DashboardScreen() {
 
   const jobMarket = workState?.job_market || null;
   const currentJobKey = String(
-    workState?.authoritative_current_job_id
+    authoritativeState?.current_job_key
+    || workState?.authoritative_current_job_id
     || workState?.active_shift_job_id
     || workState?.scheduled_shift_job_id
     || loop.actionHub?.debug_meta?.current_job_key
@@ -984,7 +1000,8 @@ export default function DashboardScreen() {
     || '',
   ).trim();
   const currentJobDisplayName = String(
-    workState?.current_job_display_name
+    authoritativeState?.current_job_label
+    || workState?.current_job_display_name
     || loop.dashboard?.stats?.current_job_display
     || (currentJobKey ? currentJobKey.replace(/_/g, ' ') : 'No job selected'),
   ).trim();
@@ -1261,6 +1278,70 @@ export default function DashboardScreen() {
       blocked_actions: stripRoutineActions(loop.actionHub.blocked_actions || []),
     };
   }, [loop.actionHub]);
+  const diagnosticsTruthItems = useMemo(() => {
+    if (!INTERACTION_DIAGNOSTICS_ENABLED || !authoritativeState) return [];
+    return [
+      {
+        label: 'Current job',
+        value: currentJobKey || '--',
+        note: currentJobDisplayName || 'No job selected',
+      },
+      {
+        label: 'Cash / Debt',
+        value: `${formatMoney(cash)} / ${formatMoney(debt)}`,
+        note: `Stress ${stress} | Health ${health}`,
+      },
+      {
+        label: 'Rideshare truth',
+        value: rideshareDerivedState.canRideshare ? 'Available' : 'Blocked',
+        note: rideshareDerivedState.blockReasonCode
+          ? `${rideshareDerivedState.blockReasonCode}${rideshareDerivedState.blockReasonValue != null ? ` (${rideshareDerivedState.blockReasonValue})` : ''}`
+          : 'none',
+      },
+      {
+        label: 'Trips',
+        value: `${rideshareState?.trips_today ?? 0} / ${authoritativeState?.rideshare_state?.trip_cap_today ?? rideshareDailyCap}`,
+        note: `${rideshareRemainingTrips} remaining | ${rideshareHoursRemainingToday} units left`,
+      },
+      {
+        label: 'Debt payment',
+        value: authoritativeState.debt_payment_state.can_pay_debt ? 'Available' : 'Blocked',
+        note: authoritativeState.debt_payment_state.can_pay_debt
+          ? `Max ${formatMoney(authoritativeState.debt_payment_state.max_payable_now)}`
+          : (authoritativeState.debt_payment_state.block_reason_code || 'unavailable'),
+      },
+      {
+        label: 'Shift start',
+        value: authoritativeState.shift_state.can_start_shift ? 'Available' : 'Blocked',
+        note: authoritativeState.shift_state.can_start_overtime_shift ? 'Overtime available' : (authoritativeState.shift_state.block_reason_code || 'standard only'),
+      },
+      {
+        label: 'Recovery',
+        value: `${authoritativeState.recovery_state.recovery_actions_remaining} left`,
+        note: `${authoritativeState.recovery_state.category_used}/${authoritativeState.recovery_state.category_cap} used`,
+      },
+      {
+        label: 'Truth refresh',
+        value: authoritativeState.refreshed_at || '--',
+        note: `${(authoritativeState.degraded_sections || []).join(', ') || 'No degraded sections'}`,
+      },
+    ];
+  }, [
+    authoritativeState,
+    cash,
+    currentJobDisplayName,
+    currentJobKey,
+    debt,
+    health,
+    rideshareDailyCap,
+    rideshareDerivedState.blockReasonCode,
+    rideshareDerivedState.blockReasonValue,
+    rideshareDerivedState.canRideshare,
+    rideshareHoursRemainingToday,
+    rideshareRemainingTrips,
+    rideshareState?.trips_today,
+    stress,
+  ]);
 
   const handleClockIn = async () => {
     if (!workShiftAction || !canClockIn) {
@@ -2284,6 +2365,17 @@ export default function DashboardScreen() {
           subtitle="Refresh to pull the latest actions."
         />
       )}
+
+      {INTERACTION_DIAGNOSTICS_ENABLED && diagnosticsTruthItems.length > 0 ? (
+        <SlideFadeInOnChange
+          watchValue={`diagnostics_${authoritativeState?.refreshed_at || 'none'}_${rideshareDerivedState.blockReasonCode || 'none'}`}
+          delayMs={110}
+        >
+          <GameplaySummaryCard eyebrow="Diagnostics" title="Action Truth Lock">
+            <GameplayCompactMetricRows items={diagnosticsTruthItems} />
+          </GameplaySummaryCard>
+        </SlideFadeInOnChange>
+      ) : null}
 
       {/* Recovery */}
       <SlideFadeInOnChange

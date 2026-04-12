@@ -31,6 +31,7 @@ import {
   ActionPreviewResponse,
   DailyActionItem,
   EndOfDaySummaryResponse,
+  GameplayAuthoritativeState,
   TransactionHistoryResponse,
 } from '@/types/gameplay';
 
@@ -63,6 +64,7 @@ interface GameplayLoopContextValue {
   bundle: GameplayLoopBundle | null;
   dashboard: GameplayLoopBundle['dashboard'] | null;
   actionHub: GameplayLoopBundle['actionHub'] | null;
+  authoritativeState: GameplayLoopBundle['authoritativeState'] | null;
   economySummary: GameplayLoopBundle['economySummary'] | null;
   stockMarket: GameplayLoopBundle['stockMarket'] | null;
   businesses: GameplayLoopBundle['businesses'] | null;
@@ -198,6 +200,39 @@ function resolveDailyActivityDay(
     return Math.max(1, Math.round(economyDay));
   }
   return Math.max(1, Math.round(fallbackDay || 1));
+}
+
+function applyUpdatedStateToBundle(
+  current: GameplayLoopBundle | null,
+  updatedState: GameplayAuthoritativeState | null | undefined,
+): GameplayLoopBundle | null {
+  if (!current || !updatedState) return current;
+  const nextWorkState = updatedState.work_state ?? current.actionHub.work_state ?? current.dashboard.work_state ?? null;
+  return {
+    ...current,
+    dashboard: {
+      ...current.dashboard,
+      work_state: nextWorkState,
+      authoritative_state: updatedState,
+      stats: {
+        ...current.dashboard.stats,
+        cash_xgp: updatedState.player_state.cash,
+        debt_xgp: updatedState.player_state.debt,
+        stress: updatedState.player_state.stress,
+        health: updatedState.player_state.health,
+        credit_score: updatedState.player_state.credit_score,
+        current_job: updatedState.current_job_key ?? current.dashboard.stats.current_job,
+        current_job_display: updatedState.current_job_label ?? current.dashboard.stats.current_job_display,
+      },
+    },
+    actionHub: {
+      ...current.actionHub,
+      work_state: nextWorkState,
+      authoritative_state: updatedState,
+    },
+    authoritativeState: updatedState,
+    fetchedAt: new Date().toISOString(),
+  };
 }
 
 export function GameplayLoopProvider({
@@ -597,6 +632,9 @@ export function GameplayLoopProvider({
         tone: 'success',
         message: result.result_summary || result.message || `${action.title} completed.`,
       });
+      if (result.updated_state) {
+        setBundle((current) => applyUpdatedStateToBundle(current, result.updated_state));
+      }
 
       await refresh({ silent: true });
       return true;
@@ -824,6 +862,7 @@ export function GameplayLoopProvider({
     bundle,
     dashboard: bundle?.dashboard || null,
     actionHub: bundle?.actionHub || null,
+    authoritativeState: bundle?.authoritativeState || null,
     economySummary: bundle?.economySummary || null,
     stockMarket: bundle?.stockMarket || null,
     businesses: bundle?.businesses || null,
