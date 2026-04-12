@@ -1008,7 +1008,7 @@ export default function DashboardScreen() {
   const jobProgress = loop.dashboard?.job_progress || null;
   const currentJobProgression = workState?.current_job_progression || jobProgress || null;
   const progressionFeedback = workState?.job_progression_feedback || null;
-  const jobLevelMax = Math.max(1, Number(currentJobProgression?.max_job_level || 10));
+  const jobLevelMax = Math.max(1, Number(currentJobProgression?.max_job_level || 2));
   const jobLevel = Math.max(
     1,
     Math.min(
@@ -1022,8 +1022,8 @@ export default function DashboardScreen() {
   const promotionTier = String(currentJobProgression?.promotion_tier || 'Junior');
   const projectedNextMonthlyPay = Number(currentJobProgression?.estimated_next_level_monthly_salary_xgp || 0);
   const projectedSalaryIncreasePct = Number(currentJobProgression?.next_level_salary_increase_pct || 3);
-  const jobLevelDetail = jobLevel >= jobLevelMax
-    ? `Level cap reached (${jobLevelMax})`
+  const jobLevelDetail = jobXpToNext <= 0
+    ? 'Senior - max level reached'
     : `${Math.round(liveJobXp)} / ${Math.round(jobXpToNext)} XP to next`;
   const employerLabel = String(
     currentJobProgression?.position_title
@@ -2037,15 +2037,15 @@ export default function DashboardScreen() {
           />
           <GameplayStatCard
             label="Job level"
-            value={`Lv ${jobLevel}/${jobLevelMax}`}
-            tone={jobLevel >= jobLevelMax ? 'positive' : 'info'}
+            value={`Lv ${jobLevel}`}
+            tone={promotionTier === 'Senior' ? 'positive' : 'info'}
             note={`${promotionTier} · ${jobLevelDetail}`}
           />
           <GameplayStatCard
             label="Salary preview"
             value={projectedNextMonthlyPay > 0 ? formatMoney(projectedNextMonthlyPay) : '--'}
             tone="info"
-            note={`Estimated next level (+${Math.round(projectedSalaryIncreasePct)}%). Live payroll unchanged.`}
+            note={`Estimated next milestone (+${projectedSalaryIncreasePct > 1 ? Math.round(projectedSalaryIncreasePct) : projectedSalaryIncreasePct.toFixed(1)}%). Live payroll unchanged.`}
           />
           <GameplayStatCard
             label="Demand today"

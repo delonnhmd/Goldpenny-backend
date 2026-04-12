@@ -15,20 +15,25 @@ from app.models.player_job_progression import PlayerJobProgression
 from app.services.job_key_service import normalize_main_job_key
 
 # STEP 93G — simplified 2-tier career progression.
-# Level 1 = Junior (0 -> 100 XP), Level 2 = Senior (100 -> 2000 XP cap).
-# Future tiers (Professional, Expert) are intentionally not implemented yet.
-JOB_LEVEL_THRESHOLDS_TOTAL_XP: dict[int, int] = {
-    1: 0,     # Junior
-    2: 100,   # Senior
-}
-
-# Senior tier caps at this total XP value. Any further XP is clamped.
-SENIOR_CAP_XP = 2000
+# Phase 1: Junior 0→100 XP (Level 1).  At 100 XP: +10% salary, XP display
+#   resets to 0/2000 but tier stays Junior.
+# Phase 2: Junior 100→2100 total XP. Every 100 XP beyond the first 100 earns
+#   +0.3% salary.  Tier still shows Junior.
+# Phase 3: Senior at 2100 total XP (100 + 2000). Additional +20% base salary
+#   bonus on top of accumulated increases.
+PHASE1_XP_CAP = 100          # XP needed to complete phase 1
+PHASE2_XP_CAP = 2000         # Additional XP in phase 2 (total = 2100)
+TOTAL_XP_FOR_SENIOR = PHASE1_XP_CAP + PHASE2_XP_CAP  # 2100
+SENIOR_CAP_XP = TOTAL_XP_FOR_SENIOR
 
 SHIFT_COMPLETION_XP_GAIN = 10          # Regular OR Overtime shift completion
 TRAINING_SESSION_XP_GAIN = 25          # Per 1-hour certification training session
-MAX_LEVEL = max(JOB_LEVEL_THRESHOLDS_TOTAL_XP.keys())  # 2
-SALARY_PREVIEW_GROWTH_PER_LEVEL = Decimal("0.03")
+MAX_LEVEL = 1                          # Display level is always 1 (Junior) until Senior
+
+# Salary growth constants
+PHASE1_COMPLETION_SALARY_BONUS = Decimal("0.10")    # +10% at 100 XP
+PHASE2_PER_100_XP_SALARY_BONUS = Decimal("0.003")   # +0.3% per 100 XP after phase 1
+SENIOR_PROMOTION_SALARY_BONUS = Decimal("0.20")      # +20% base at Senior
 
 
 def _safe_int(value: Any, fallback: int = 0) -> int:
@@ -54,29 +59,33 @@ def _canonical_job_key(job_key: str | None) -> str:
 
 
 def resolve_level_from_total_xp(total_xp: int) -> int:
+    """Always returns 1 (Junior) until Senior threshold is reached."""
     xp = max(0, int(total_xp))
-    resolved = 1
-    for level, threshold in sorted(JOB_LEVEL_THRESHOLDS_TOTAL_XP.items()):
-        if xp >= threshold:
-            resolved = level
-    return min(MAX_LEVEL, max(1, resolved))
+    if xp >= TOTAL_XP_FOR_SENIOR:
+        return 2  # Senior
+    return 1  # Junior
 
 
 def promotion_tier_for_level(level: int) -> str:
     lvl = max(1, int(level))
-    if lvl <= 1:
-        return "Junior"
-    return "Senior"
+    if lvl >= 2:
+        return "Senior"
+    return "Junior"
 
 
-def _level_bounds(level: int) -> tuple[int, int | None]:
-    safe_level = min(MAX_LEVEL, max(1, int(level)))
-    current_floor = JOB_LEVEL_THRESHOLDS_TOTAL_XP.get(safe_level, 0)
-    if safe_level >= MAX_LEVEL:
-        # Senior (top tier) still has an in-tier XP cap for progress UI.
-        return current_floor, SENIOR_CAP_XP
-    next_level = safe_level + 1
-    return current_floor, JOB_LEVEL_THRESHOLDS_TOTAL_XP.get(next_level)
+def _xp_phase(total_xp: int) -> tuple[int, int, int]:
+    """Return (phase, xp_in_phase, xp_cap_of_phase).
+
+    Phase 1: total_xp < 100  →  (1, total_xp, 100)
+    Phase 2: 100 <= total_xp < 2100  →  (2, total_xp - 100, 2000)
+    Phase 3: total_xp >= 2100  →  (3, 0, 0)  — Senior, capped
+    """
+    xp = max(0, int(total_xp))
+    if xp < PHASE1_XP_CAP:
+        return 1, xp, PHASE1_XP_CAP
+    if xp < TOTAL_XP_FOR_SENIOR:
+        return 2, xp - PHASE1_XP_CAP, PHASE2_XP_CAP
+    return 3, 0, 0
 
 
 def base_monthly_salary_for_job(job_key: str | None) -> float:
@@ -90,25 +99,45 @@ def base_monthly_salary_for_job(job_key: str | None) -> float:
     return 0.0
 
 
-def estimated_salary_for_level(*, base_monthly_salary: float, level: int) -> float:
+def salary_multiplier_for_total_xp(total_xp: int) -> Decimal:
+    """Compute the cumulative salary multiplier based on total XP.
+
+    - At 100 XP: +10% (multiplier = 1.10)
+    - Every 100 XP after 100: +0.3% each (e.g. at 200 total → 1.103, at 300 → 1.106)
+    - At 2100 XP (Senior): additional +20% of base on top
+      (so 20 intervals × 0.3% = 6% + 10% + 20% = 36% → multiplier = 1.36)
+    """
+    xp = max(0, int(total_xp))
+    mult = Decimal("1.00")
+    if xp >= PHASE1_XP_CAP:
+        mult += PHASE1_COMPLETION_SALARY_BONUS  # +10%
+        xp_in_phase2 = min(xp - PHASE1_XP_CAP, PHASE2_XP_CAP)
+        increments = xp_in_phase2 // 100
+        mult += Decimal(increments) * PHASE2_PER_100_XP_SALARY_BONUS
+    if xp >= TOTAL_XP_FOR_SENIOR:
+        mult += SENIOR_PROMOTION_SALARY_BONUS  # +20%
+    return mult
+
+
+def estimated_salary_for_xp(*, base_monthly_salary: float, total_xp: int) -> float:
     base = _money_decimal(base_monthly_salary)
-    growth_steps = max(0, min(MAX_LEVEL, int(level)) - 1)
-    multiplier = Decimal("1.00") + (Decimal(growth_steps) * SALARY_PREVIEW_GROWTH_PER_LEVEL)
+    multiplier = salary_multiplier_for_total_xp(total_xp)
     return float(_money_decimal(base * multiplier))
 
 
 def _apply_level_fields(row: PlayerJobProgression) -> None:
     total_xp = max(0, _safe_int(getattr(row, "xp_total", 0), 0))
     level = resolve_level_from_total_xp(total_xp)
-    floor_xp, next_floor_xp = _level_bounds(level)
+    phase, xp_in_phase, xp_cap = _xp_phase(total_xp)
     row.skill_level = level
     row.promotion_tier = promotion_tier_for_level(level)
-    if next_floor_xp is None:
+    if phase == 3:
+        # Senior — fully capped
         row.xp = 0
         row.xp_to_next_level = 0
     else:
-        row.xp = max(0, total_xp - floor_xp)
-        row.xp_to_next_level = max(0, next_floor_xp - floor_xp)
+        row.xp = xp_in_phase
+        row.xp_to_next_level = xp_cap
 
 
 def get_player_job_progression(
@@ -150,7 +179,7 @@ def get_or_create_player_job_progression(
         skill_level=1,
         xp_total=0,
         xp=0,
-        xp_to_next_level=max(0, JOB_LEVEL_THRESHOLDS_TOTAL_XP.get(2, 100)),
+        xp_to_next_level=PHASE1_XP_CAP,
         promotion_tier=promotion_tier_for_level(1),
         shifts_completed=0,
     )
@@ -169,24 +198,42 @@ def build_job_progression_snapshot(
     _apply_level_fields(row)
     job_key = _canonical_job_key(getattr(row, "job_key", None) or fallback_job_key)
     level = max(1, _safe_int(getattr(row, "skill_level", 1), 1))
+    total_xp = max(0, _safe_int(getattr(row, "xp_total", 0), 0))
     base_salary = base_monthly_salary_for_job(job_key)
-    current_salary_estimate = estimated_salary_for_level(
+    current_salary_estimate = estimated_salary_for_xp(
         base_monthly_salary=base_salary,
-        level=level,
+        total_xp=total_xp,
     )
-    next_level = min(MAX_LEVEL, level + 1)
-    next_salary_estimate = estimated_salary_for_level(
+    # Preview: what salary would be at the next 100 XP milestone
+    phase, xp_in_phase, xp_cap = _xp_phase(total_xp)
+    if phase == 1:
+        next_milestone_xp = PHASE1_XP_CAP
+        next_increase_pct = float(PHASE1_COMPLETION_SALARY_BONUS * Decimal("100"))  # 10%
+    elif phase == 2:
+        next_100 = ((xp_in_phase // 100) + 1) * 100
+        next_milestone_xp = PHASE1_XP_CAP + min(next_100, PHASE2_XP_CAP)
+        if next_100 >= PHASE2_XP_CAP:
+            # Next milestone is Senior promotion
+            next_increase_pct = float(
+                (PHASE2_PER_100_XP_SALARY_BONUS + SENIOR_PROMOTION_SALARY_BONUS) * Decimal("100")
+            )
+        else:
+            next_increase_pct = float(PHASE2_PER_100_XP_SALARY_BONUS * Decimal("100"))  # 0.3%
+    else:
+        next_milestone_xp = TOTAL_XP_FOR_SENIOR
+        next_increase_pct = 0.0
+    next_salary_estimate = estimated_salary_for_xp(
         base_monthly_salary=base_salary,
-        level=next_level,
+        total_xp=next_milestone_xp,
     )
     return {
         "job_key": job_key,
         "job_level": level,
         "skill_level": level,
-        "xp_total": max(0, _safe_int(getattr(row, "xp_total", 0), 0)),
+        "xp_total": total_xp,
         "job_xp": max(0, _safe_int(getattr(row, "xp", 0), 0)),
         "job_xp_to_next_level": max(0, _safe_int(getattr(row, "xp_to_next_level", 0), 0)),
-        "max_job_level": MAX_LEVEL,
+        "max_job_level": 2,  # Senior is the visual max
         "promotion_tier": str(getattr(row, "promotion_tier", "") or promotion_tier_for_level(level)),
         "shifts_completed": max(0, _safe_int(getattr(row, "shifts_completed", 0), 0)),
         "last_worked_at": (
@@ -197,7 +244,7 @@ def build_job_progression_snapshot(
         "base_salary_xgp": round(base_salary, 2),
         "estimated_current_monthly_salary_xgp": round(current_salary_estimate, 2),
         "estimated_next_level_monthly_salary_xgp": round(next_salary_estimate, 2),
-        "next_level_salary_increase_pct": float(SALARY_PREVIEW_GROWTH_PER_LEVEL * Decimal("100")),
+        "next_level_salary_increase_pct": round(next_increase_pct, 1),
         "salary_preview_note": "Estimated only - live payroll remains unchanged.",
     }
 
@@ -244,7 +291,7 @@ def award_completed_shift_xp(
         "tier_changed": after_tier != before_tier,
         "progression": snapshot,
         "feedback_message": (
-            f"{str((snapshot or {}).get('job_key') or job_key or 'Job').replace('_', ' ').title()} reached Level {after_level}"
+            f"{str((snapshot or {}).get('job_key') or job_key or 'Job').replace('_', ' ').title()} promoted to Senior!"
             if leveled_up
             else f"{str((snapshot or {}).get('job_key') or job_key or 'Job').replace('_', ' ').title()} XP +{gained}"
         ),
@@ -295,7 +342,7 @@ def award_training_session_xp(
         "tier_changed": after_tier != before_tier,
         "progression": snapshot,
         "feedback_message": (
-            f"{str((snapshot or {}).get('job_key') or job_key or 'Job').replace('_', ' ').title()} reached Level {after_level}"
+            f"{str((snapshot or {}).get('job_key') or job_key or 'Job').replace('_', ' ').title()} promoted to Senior!"
             if leveled_up
             else f"{str((snapshot or {}).get('job_key') or job_key or 'Job').replace('_', ' ').title()} training XP +{gained}"
         ),
@@ -345,19 +392,18 @@ def safe_default_progression_for_job(job_key: str | None) -> dict[str, Any]:
         "skill_level": level,
         "xp_total": 0,
         "job_xp": 0,
-        "job_xp_to_next_level": max(0, JOB_LEVEL_THRESHOLDS_TOTAL_XP.get(2, 100)),
-        "max_job_level": MAX_LEVEL,
+        "job_xp_to_next_level": PHASE1_XP_CAP,
+        "max_job_level": 2,
         "promotion_tier": promotion_tier_for_level(level),
         "shifts_completed": 0,
         "last_worked_at": None,
         "base_salary_xgp": round(base_salary, 2),
         "estimated_current_monthly_salary_xgp": round(
-            estimated_salary_for_level(base_monthly_salary=base_salary, level=level), 2
+            estimated_salary_for_xp(base_monthly_salary=base_salary, total_xp=0), 2
         ),
         "estimated_next_level_monthly_salary_xgp": round(
-            estimated_salary_for_level(base_monthly_salary=base_salary, level=min(MAX_LEVEL, level + 1)),
-            2,
+            estimated_salary_for_xp(base_monthly_salary=base_salary, total_xp=PHASE1_XP_CAP), 2
         ),
-        "next_level_salary_increase_pct": float(SALARY_PREVIEW_GROWTH_PER_LEVEL * Decimal("100")),
+        "next_level_salary_increase_pct": float(PHASE1_COMPLETION_SALARY_BONUS * Decimal("100")),
         "salary_preview_note": "Estimated only - live payroll remains unchanged.",
     }

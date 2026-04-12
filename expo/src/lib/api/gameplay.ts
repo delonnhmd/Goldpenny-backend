@@ -269,7 +269,7 @@ function normalizeJobProgressSnapshot(
     xp_total: Math.max(0, Math.round(toNumber(obj.xp_total, 0))),
     job_xp: Math.max(0, Math.round(toNumber(obj.job_xp, 0))),
     job_xp_to_next_level: Math.max(0, Math.round(toNumber(obj.job_xp_to_next_level, 0))),
-    max_job_level: Math.max(1, Math.round(toNumber(obj.max_job_level, 10))),
+    max_job_level: Math.max(1, Math.round(toNumber(obj.max_job_level, 2))),
     monthly_pay_xgp: normalizeMoneyValue(
       obj.monthly_pay_xgp ?? obj.base_salary_xgp,
       { allowNegative: false, fallback: 0 },
@@ -284,7 +284,7 @@ function normalizeJobProgressSnapshot(
       obj.estimated_next_level_monthly_salary_xgp,
       { allowNegative: false, fallback: 0 },
     ),
-    next_level_salary_increase_pct: normalizeFiniteNumber(obj.next_level_salary_increase_pct, { fallback: 3 }),
+    next_level_salary_increase_pct: normalizeFiniteNumber(obj.next_level_salary_increase_pct, { fallback: 10 }),
     salary_preview_note: toString(
       obj.salary_preview_note,
       'Estimated only - live payroll remains unchanged.',
@@ -321,7 +321,7 @@ function normalizeJobProgressTrack(raw: unknown): JobProgressionTrackSnapshot {
       obj.estimated_next_level_monthly_salary_xgp,
       { allowNegative: false, fallback: 0 },
     ),
-    next_level_salary_increase_pct: normalizeFiniteNumber(obj.next_level_salary_increase_pct, { fallback: 3 }),
+    next_level_salary_increase_pct: normalizeFiniteNumber(obj.next_level_salary_increase_pct, { fallback: 10 }),
     salary_preview_note: obj.salary_preview_note == null ? null : toString(obj.salary_preview_note, ''),
     last_worked_at: obj.last_worked_at == null ? null : toString(obj.last_worked_at, ''),
   };

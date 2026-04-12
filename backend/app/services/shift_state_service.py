@@ -55,8 +55,10 @@ from app.services.job_progress_service import normalize_shift_type, upsert_emplo
 from app.services.player_job_progression_service import (
     SHIFT_COMPLETION_XP_GAIN,
     award_completed_shift_xp,
+    get_player_job_progression,
     progression_lookup_map,
     safe_default_progression_for_job,
+    salary_multiplier_for_total_xp,
 )
 from app.services.recovery_service import build_recovery_state
 from app.services.player_daily_state_service import ensure_player_daily_state
@@ -1819,6 +1821,7 @@ def _build_shift_salary_snapshot(
     current_day: int,
     now_houston: datetime,
     trigger: str,
+    db: Session | None = None,
 ) -> dict[str, Any]:
     testing_config = get_gameplay_testing_mode_config()
     shift_started_at = _as_houston(getattr(player, "main_shift_started_at", None)) or now_houston
@@ -1857,7 +1860,13 @@ def _build_shift_salary_snapshot(
             )
         )
     )
-    job_level_multiplier = _q4(Decimal("1"))
+    # XP-based salary multiplier: look up player's current total XP for this job
+    _prog_row = (
+        get_player_job_progression(db, player_id=player.id, job_key=job_key)
+        if db is not None else None
+    )
+    _player_total_xp = max(0, int(getattr(_prog_row, "xp_total", 0) or 0)) if _prog_row else 0
+    job_level_multiplier = _q4(salary_multiplier_for_total_xp(_player_total_xp))
     gross_shift_pay = _q4(
         base_hourly_pay
         * Decimal(str(hours_worked))
@@ -3485,6 +3494,7 @@ def finalize_active_main_shift(
         current_day=current_day,
         now_houston=now,
         trigger=trigger,
+        db=db,
     )
     try:
         audit_row = _record_completed_shift_pending_salary(
