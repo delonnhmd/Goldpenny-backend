@@ -86,6 +86,7 @@ from app.services.shift_state_service import (
     SHIFT_STATUS_ACTIVE,
     build_work_state_payload,
     finalize_active_main_shift,
+    get_houston_now,
     get_gameplay_testing_mode_config,
     resolve_expired_shift_if_needed,
     start_main_shift,
@@ -651,7 +652,7 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
     shift_length_label = str(testing_mode.get("shift_length_label") or "").strip() or "Standard shift schedule"
     overtime_multiplier = float(testing_mode.get("second_shift_overtime_multiplier") or 1.5)
     standard_shift_hours = int(SHIFT_PROFILES["standard_shift"]["hours_worked"])
-    standard_shift_time_cost_units = max(1, min(4, standard_shift_hours // 2))
+    standard_shift_time_cost_units = standard_shift_hours
     shift_active = bool(work_state.get("main_shift_active_flag"))
     shift_completed_today = bool(work_state.get("shift_completed_today"))
     missed_shift_today = bool(work_state.get("missed_shift_today"))
@@ -708,7 +709,7 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
 
     work_shift_title = "Work Shift"
     work_shift_description = f"Use your current role ({current_job_display_name}) for stable day-1 cash."
-    work_shift_tradeoffs = ["Consumes time units but improves short-term cash safety."]
+    work_shift_tradeoffs = [f"Consumes {standard_shift_time_cost_units} time units and improves short-term cash safety."]
     work_shift_blockers: list[str] = []
     if testing_mode_enabled:
         if weekend_rideshare_only:
@@ -719,9 +720,11 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
             work_shift_title = "Start Overtime Shift"
             work_shift_description = (
                 f"Shift {int(next_shift_number_available or 2)}/{max_daily_main_shifts} available for {current_job_display_name}. "
-                f"Overtime pays {overtime_multiplier:.1f}x."
+                f"Overtime pays {overtime_multiplier:.1f}x and resolves immediately."
             )
-            work_shift_tradeoffs = ["Higher pay, but stress and fatigue rise faster on overtime."]
+            work_shift_tradeoffs = [
+                f"Consumes {standard_shift_time_cost_units} time units. Higher pay, but stress and fatigue rise faster on overtime."
+            ]
         else:
             next_shift_number = int(next_shift_number_available or max(1, shifts_completed_today + 1))
             work_shift_title = (
@@ -730,9 +733,9 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
                 else "Start Shift 1"
             )
             work_shift_description = (
-                f"Testing mode active. {current_job_display_name} shifts run for {shift_length_label}."
+                f"Testing mode active. {current_job_display_name} shifts consume time units and resolve immediately."
             )
-            work_shift_tradeoffs = [f"Shift length: {shift_length_label}."]
+            work_shift_tradeoffs = [f"Uses {standard_shift_time_cost_units} time units. No real-world shift timer."]
 
     if has_job and is_weekend and weekend_rideshare_only:
         blocked_actions.append(
@@ -784,7 +787,7 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
                             "label": shift_meta["label"],
                             "window": shift_meta["window"],
                             "hours_worked": shift_meta["hours_worked"],
-                            "time_cost_units": max(1, min(4, int(shift_meta["hours_worked"]) // 2)),
+                            "time_cost_units": int(shift_meta["hours_worked"]),
                         }
                         for shift_type, shift_meta in SHIFT_PROFILES.items()
                     ],
@@ -814,7 +817,7 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
                             "label": meta["label"],
                             "window": meta["window"],
                             "hours_worked": meta["hours_worked"],
-                            "time_cost_units": max(1, min(4, int(meta["hours_worked"]) // 2)),
+                            "time_cost_units": int(meta["hours_worked"]),
                         }
                         for shift_type, meta in SHIFT_PROFILES.items()
                     ],
@@ -2053,7 +2056,7 @@ def preview_gameplay_action(
     )
     testing_mode_enabled = bool(testing_mode.get("enabled"))
     shift_length_label = str(testing_mode.get("shift_length_label") or "").strip() or "Standard shift schedule"
-    work_shift_time_cost_units = max(1, min(4, hours // 2))
+    work_shift_time_cost_units = hours
 
     base = {
         "player_id": str(player.id),
@@ -2086,9 +2089,9 @@ def preview_gameplay_action(
 
     if key == "work_shift":
         base["summary"] = (
-            f"Testing mode active. This shift uses a {shift_length_label} live timer."
+            f"Testing mode active. This shift consumes {work_shift_time_cost_units} time units and resolves immediately."
             if testing_mode_enabled
-            else "Work shift should improve cash and add moderate stress."
+            else f"Work shift should improve cash, add moderate stress, and consume {work_shift_time_cost_units} time units."
         )
         base["expected_cash_impact"] = {"label": "Cash", "direction": "up", "amount": 65 * hours, "text": f"+~{65 * hours} xgp"}
         base["expected_stress_impact"] = {"label": "Stress", "direction": "up", "amount": max(1, hours), "text": f"+{max(1, hours)}"}
@@ -2100,7 +2103,7 @@ def preview_gameplay_action(
             "text": f"-{work_shift_time_cost_units} units",
         }
         if testing_mode_enabled:
-            base["warnings"] = [f"Live shift timer: {shift_length_label}."]
+            base["warnings"] = ["Work shifts use in-game time units only."]
         base["debug_meta"] = {
             "preview_route": "canonical",
             "shift_type": shift_type,
@@ -2428,32 +2431,53 @@ def execute_gameplay_action(
                     "resolved_job_name": job_name,
                 },
             )
-            work_state = start_main_shift(
+            now_houston = get_houston_now()
+            started_work_state = start_main_shift(
                 db,
                 player=player,
                 job_name=job_name,
                 shift_type=shift_type,
                 hours_worked=hours_worked,
+                now_houston=now_houston,
+            )
+            work_state = finalize_active_main_shift(
+                db,
+                player=player,
+                now_houston=now_houston,
+                trigger="time_unit_work_shift",
+                require_expired=False,
             )
             job_progress = build_job_progress_payload(
                 latest_employment_state(db, player.id),
                 fallback_job_key=job_name,
                 fallback_shift_type=shift_type,
             )
+            completed_shift = (
+                work_state.get("last_completed_shift")
+                if isinstance(work_state.get("last_completed_shift"), dict)
+                else {}
+            )
+            earned_cash_xgp = _safe_float(completed_shift.get("earned_cash_xgp"), 0.0)
+            xp_gained = _safe_int(completed_shift.get("xp_gained"), 0)
+            stress_change = _safe_int(completed_shift.get("stress_change"), 0)
+            health_change = _safe_int(completed_shift.get("health_change"), 0)
             logger.info(
-                "gameplay.actions.execute work_shift started backend shift.",
+                "gameplay.actions.execute work_shift resolved immediately.",
                 extra={
                     "player_id": str(player.id),
                     "job_name": job_name,
                     "hours_worked": hours_worked,
-                    "shift_started_at": work_state.get("shift_started_at"),
-                    "shift_ends_at": work_state.get("shift_ends_at"),
+                    "shift_started_at": started_work_state.get("shift_started_at"),
+                    "shift_completed_at": work_state.get("shift_completed_at"),
+                    "earned_cash_xgp": earned_cash_xgp,
+                    "xp_gained": xp_gained,
                     "job_progress": job_progress,
                 },
             )
             detailed_result = {
                 "job_name": job_name,
                 "hours_worked": hours_worked,
+                "started_work_state": started_work_state,
                 "work_state": work_state,
                 "shift_type": shift_type,
                 "shift_window": shift_profile["window"],
@@ -2461,17 +2485,22 @@ def execute_gameplay_action(
                 "employer_company_symbol": JOB_COMPANY_MAP.get(job_name, {}).get("symbol"),
                 "employer_company_name": JOB_COMPANY_MAP.get(job_name, {}).get("name"),
                 "job_progress": job_progress,
+                "completed_shift": completed_shift,
             }
             return _successful_action_response(
                 db,
                 player=player,
                 action_key=action_key,
-                message="Shift clocked in.",
+                message="Shift completed.",
                 result_summary=(
-                    f"Clocked in as {str(work_state.get('current_job_display_name') or _job_display_name(job_name))}"
-                    f" - Shift ends at {str(work_state.get('shift_end_time_label') or _safe_iso_to_houston_label(work_state.get('shift_ends_at')) or 'scheduled Houston end')}"
+                    f"Completed {str(work_state.get('current_job_display_name') or _job_display_name(job_name))} shift"
+                    f" - Earned {earned_cash_xgp:.2f} XGP"
+                    f"{f' and {xp_gained} work XP' if xp_gained > 0 else ''}"
                 ),
-                time_cost_units=max(1, min(4, hours_worked // 2)),
+                time_cost_units=hours_worked,
+                cash_delta_xgp=earned_cash_xgp,
+                stress_delta=stress_change,
+                health_delta=health_change,
                 raw_result=detailed_result,
                 result=detailed_result,
             )
@@ -3052,10 +3081,6 @@ def execute_gameplay_action(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         detail=f"Unsupported action_key '{action_key}'.",
     )
-
-
-
-
 
 
 

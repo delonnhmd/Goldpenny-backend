@@ -712,14 +712,22 @@ export default function DashboardScreen() {
     || (workState?.shift_ends_at ? `${formatHoustonNow(new Date(workState.shift_ends_at))} CT` : '5:00 PM CT'),
   );
   const scheduledShiftWindowLabel = shiftWindowLabel(workState);
-  const shiftScheduleCardLabel = testingModeEnabled && !backendShiftActive ? 'Shift timer' : 'Shift end (CT)';
+  const workShiftTimeCostUnits = Math.max(
+    0,
+    Math.round(Number(
+      workShiftAction?.parameters?.time_cost_units
+      || workState?.shift_hours
+      || 0,
+    )),
+  );
+  const shiftScheduleCardLabel = testingModeEnabled && !backendShiftActive ? 'Shift cost' : 'Shift end (CT)';
   const shiftScheduleCardValue = backendShiftActive
     ? shiftEndLabel
     : testingModeEnabled
-      ? `Clock in + ${testingShiftLabel}`
+      ? (workShiftTimeCostUnits > 0 ? formatUnitButtonLabel(workShiftTimeCostUnits) : '--')
       : `${workState?.scheduled_shift_end_label || '5:00 PM'} CT`;
   const shiftScheduleCardNote = testingModeEnabled && !backendShiftActive
-    ? 'Starts when you clock in.'
+    ? 'Consumed immediately when you work.'
     : 'Houston local time.';
   const shiftEndedLabel = String(
     workState?.shift_completed_time_label
@@ -1892,7 +1900,12 @@ export default function DashboardScreen() {
                 tone: gamePhaseLabel === 'Weekend' ? 'warning' : 'info',
               },
               { label: 'Shift window', value: scheduledShiftWindowLabel },
-              { label: 'Timer mode', value: testingModeEnabled ? 'Testing mode active' : SHIFT_SHORT_MODE ? 'Accelerated testing mode' : 'Real-time mode' },
+              {
+                label: 'Shift model',
+                value: testingModeEnabled
+                  ? 'Testing rules active'
+                  : 'Work shifts use in-game time units',
+              },
             ]}
           />
         </GameplaySummaryCard>
@@ -2006,7 +2019,7 @@ export default function DashboardScreen() {
             label="Testing mode"
             value={testingModeEnabled ? 'On' : 'Off'}
             tone={testingModeEnabled ? 'warning' : 'neutral'}
-            note={testingModeEnabled ? `Shift length: ${testingShiftLabel}` : 'Production rules active.'}
+            note={testingModeEnabled ? `Shift profile: ${testingShiftLabel}` : 'Production rules active.'}
           />
           <GameplayStatCard
             label="Shifts today"
@@ -2068,7 +2081,11 @@ export default function DashboardScreen() {
             label="Time left"
             value={`${loop.dailySession.remainingTimeUnits}/${loop.dailySession.totalTimeUnits}`}
             tone={loop.dailySession.remainingTimeUnits <= 2 ? 'warning' : 'info'}
-            note={testingModeEnabled ? `Testing mode active. Shift length: ${testingShiftLabel}.` : 'Real-time shift timer.'}
+            note={
+              testingModeEnabled
+                ? `Testing mode active. Work shift uses ${workShiftTimeCostUnits > 0 ? formatUnitButtonLabel(workShiftTimeCostUnits) : 'time units'}.`
+                : 'Work shifts spend in-game time units, not real-world timer time.'
+            }
           />
         </View>
 
@@ -2132,7 +2149,7 @@ export default function DashboardScreen() {
           <Text style={styles.helperText}>{clockInBlocker}</Text>
         ) : (
           <Text style={styles.helperText}>
-            Clock in to start your shift. It auto-finalizes when Houston time reaches shift end.
+            Start a shift to spend its time units and complete work immediately.
           </Text>
         )}
         <Text style={styles.helperText}>

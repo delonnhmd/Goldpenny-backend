@@ -3756,6 +3756,39 @@ def resolve_expired_shift_if_needed(
         )
         return work_state
 
+    if active_shift and not expired:
+        finalized_state = finalize_active_main_shift(
+            db,
+            player=player,
+            now_houston=now,
+            trigger="time_unit_shift_sync",
+            require_expired=False,
+        )
+        finalized_state = _apply_main_job_sync_result_to_work_state(finalized_state, main_job_sync)
+        finalized_state["offline_survival_catchup"] = _empty_offline_survival_catchup(
+            int(finalized_state.get("current_game_day") or current_day)
+        )
+        finalized_state["auto_day_rollover"] = rollover_result
+        finalized_state["auto_finalized_previous_day"] = False
+        finalized_state["auto_finalized_days_count"] = 0
+        finalized_state["new_day_started_houston_time"] = False
+        finalized_state["auto_rollover_recap_lines"] = []
+        finalized_state = _apply_market_degradation_to_work_state(
+            finalized_state,
+            rollover_result=rollover_result,
+        )
+        logger.info(
+            "shift.resolve_expired_shift_if_needed finalized legacy active shift for time-unit gameplay.",
+            extra={
+                "player_id": str(player.id),
+                "trigger": "time_unit_shift_sync",
+                "current_houston_time": now.isoformat(),
+                "shift_completed_at": finalized_state.get("shift_completed_at"),
+                "salary_payment_status": finalized_state.get("salary_payment_status"),
+            },
+        )
+        return finalized_state
+
     if expired:
         finalized_state = finalize_active_main_shift(
             db,
