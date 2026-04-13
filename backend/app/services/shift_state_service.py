@@ -77,6 +77,7 @@ SALARY_PAYMENT_STATUS_PENDING = "pending"
 SALARY_PAYMENT_STATUS_POSTED = "posted"
 SALARY_PAYMENT_STATUS_FAILED = "failed"
 RIDESHARE_DAILY_CAP = 6
+RIDESHARE_TIME_COST_PER_TRIP_UNITS = 0.5
 RIDESHARE_MIN_HEALTH = 16
 RIDESHARE_MAX_STRESS = 80
 DAILY_TIME_UNITS = 24
@@ -250,6 +251,11 @@ def _safe_float(value: Any, fallback: float = 0.0) -> float:
         return float(value)
     except Exception:
         return fallback
+
+
+def _fractional_time_remainder(units: Any) -> float:
+    remainder = round(max(0.0, _safe_float(units, 0.0)) % 1.0, 4)
+    return 0.0 if remainder < 0.0001 else remainder
 
 
 def _current_game_day(db: Session) -> int:
@@ -933,6 +939,7 @@ def _build_job_market_payload(
             and not certification_completed
             and not is_future_unlock
             and cert_key in CERTIFICATION_CATALOG
+            and not (training_active and active_training_track == cert_key)
         )
         can_switch = bool(status == "available")
         cfg = CAREER_CONFIG.get(job_key)
@@ -1562,7 +1569,7 @@ def _build_rideshare_state(
     no_shift_scheduled: bool,
     scheduled_shift_end_label: str | None,
     side_income_hours_today: float,
-    hours_available: int,
+    hours_available: float,
     health: int,
     stress: int,
     current_location_key: str,
@@ -1571,10 +1578,14 @@ def _build_rideshare_state(
 ) -> dict[str, Any]:
     active_testing_config = testing_config or get_gameplay_testing_mode_config()
     max_trips = _rideshare_daily_cap(is_weekend=is_weekend, config=active_testing_config)
-    trips_today = max(0, min(max_trips, int(round(float(side_income_hours_today or 0.0)))))
-    hours_remaining_today = max(0, int(hours_available or 0))
+    trips_today = max(
+        0,
+        min(max_trips, int(round(_safe_float(side_income_hours_today, 0.0) / RIDESHARE_TIME_COST_PER_TRIP_UNITS))),
+    )
+    hours_remaining_today = round(max(0.0, _safe_float(hours_available, 0.0)), 4)
     remaining_by_cap = max(0, max_trips - trips_today)
-    remaining_trips = max(0, min(remaining_by_cap, hours_remaining_today))
+    remaining_by_time = int((hours_remaining_today + 1e-9) / RIDESHARE_TIME_COST_PER_TRIP_UNITS)
+    remaining_trips = max(0, min(remaining_by_cap, remaining_by_time))
     mode = _rideshare_mode_for_houston_hour(int(now_houston.hour))
     location_profile = get_rideshare_location_profile(current_location_key, mode)
     pay_min, pay_max = estimate_rideshare_pay_range(
@@ -1586,7 +1597,7 @@ def _build_rideshare_state(
     status = "available"
     reason = "Ride Share is available now."
     block_reason_code: str | None = None
-    block_reason_value: int | None = None
+    block_reason_value: float | int | None = None
     if day_settled:
         status = "not_enough_time"
         reason = "Not enough time left today for rideshare."
@@ -1665,7 +1676,7 @@ def _build_rideshare_state(
         "hours_remaining_today": hours_remaining_today,
         "remaining_time_units": hours_remaining_today,
         "mode": mode,
-        "time_cost_per_trip_units": 1,
+        "time_cost_per_trip_units": RIDESHARE_TIME_COST_PER_TRIP_UNITS,
         "current_location_key": str(location_profile.get("location_key") or current_location_key),
         "current_location_label": str(location_profile.get("location_label") or get_location_label(current_location_key)),
         "current_location_region": str(location_profile.get("region") or get_location_region(current_location_key)),
@@ -3036,6 +3047,14 @@ def build_work_state_payload(
     dinner_mode_today = str(getattr(pds, "dinner_mode", "") or "") if pds is not None else ""
     dinner_cost_today = _safe_float(getattr(pds, "dinner_cost", 0) if pds is not None else 0, 0.0)
     food_debt_added_today = _safe_float(getattr(pds, "food_debt_added", 0) if pds is not None else 0, 0.0)
+    effective_hours_available = round(
+        max(
+            0.0,
+            _safe_float(getattr(player, "hours_available", 0), 0.0)
+            + _fractional_time_remainder(getattr(pds, "side_income_hours", 0) if pds is not None else 0),
+        ),
+        4,
+    )
     needs_dinner_reminder, dinner_reminder_message = compute_night_dinner_reminder(
         day_settled=day_settled,
         active_shift=active_shift,
@@ -3073,7 +3092,7 @@ def build_work_state_payload(
         no_shift_scheduled=no_shift_scheduled,
         scheduled_shift_end_label=schedule["scheduled_shift_end_label"],
         side_income_hours_today=side_income_hours_today,
-        hours_available=int(getattr(player, "hours_available", 0) or 0),
+        hours_available=effective_hours_available,
         health=effective_health,
         stress=effective_stress,
         current_location_key=current_location_key,
@@ -3212,7 +3231,7 @@ def build_work_state_payload(
         "scheduled_shift_start_label": schedule["scheduled_shift_start_label"],
         "scheduled_shift_end_label": schedule["scheduled_shift_end_label"],
         "scheduled_shift_window_label": schedule["scheduled_shift_window_label"],
-        "hours_available": int(getattr(player, "hours_available", 0) or 0),
+        "hours_available": round(effective_hours_available, 4),
         "main_shift_hours_today": round(main_shift_hours_today, 4),
         "side_income_hours_today": round(side_income_hours_today, 4),
         "rideshare_time_today": round(side_income_hours_today, 4),
@@ -3267,10 +3286,16 @@ def build_work_state_payload(
         "rideshare_unlock_time_label": schedule["scheduled_shift_end_label"],
         "trips_today": int(rideshare_state.get("trips_today") or 0),
         "trips_remaining": int(rideshare_state.get("remaining_trips") or 0),
-        "remaining_time_units": int(rideshare_state.get("hours_remaining_today") or int(getattr(player, "hours_available", 0) or 0)),
+        "remaining_time_units": round(
+            _safe_float(rideshare_state.get("hours_remaining_today"), effective_hours_available),
+            4,
+        ),
         "effective_current_stress": int(effective_stress),
         "effective_current_health": int(effective_health),
-        "remaining_side_income_hours_today": round(remaining_side_cap, 4),
+        "remaining_side_income_hours_today": round(
+            remaining_side_cap * RIDESHARE_TIME_COST_PER_TRIP_UNITS,
+            4,
+        ),
         "degraded_sections": [],
         "market_data_available": True,
         "market_data_message": None,

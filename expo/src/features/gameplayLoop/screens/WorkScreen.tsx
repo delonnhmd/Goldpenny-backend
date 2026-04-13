@@ -32,7 +32,6 @@ export default function WorkScreen() {
   const onboarding = useOnboarding();
   const guidedWorkActive = onboarding.isActive && onboarding.currentStep?.route === 'work';
   const stats = loop.dashboard?.stats;
-  const endDayDisabled = !loop.dailyProgression.canAdvanceDay || loop.endingDay;
   const workState = loop.dashboard?.work_state || loop.actionHub?.work_state || null;
   const actionHubForDisplay = useMemo(() => {
     if (!loop.actionHub) return null;
@@ -181,12 +180,11 @@ export default function WorkScreen() {
           onSecondaryPress={() => {
             onboarding.navigateTo('market');
           }}
-          primaryLabel={loop.endingDay ? 'Settling Day...' : 'End Day'}
+          primaryLabel="Open Summary"
           onPrimaryPress={() => {
-            void loop.endCurrentDay();
+            onboarding.navigateTo('summary');
           }}
-          primaryLoading={loop.endingDay}
-          primaryDisabled={endDayDisabled}
+          primaryDisabled={false}
         />
       )}
     >

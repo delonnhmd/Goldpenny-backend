@@ -35,8 +35,9 @@ function formatHoustonTimestamp(iso: string | null | undefined): string {
 }
 
 function formatUnitLabel(units: number): string {
-  const rounded = Math.max(0, Math.round(Number(units) || 0));
-  return `${rounded}u`;
+  const rounded = Math.max(0, Math.round((Number(units) || 0) * 100) / 100);
+  const display = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1).replace(/\.0$/, '');
+  return `${display}u`;
 }
 
 export default function BriefScreen() {
@@ -485,7 +486,7 @@ export default function BriefScreen() {
       ) : !sessionEnded ? (
         <GameplayWarningBanner
           title="Day still active"
-          message="Run End Day from the Dashboard when you are done with your actions."
+          message="Open Summary when you are done with your actions to run settlement."
           tone="info"
         />
       ) : null}

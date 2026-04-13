@@ -32,12 +32,18 @@ from app.services.shift_state_service import resolve_expired_shift_if_needed
 RIDESHARE_TYPE = "ride_share"
 TRIP_OPTIONS = (1, 3, 5)
 MAX_RIDESHARE_HOURS_PER_DAY = 6  # treated as time-units in the current loop
+RIDESHARE_TIME_COST_PER_TRIP_UNITS = 0.5
 HOUSTON_TZ = pytz.timezone("America/Chicago")
 logger = logging.getLogger(__name__)
 
 
 def _clamp_int(value: int, lo: int, hi: int) -> int:
     return max(lo, min(hi, value))
+
+
+def _fractional_time_remainder(units: float | int | None) -> float:
+    remainder = round(max(0.0, float(units or 0.0)) % 1.0, 4)
+    return 0.0 if remainder < 0.0001 else remainder
 
 
 def _get_or_create_player_daily_state_in_txn(
@@ -210,17 +216,23 @@ def process_rideshare_action(
         pds = _get_or_create_player_daily_state_in_txn(db, player, current_day)
         requested_trips = _resolve_requested_trips(trips, hours_worked)
 
-        side_income_time_used_today = int(float(getattr(pds, "side_income_hours", 0) or 0))
-        remaining_side_cap = max(0, MAX_RIDESHARE_HOURS_PER_DAY - side_income_time_used_today)
-        available_time_units = min(int(player.hours_available or 0), remaining_side_cap)
+        side_income_time_used_today = max(0.0, float(getattr(pds, "side_income_hours", 0) or 0.0))
+        side_income_trips_today = int(round(side_income_time_used_today / RIDESHARE_TIME_COST_PER_TRIP_UNITS))
+        remaining_side_cap = max(0, int(rideshare_state.get("max_trips") or MAX_RIDESHARE_HOURS_PER_DAY) - side_income_trips_today)
+        effective_time_units_available = round(
+            max(0.0, float(int(player.hours_available or 0)) + _fractional_time_remainder(side_income_time_used_today)),
+            4,
+        )
+        available_time_units = int((effective_time_units_available + 1e-9) / RIDESHARE_TIME_COST_PER_TRIP_UNITS)
+        available_trips = min(remaining_side_cap, available_time_units)
 
-        if available_time_units < 1:
+        if available_trips < 1:
             raise ValueError(
                 "Not enough available time for one ride-share trip. "
-                f"Remaining today: {available_time_units}."
+                f"Remaining today: {effective_time_units_available:g}."
             )
 
-        trips_completed = min(requested_trips, available_time_units)
+        trips_completed = min(requested_trips, available_trips)
         partial_completion = trips_completed < requested_trips
 
         now_houston = datetime.now(HOUSTON_TZ)
@@ -265,7 +277,7 @@ def process_rideshare_action(
             total_health_change += adjusted_health
             total_trip_duration_hours += _trip_duration_hours(trip_rng)
 
-        time_used_units = int(trips_completed)  # one time-unit per completed trip
+        time_used_units = round(trips_completed * RIDESHARE_TIME_COST_PER_TRIP_UNITS, 4)
         total_earned = round(float(total_pay), 2)
         oil_index = get_current_oil_index(db, current_day)
 
@@ -274,15 +286,16 @@ def process_rideshare_action(
         stress_before = int(player.stress or 0)
         health_before = int(player.health or 0)
 
-        hours_after = _clamp_int(hours_before - time_used_units, 0, 24)
+        hours_after_effective = round(max(0.0, effective_time_units_available - time_used_units), 4)
+        hours_after = _clamp_int(int(hours_after_effective), 0, 24)
         balance_after = round(balance_before + total_earned, 4)
 
         player.cash = balance_after
         player.stress = _clamp_int(stress_before + total_stress_change, 0, 100)
         player.health = _clamp_int(health_before + total_health_change, 0, 100)
         player.hours_available = hours_after
-        player.side_job_hours_today = int(player.side_job_hours_today or 0) + time_used_units
-        player.total_hours_worked_today = int(player.total_hours_worked_today or 0) + time_used_units
+        player.side_job_hours_today = int(side_income_time_used_today + time_used_units)
+        player.total_hours_worked_today = int(float(getattr(pds, "total_hours_used", 0) or 0) + time_used_units)
         player.last_worked_day = current_day
 
         action = SideIncomeAction(
@@ -443,7 +456,7 @@ def process_rideshare_action(
             "mode_used": mode_used,
             "houston_hour": houston_hour,
             "current_houston_time": now_houston.isoformat(),
-            "time_used": int(time_used_units),
+            "time_used": float(time_used_units),
             "time_used_hours": round(total_trip_duration_hours, 4),
             "earned": round(total_earned, 2),
             "gross_income_xgp": round(total_earned, 2),

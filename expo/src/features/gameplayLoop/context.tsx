@@ -197,7 +197,7 @@ function deriveSuggestedRemainingTimeUnits(bundle: GameplayLoopBundle | null): n
   ];
   for (const candidate of candidates) {
     if (Number.isFinite(candidate)) {
-      return Math.max(0, Math.round(candidate));
+      return Math.max(0, Math.round(candidate * 100) / 100);
     }
   }
   return undefined;

@@ -84,8 +84,8 @@ function sanitizeSessionState(value: unknown, expectedDay: number): PersistedGam
 
   return {
     currentDay,
-    remainingTimeUnits: Math.max(0, Math.round(remainingTimeUnits)),
-    totalTimeUnits: Math.max(0, Math.round(totalTimeUnits)),
+    remainingTimeUnits: Math.max(0, Math.round(remainingTimeUnits * 100) / 100),
+    totalTimeUnits: Math.max(0, Math.round(totalTimeUnits * 100) / 100),
     sessionStatus,
     actionCounts: normalizedCounts,
     timedActivity: sanitizeTimedActivityState((value as { timedActivity?: unknown }).timedActivity),

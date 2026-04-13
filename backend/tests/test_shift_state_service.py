@@ -15,6 +15,7 @@ os.environ["DATABASE_URL"] = "postgresql://goldpenny:goldpenny@localhost:5432/go
 from app.api.gameplay import GameplayActionRequest, execute_gameplay_action, get_gameplay_actions
 from app.api.gameplay import get_gameplay_transaction_history
 from app.db.database import Base
+from app.engine.career_config import CERTIFICATION_CATALOG
 from app.engine.rideshare_engine import process_rideshare_action
 from app.models.contribution_event import ContributionEvent
 from app.models.game_state import GameState
@@ -23,6 +24,7 @@ from app.models.job_action import JobAction
 from app.models.job_definition_db import JobDefinition
 from app.models.macro_state import MacroState
 from app.models.player import Player
+from app.models.player_career import PlayerCareer
 from app.models.player_daily_state import PlayerDailyState
 from app.models.player_employment_state import PlayerEmploymentState
 from app.models.player_job_progression import PlayerJobProgression
@@ -50,6 +52,7 @@ class ShiftStateServiceTests(unittest.TestCase):
             tables=[
                 User.__table__,
                 Player.__table__,
+                PlayerCareer.__table__,
                 GameState.__table__,
                 MacroState.__table__,
                 JobDefinition.__table__,
@@ -269,9 +272,9 @@ class ShiftStateServiceTests(unittest.TestCase):
         self.assertEqual(second["trips"], 1)
         self.assertIsNotNone(daily_state)
         self.assertEqual(round(float(daily_state.main_shift_hours_today), 4), 6.0)
-        self.assertEqual(round(float(daily_state.side_income_hours), 4), 6.0)
+        self.assertEqual(round(float(daily_state.side_income_hours), 4), 3.0)
         self.assertEqual(int(self.player.main_job_hours_today), 6)
-        self.assertEqual(int(self.player.side_job_hours_today), 6)
+        self.assertEqual(int(self.player.side_job_hours_today), 3)
         self.assertFalse(bool(work_state.get("rideshare_available")))
 
         with self.assertRaises(ValueError):
@@ -307,6 +310,68 @@ class ShiftStateServiceTests(unittest.TestCase):
         self.assertGreaterEqual(len(ledger_rows), 2)
         self.assertTrue(any(float(row.amount) == 0.0 for row in ledger_rows))
         self.assertTrue(any(float(row.amount) > 0.0 for row in ledger_rows))
+
+    def test_six_rideshare_trips_spend_three_time_units(self) -> None:
+        self.player.main_job = None
+        self.db.commit()
+        self.db.refresh(self.player)
+
+        rideshare_time = self._houston_datetime(2026, 1, 1, 15, 0)
+        with patch("app.services.shift_state_service.get_houston_now", return_value=rideshare_time):
+            first = process_rideshare_action(self.db, self.player, trips=5)
+            second = process_rideshare_action(self.db, self.player, trips=1)
+            work_state = build_work_state_payload(self.db, self.player, now_houston=rideshare_time)
+
+        self.db.refresh(self.player)
+
+        rideshare_state = work_state.get("rideshare_state") or {}
+        self.assertEqual(float(first.get("time_used") or 0.0), 2.5)
+        self.assertEqual(float(second.get("time_used") or 0.0), 0.5)
+        self.assertEqual(int(self.player.hours_available or 0), 21)
+        self.assertEqual(int(rideshare_state.get("trips_today") or 0), 6)
+        self.assertEqual(float(rideshare_state.get("time_cost_per_trip_units") or 0.0), 0.5)
+        self.assertEqual(float(work_state.get("remaining_time_units") or 0.0), 21.0)
+
+    def test_start_training_records_fee_and_marks_training_in_progress(self) -> None:
+        certification_key = "aircraft_mechanic_cert"
+        certification_cost = float(CERTIFICATION_CATALOG[certification_key]["cost_xgp"])
+        cash_before = float(self.player.cash or 0)
+
+        result = execute_gameplay_action(
+            str(self.player.id),
+            GameplayActionRequest(
+                action_key="start_training",
+                parameters={"certification_key": certification_key},
+            ),
+            db=self.db,
+        )
+
+        self.db.refresh(self.player)
+        training_rows = (
+            self.db.query(GameplayTransaction)
+            .filter(
+                GameplayTransaction.player_id == self.player.id,
+                GameplayTransaction.day == 1,
+                GameplayTransaction.category == "training",
+            )
+            .order_by(GameplayTransaction.timestamp.asc())
+            .all()
+        )
+        work_state = build_work_state_payload(self.db, self.player)
+        job_rows = (work_state.get("job_market") or {}).get("jobs") or []
+        aircraft_row = next(row for row in job_rows if str(row.get("job_key") or "") == "aircraft_mechanic")
+
+        self.assertTrue(bool(result.get("success")))
+        self.assertEqual(int(self.player.hours_available or 0), 23)
+        self.assertAlmostEqual(float(self.player.cash or 0), cash_before - certification_cost, places=2)
+        self.assertEqual(float(result.get("cash_delta_xgp") or 0.0), -certification_cost)
+        self.assertEqual(len(training_rows), 1)
+        self.assertAlmostEqual(float(training_rows[0].amount or 0), -certification_cost, places=2)
+        self.assertIn("Training fee", str(training_rows[0].description))
+        self.assertIn("0 / 6 days complete", str(result.get("result_summary") or ""))
+        self.assertTrue(bool((work_state.get("job_market") or {}).get("training_active")))
+        self.assertTrue(bool(aircraft_row.get("training_in_progress")))
+        self.assertFalse(bool(aircraft_row.get("can_start_training")))
 
     def test_rideshare_state_reports_limit_reached_at_cap(self) -> None:
         self.player.main_job = None
@@ -525,7 +590,7 @@ class ShiftStateServiceTests(unittest.TestCase):
         self.assertIsNone(work_state.get("rideshare_block_reason"))
         self.assertEqual(int(work_state.get("trips_today") or 0), 0)
         self.assertEqual(int(work_state.get("trips_remaining") or 0), 6)
-        self.assertEqual(int(work_state.get("remaining_time_units") or 0), 10)
+        self.assertEqual(int(work_state.get("remaining_time_units") or 0), 18)
         self.assertIn("side_income", available_keys)
 
     def test_completed_shift_reports_time_blocker_when_no_time_remains(self) -> None:
@@ -883,9 +948,9 @@ class ShiftStateServiceTests(unittest.TestCase):
         )
 
         self.assertTrue(bool(first_shift["success"]))
-        self.assertEqual(int(self.player.side_job_hours_today or 0), 6)
-        self.assertEqual(int(self.player.total_hours_worked_today or 0), 18)
-        self.assertEqual(int(self.player.hours_available or 0), 6)
+        self.assertEqual(int(self.player.side_job_hours_today or 0), 3)
+        self.assertEqual(int(self.player.total_hours_worked_today or 0), 15)
+        self.assertEqual(int(self.player.hours_available or 0), 9)
         self.assertEqual(int(testing_mode.get("shifts_completed_today") or 0), 1)
         self.assertTrue(bool(testing_mode.get("overtime_shift_available")))
         self.assertIn("Start Overtime Shift", recommended_titles)
@@ -904,15 +969,14 @@ class ShiftStateServiceTests(unittest.TestCase):
                 payload = get_gameplay_actions(str(self.player.id), db=self.db)
 
         self.assertTrue(bool(work_state.get("is_weekend")))
-        self.assertTrue(bool((work_state.get("testing_mode") or {}).get("weekend_rideshare_only")))
+        self.assertFalse(bool((work_state.get("testing_mode") or {}).get("weekend_rideshare_only")))
         self.assertEqual(int(((work_state.get("rideshare_state") or {}).get("max_trips") or 0)), 18)
         self.assertTrue(bool(work_state.get("can_rideshare")))
         blocked_work = [
             item for item in payload.get("blocked_actions", [])
             if str(item.get("action_key") or "") == "work_shift"
         ]
-        self.assertTrue(blocked_work)
-        self.assertIn("rideshare only", str(blocked_work[0].get("blockers", [""])[0]).lower())
+        self.assertFalse(blocked_work)
 
     def test_recovery_actions_do_not_cross_block_each_other_before_category_cap(self) -> None:
         after_shift = self._houston_datetime(2026, 1, 1, 19, 0)

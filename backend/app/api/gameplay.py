@@ -31,7 +31,7 @@ from app.engine.career_service import (
     switch_player_job,
 )
 from app.engine.economy_presentation_service import build_economy_presentation_summary
-from app.engine.rideshare_engine import process_rideshare_action
+from app.engine.rideshare_engine import RIDESHARE_TIME_COST_PER_TRIP_UNITS, process_rideshare_action
 from app.models.game_state import GameState
 from app.models.player import Player
 from app.models.player_daily_state import PlayerDailyState
@@ -68,6 +68,7 @@ from app.services.player_onboarding_service import (
     OnboardingNotFoundError,
     get_playable_player_summary,
 )
+from app.services.player_daily_state_service import ensure_player_daily_state
 from app.services.job_progress_service import (
     JOB_COMPANY_MAP,
     SHIFT_PROFILES,
@@ -119,6 +120,10 @@ class EndOfDaySummaryAckRequest(BaseModel):
 
 def _money_decimal(value: Any) -> Decimal:
     return Decimal(str(value or 0)).quantize(Decimal("0.01"))
+
+
+def _q4_decimal(value: Any) -> Decimal:
+    return Decimal(str(value or 0)).quantize(Decimal("0.0001"))
 
 def _resolve_player(db: Session, player_id: str) -> Player:
     raw_player_id = str(player_id or "").strip()
@@ -1020,7 +1025,14 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
             "tradeoffs": ["Variable payout and stress cost."],
             "warnings": ["Use short shifts to avoid stacking stress."],
             "confidence_level": "low",
-            "parameters": {"hours_worked": 2},
+            "parameters": {
+                "hours_worked": 1,
+                "trips": 1,
+                "time_cost_units": _safe_float(
+                    ((work_state.get("rideshare_state") or {}) if isinstance(work_state.get("rideshare_state"), dict) else {}).get("time_cost_per_trip_units"),
+                    RIDESHARE_TIME_COST_PER_TRIP_UNITS,
+                ),
+            },
         }
     )
 
@@ -1575,7 +1587,7 @@ def _successful_action_response(
     action_key: str,
     message: str,
     result_summary: str,
-    time_cost_units: int,
+    time_cost_units: float,
     cash_delta_xgp: float = 0.0,
     stress_delta: int = 0,
     health_delta: int = 0,
@@ -1600,7 +1612,7 @@ def _successful_action_response(
         "success": True,
         "message": message,
         "result_summary": result_summary,
-        "time_cost_units": int(time_cost_units),
+        "time_cost_units": float(time_cost_units),
         "cash_delta_xgp": float(cash_delta_xgp),
         "stress_delta": int(stress_delta),
         "health_delta": int(health_delta),
@@ -2378,14 +2390,62 @@ def execute_gameplay_action(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Could not start training because no certification was selected.",
             )
+        hours_before = _safe_int(getattr(player, "hours_available", 0), 0)
+        cash_before = _q4_decimal(getattr(player, "cash", 0))
+        if hours_before < 1:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Not enough time left today to start training (1 unit needed).",
+            )
         try:
             result = start_certification_track(db, player_id, certification_key)
-            db.commit()
-            db.refresh(player)
+            if not bool(result.get("enrolled")):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=str(result.get("message") or "Training is already active for this certification."),
+                )
+
+            current_day = int(work_state.get("current_game_day") or _current_game_day(db))
+            player.hours_available = max(0, hours_before - 1)  # type: ignore[assignment]
+            player.last_worked_day = current_day
+            pds = ensure_player_daily_state(
+                db,
+                player=player,
+                day_number=current_day,
+                defaults={
+                    "hours_available_start": hours_before,
+                    "hours_available_end": hours_before,
+                    "worked_main_job": False,
+                    "did_settlement": False,
+                    "stress_start": int(getattr(player, "stress", 0) or 0),
+                    "stress_end": int(getattr(player, "stress", 0) or 0),
+                    "health_start": int(getattr(player, "health", 100) or 100),
+                    "health_end": int(getattr(player, "health", 100) or 100),
+                    "cash_start": cash_before,
+                    "cash_end": cash_before,
+                },
+            )
+            pds.total_hours_used = _q4_decimal(Decimal(str(getattr(pds, "total_hours_used", 0) or 0)) + Decimal("1"))
+            pds.hours_available_end = int(getattr(player, "hours_available", 0) or 0)
+            pds.cash_end = _q4_decimal(getattr(player, "cash", 0))
             cert_label = str(
                 (CERTIFICATION_CATALOG.get(certification_key, {}) or {}).get("display_name")
                 or certification_key.replace("_", " ").title()
             )
+            cost_xgp = max(0.0, _safe_float(result.get("cost_xgp"), 0.0))
+            if cost_xgp > 0:
+                record_gameplay_transaction(
+                    db,
+                    player=player,
+                    day=current_day,
+                    transaction_type="expense",
+                    category="training",
+                    amount=cost_xgp,
+                    description=f"Training fee: {cert_label}",
+                )
+
+            db.commit()
+            db.refresh(player)
             remaining_days = int(result.get("training_days_remaining") or 0)
             detailed_result = {
                 **result,
@@ -2398,10 +2458,11 @@ def execute_gameplay_action(
                 action_key=action_key,
                 message=str(result.get("message") or f"Training started for {cert_label}."),
                 result_summary=(
-                    f"Training started: {cert_label} - {remaining_days} day{'s' if remaining_days != 1 else ''} remaining"
+                    f"Training enrolled: {cert_label} - 0 / {int(result.get('certification_required_days') or 0)} days complete. "
+                    f"{remaining_days} day{'s' if remaining_days != 1 else ''} remaining."
                 ),
                 time_cost_units=1,
-                cash_delta_xgp=-_safe_float(result.get("cost_xgp"), 0.0),
+                cash_delta_xgp=-cost_xgp,
                 raw_result=detailed_result,
                 result=detailed_result,
             )
@@ -2701,7 +2762,13 @@ def execute_gameplay_action(
                 current_health=current_health_override,
             )
             completed_trips = max(0, _safe_int(result.get("trips"), requested_trips))
-            time_used = max(1, _safe_int(result.get("time_used"), completed_trips or 1))
+            time_used = max(
+                RIDESHARE_TIME_COST_PER_TRIP_UNITS,
+                _safe_float(
+                    result.get("time_used"),
+                    round((completed_trips or 1) * RIDESHARE_TIME_COST_PER_TRIP_UNITS, 4),
+                ),
+            )
             earned = _safe_float(result.get("earned"), _safe_float(result.get("net_income_xgp")))
             mode_used = str(result.get("mode") or result.get("mode_used") or "midday")
             partial_completion = bool(result.get("partial_completion", False))
@@ -3082,6 +3149,3 @@ def execute_gameplay_action(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         detail=f"Unsupported action_key '{action_key}'.",
     )
-
-
-

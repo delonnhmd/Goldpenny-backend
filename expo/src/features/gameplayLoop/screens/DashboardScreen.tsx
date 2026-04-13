@@ -206,13 +206,15 @@ function formatMinutesLabel(totalMinutes: number): string {
 }
 
 function formatUnitButtonLabel(units: number): string {
-  const safeUnits = Math.max(0, Math.round(Number(units) || 0));
-  return `${safeUnits}u`;
+  const safeUnits = Math.max(0, Math.round((Number(units) || 0) * 100) / 100);
+  const display = Number.isInteger(safeUnits) ? String(safeUnits) : safeUnits.toFixed(1).replace(/\.0$/, '');
+  return `${display}u`;
 }
 
 function formatTimedUnitRateLabel(units = 1): string {
-  const safeUnits = Math.max(0, Math.round(Number(units) || 0));
-  return `${safeUnits}u/${BALANCE.REALTIME.MINUTES_PER_UNIT}m`;
+  const safeUnits = Math.max(0, Math.round((Number(units) || 0) * 100) / 100);
+  const display = Number.isInteger(safeUnits) ? String(safeUnits) : safeUnits.toFixed(1).replace(/\.0$/, '');
+  return `${display}u/${BALANCE.REALTIME.MINUTES_PER_UNIT}m`;
 }
 
 function shiftWindowLabel(workState?: {
@@ -900,11 +902,14 @@ export default function DashboardScreen() {
       ? String(rideshareState.mode)
       : getRideshareMode(houstonHour)
   ) as RideshareMode;
-  const rideshareTripsToday = rideshareState?.trips_today ?? Math.max(0, Math.round(workState?.side_income_hours_today ?? 0));
+  const rideshareTripsToday = rideshareState?.trips_today ?? Math.max(
+    0,
+    Math.round(Number(workState?.side_income_hours_today ?? 0) / Math.max(0.5, Number(rideshareState?.time_cost_per_trip_units || 0.5))),
+  );
   const rideshareDailyCap = rideshareState?.max_trips ?? Math.max(1, rideshareCapToday || Number(BALANCE.ACTION_CAPS.side_income || 6));
   const rideshareRemainingTrips = rideshareState?.remaining_trips ?? Math.max(0, rideshareDailyCap - rideshareTripsToday);
   const rideshareHoursRemainingToday = rideshareState?.hours_remaining_today ?? Math.max(0, Number(workState?.hours_available || 0));
-  const rideshareTimeCostPerTrip = Math.max(1, Number(rideshareState?.time_cost_per_trip_units || 1));
+  const rideshareTimeCostPerTrip = Math.max(0.5, Number(rideshareState?.time_cost_per_trip_units || 0.5));
   const rideshareStressThreshold = Math.max(1, Number(rideshareState?.stress_threshold || BALANCE.RIDESHARE.MAX_STRESS));
   const rideshareHealthThreshold = Math.max(0, Number(rideshareState?.health_threshold || BALANCE.RIDESHARE.MIN_HEALTH));
   const rideshareEarnedToday = useMemo(
@@ -1080,7 +1085,6 @@ export default function DashboardScreen() {
     || firstSessionFlag
     || !hasStarterJobSelected,
   );
-  const endDayDisabled = !loop.dailyProgression.canAdvanceDay || loop.endingDay || backendShiftActive || autoClockingOut;
   const economySummaryLine = String(
     economyOverview?.summary_line
     || 'Market signals are available for today.',
@@ -1625,7 +1629,7 @@ export default function DashboardScreen() {
       parameters: {
         ...(sideIncomeAction.parameters || {}),
         trips,
-        time_cost_units: trips,
+        time_cost_units: trips * rideshareTimeCostPerTrip,
       },
     };
 
@@ -1789,10 +1793,9 @@ export default function DashboardScreen() {
           }
           secondaryLabel="Check Market"
           onSecondaryPress={() => onboarding.navigateTo('market')}
-          primaryLabel={loop.endingDay ? 'Settling Day...' : 'End Day'}
-          onPrimaryPress={() => void loop.endCurrentDay()}
-          primaryLoading={loop.endingDay}
-          primaryDisabled={endDayDisabled}
+          primaryLabel="Open Summary"
+          onPrimaryPress={() => onboarding.navigateTo('summary')}
+          primaryDisabled={false}
         />
       )}
     >

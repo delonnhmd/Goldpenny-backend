@@ -11,7 +11,7 @@ export const BALANCE = {
   // ─── Time cost per action type (units consumed per use) ───────────────────────
   ACTION_TIME_COST: {
     work_shift: 3,       // heavy — takes most of a half-day slot
-    side_income: 1,
+    side_income: 0.5,
     operate_business: 2,
     buy_inventory: 1,
     rest: 2,
@@ -106,7 +106,7 @@ export const BALANCE = {
     MAX_PERCENTAGE_STAT: 100,
     MIN_CREDIT_SCORE: 300,
     MAX_CREDIT_SCORE: 850,
-    MIN_TIME_COST_UNITS: 1,
+    MIN_TIME_COST_UNITS: 0.5,
     MAX_TIME_COST_UNITS: 8,
     MAX_GAME_DAY: 36500,
     MAX_NET_CASHFLOW_MISMATCH_XGP: 1000,

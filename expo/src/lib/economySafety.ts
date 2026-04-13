@@ -120,11 +120,14 @@ export function normalizeTimeUnits(
 }
 
 export function normalizeTimeCostUnits(value: unknown, fallback = 2): number {
-  return normalizeFiniteNumber(value, {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  if (parsed <= 0) return 0;
+  return normalizeFiniteNumber(parsed, {
     fallback,
     min: BALANCE.SAFETY.MIN_TIME_COST_UNITS,
     max: BALANCE.SAFETY.MAX_TIME_COST_UNITS,
-    round: 'round',
+    round: 'none',
   });
 }
 

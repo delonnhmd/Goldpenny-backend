@@ -103,8 +103,8 @@ function clampTotalUnits(value: number | undefined): number {
 
 function clampRemainingUnits(value: number | undefined, totalUnits: number): number | null {
   if (!Number.isFinite(value)) return null;
-  const boundedTotal = Math.max(0, Math.round(totalUnits || 0));
-  return Math.max(0, Math.min(boundedTotal, Math.round(Number(value))));
+  const boundedTotal = Math.max(0, Number(totalUnits || 0));
+  return Math.max(0, Math.min(boundedTotal, Math.round(Number(value) * 100) / 100));
 }
 
 function minutesFromIso(startIso: string | null | undefined, endDate = new Date()): number {

@@ -66,7 +66,7 @@ export default function JobMarketPanel({
       {jobMarket.training_active ? (
         <GameplayWarningBanner
           title={`Training: ${jobMarket.training_certification_name || 'Certification'}`}
-          message={`Progress ${Math.max(0, Number(jobMarket.training_days_completed || 0))} / ${Math.max(0, Number(jobMarket.training_days_required || 0))} days - ${Math.max(0, Number(jobMarket.training_days_remaining || 0))} remaining`}
+          message={`Progress ${Math.max(0, Number(jobMarket.training_days_completed || 0))} / ${Math.max(0, Number(jobMarket.training_days_required || 0))} days - ${Math.max(0, Number(jobMarket.training_days_remaining || 0))} remaining. Use Skill Training to advance progress.`}
           tone="info"
         />
       ) : null}
@@ -198,12 +198,21 @@ export default function JobMarketPanel({
               {trainingProgress ? (
                 <Text style={styles.trainingMeta}>Training progress: {trainingProgress} days</Text>
               ) : null}
+              {trainingInProgress ? (
+                <Text style={styles.trainingMeta}>Enrollment active. Use Skill Training to move this certification forward.</Text>
+              ) : null}
 
               {canSwitch ? (
                 <PrimaryButton
                   label={busySwitch ? 'Switching...' : `Switch to ${job.display_name}\n(${switchJobUnitLabel})`}
                   disabled={busySwitch || busyTraining}
                   onPress={() => onSwitchJob(job)}
+                  style={styles.button}
+                />
+              ) : trainingInProgress ? (
+                <SecondaryButton
+                  label="Training In Progress"
+                  disabled
                   style={styles.button}
                 />
               ) : canTrain ? (

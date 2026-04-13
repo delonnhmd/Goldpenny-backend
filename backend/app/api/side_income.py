@@ -18,6 +18,7 @@ from app.db.database import get_db
 from app.engine.daily_engine import get_or_create_game_state
 from app.engine.rideshare_engine import (
     MAX_RIDESHARE_HOURS_PER_DAY,
+    RIDESHARE_TIME_COST_PER_TRIP_UNITS,
     TRIP_OPTIONS,
     process_rideshare_action,
 )
@@ -69,7 +70,7 @@ class RideShareResponse(BaseModel):
     mode: str
     mode_used: str
     earned: float
-    time_used: int
+    time_used: float
     time_used_hours: float = 0.0
     current_houston_time: str
     gross_income_xgp: float
@@ -174,6 +175,7 @@ def get_side_income_options() -> SideIncomeOptionsResponse:
                 uses_oil_index=True,
                 notes=(
                     f"Trip-based side income ({list(TRIP_OPTIONS)} trips per run). "
+                    f"Each trip uses {RIDESHARE_TIME_COST_PER_TRIP_UNITS:g} time units. "
                     "Available outside active work shifts."
                 ),
             )
