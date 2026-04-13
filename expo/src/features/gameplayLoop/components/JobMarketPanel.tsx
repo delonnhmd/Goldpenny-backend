@@ -195,11 +195,35 @@ export default function JobMarketPanel({
                   </Text>
                 </View>
               ) : null}
-              {trainingProgress ? (
-                <Text style={styles.trainingMeta}>Training progress: {trainingProgress} days</Text>
-              ) : null}
               {trainingInProgress ? (
-                <Text style={styles.trainingMeta}>Enrollment active. Use Skill Training to move this certification forward.</Text>
+                <View style={styles.trainingWrap}>
+                  <Text style={styles.trainingTitle}>
+                    Training: {job.certification_name || 'Certification'}
+                  </Text>
+                  <View style={styles.trainingProgressRow}>
+                    <View style={styles.trainingTrack}>
+                      <View
+                        style={[
+                          styles.trainingFill,
+                          {
+                            width: `${Math.max(0, Number(job.training_days_required || 0)) > 0
+                              ? Math.min(100, (Math.max(0, Number(job.training_days_completed || 0)) / Math.max(1, Number(job.training_days_required || 0))) * 100)
+                              : 0}%`,
+                          },
+                        ]}
+                      />
+                    </View>
+                    <Text style={styles.trainingPct}>
+                      {Math.max(0, Number(job.training_days_required || 0)) > 0
+                        ? Math.round((Math.max(0, Number(job.training_days_completed || 0)) / Math.max(1, Number(job.training_days_required || 0))) * 100)
+                        : 0}%
+                    </Text>
+                  </View>
+                  <Text style={styles.trainingMeta}>
+                    {Math.max(0, Number(job.training_days_completed || 0))} / {Math.max(0, Number(job.training_days_required || 0))} days completed · {Math.max(0, Number(job.training_days_remaining ?? (Number(job.training_days_required || 0) - Number(job.training_days_completed || 0))))} days remaining
+                  </Text>
+                  <Text style={styles.trainingHint}>Use Skill Training to advance progress.</Text>
+                </View>
               ) : null}
 
               {canSwitch ? (
@@ -377,10 +401,47 @@ const styles = StyleSheet.create({
     ...theme.typography.bodySm,
     color: theme.color.textSecondary,
   },
+  trainingWrap: {
+    marginTop: theme.spacing.xxs,
+    gap: theme.spacing.xxs,
+  },
+  trainingTitle: {
+    ...theme.typography.caption,
+    color: theme.color.info,
+    fontWeight: '800',
+  },
+  trainingProgressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+  },
+  trainingTrack: {
+    flex: 1,
+    height: 8,
+    borderRadius: theme.radius.pill,
+    backgroundColor: '#dbeafe',
+    overflow: 'hidden',
+  },
+  trainingFill: {
+    height: '100%',
+    backgroundColor: '#2563eb',
+    borderRadius: theme.radius.pill,
+  },
+  trainingPct: {
+    ...theme.typography.caption,
+    color: theme.color.info,
+    fontWeight: '700',
+    minWidth: 32,
+    textAlign: 'right',
+  },
   trainingMeta: {
     ...theme.typography.caption,
     color: theme.color.info,
     fontWeight: '700',
+  },
+  trainingHint: {
+    ...theme.typography.caption,
+    color: theme.color.textSecondary,
   },
   jobProgressWrap: {
     marginTop: theme.spacing.xxs,
