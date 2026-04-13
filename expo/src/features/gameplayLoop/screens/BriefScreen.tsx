@@ -23,6 +23,22 @@ import {
 } from '../components/GameplayUIParts';
 import GameplayLoopScaffold from '../GameplayLoopScaffold';
 
+function formatHoustonTimestamp(iso: string | null | undefined): string {
+  if (!iso) return 'Time unavailable';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return 'Time unavailable';
+  return `${new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'America/Chicago',
+  }).format(date)} CT`;
+}
+
+function formatUnitLabel(units: number): string {
+  const rounded = Math.max(0, Math.round(Number(units) || 0));
+  return `${rounded}u`;
+}
+
 export default function BriefScreen() {
   useScreenTimer('brief');
   const loop = useGameplayLoop();
@@ -62,6 +78,37 @@ export default function BriefScreen() {
   const salaryStatusLabel = String(workState?.salary_status_label || 'No salary posted').replace(/Â·/g, '-');
   const salaryStatusMessage = String(workState?.salary_status_message || 'No salary posted yet.').replace(/Â·/g, '-');
   const lastSalaryPosted = workState?.last_salary_posted || null;
+  const unitSpendHistory = React.useMemo(() => (
+    loop.dailySession.actionsTakenToday
+      .filter((entry) => entry.success && Math.max(0, Number(entry.time_cost_units || 0)) > 0)
+      .map((entry) => ({
+        id: entry.id,
+        title: entry.title,
+        timestampLabel: formatHoustonTimestamp(entry.executed_at),
+        detail: entry.result_summary || entry.description || 'Time spent on action.',
+        units: Math.max(0, Number(entry.time_cost_units || 0)),
+      }))
+  ), [loop.dailySession.actionsTakenToday]);
+  const totalUnitsSpent = React.useMemo(
+    () => unitSpendHistory.reduce((sum, entry) => sum + entry.units, 0),
+    [unitSpendHistory],
+  );
+  const xgpSpendHistory = React.useMemo(() => (
+    [...transactions]
+      .filter((entry) => Number(entry.amount || 0) < 0)
+      .sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime())
+      .map((entry) => ({
+        id: entry.id,
+        title: entry.description,
+        timestampLabel: formatHoustonTimestamp(entry.timestamp),
+        detail: entry.category.replace(/_/g, ' '),
+        amount: Math.abs(Number(entry.amount || 0)),
+      }))
+  ), [transactions]);
+  const totalXgpSpent = React.useMemo(
+    () => xgpSpendHistory.reduce((sum, entry) => sum + entry.amount, 0),
+    [xgpSpendHistory],
+  );
 
   const primaryLabel = hasSummary || summaryMissingAfterSettlement
     ? 'Start Next Day'
@@ -188,6 +235,98 @@ export default function BriefScreen() {
           </Text>
         )}
       </GameplaySummaryCard>
+      </SlideFadeInOnChange>
+
+      <SlideFadeInOnChange
+        watchValue={`brief_unit_spend_${dayLabel}_${unitSpendHistory.length}_${totalUnitsSpent}_${loop.dailySession.remainingTimeUnits}`}
+        delayMs={100}
+      >
+        <GameplaySummaryCard eyebrow="Time" title="Unit Spend History">
+          <GameplayCompactMetricRows
+            items={[
+              {
+                label: 'Units spent',
+                value: `${formatUnitLabel(totalUnitsSpent)} / ${formatUnitLabel(loop.dailySession.totalTimeUnits)}`,
+                tone: totalUnitsSpent > 0 ? 'warning' : 'neutral',
+              },
+              {
+                label: 'Units left',
+                value: formatUnitLabel(loop.dailySession.remainingTimeUnits),
+                tone: loop.dailySession.remainingTimeUnits <= 2 ? 'warning' : 'info',
+              },
+              {
+                label: 'Spend entries',
+                value: String(unitSpendHistory.length),
+                tone: 'neutral',
+              },
+            ]}
+          />
+          {unitSpendHistory.length > 0 ? (
+            <View style={styles.transactionList}>
+              {unitSpendHistory.map((entry) => (
+                <View key={`unit_${entry.id}`} style={styles.transactionRow}>
+                  <View style={styles.transactionCopy}>
+                    <Text style={styles.transactionTitle}>{entry.title}</Text>
+                    <Text style={styles.transactionMeta}>{entry.timestampLabel} | {entry.detail}</Text>
+                  </View>
+                  <Text style={[styles.transactionAmount, styles.infoText]}>
+                    -{formatUnitLabel(entry.units)}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.txPlaceholder}>
+              No time units have been spent yet for Day {dayLabel}.
+            </Text>
+          )}
+        </GameplaySummaryCard>
+      </SlideFadeInOnChange>
+
+      <SlideFadeInOnChange
+        watchValue={`brief_xgp_spend_${dayLabel}_${xgpSpendHistory.length}_${Math.round(totalXgpSpent * 100)}`}
+        delayMs={110}
+      >
+        <GameplaySummaryCard eyebrow="Cash" title="XGP Spend History">
+          <GameplayCompactMetricRows
+            items={[
+              {
+                label: 'Spent today',
+                value: formatMoney(totalXgpSpent),
+                tone: totalXgpSpent > 0 ? 'danger' : 'neutral',
+              },
+              {
+                label: 'Expense entries',
+                value: String(xgpSpendHistory.length),
+                tone: 'neutral',
+              },
+              {
+                label: 'Net flow',
+                value: `${(dailyActivity?.net ?? netFlow) > 0 ? '+' : ''}${formatMoney(dailyActivity?.net ?? netFlow)}`,
+                tone: toneFromSignedValue(dailyActivity?.net ?? netFlow),
+              },
+            ]}
+          />
+          {xgpSpendHistory.length > 0 ? (
+            <View style={styles.transactionList}>
+              {xgpSpendHistory.map((entry) => (
+                <View key={`spend_${entry.id}`} style={styles.transactionRow}>
+                  <View style={styles.transactionCopy}>
+                    <Text style={styles.transactionTitle}>{entry.title}</Text>
+                    <Text style={styles.transactionMeta}>{entry.timestampLabel} | {entry.detail}</Text>
+                  </View>
+                  <Text style={[styles.transactionAmount, styles.negativeText]}>
+                    -{formatMoney(entry.amount)}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.txPlaceholder}>
+              No XGP spending has been recorded yet for Day {dayLabel}.
+            </Text>
+          )}
+        </GameplaySummaryCard>
       </SlideFadeInOnChange>
 
       <SlideFadeInOnChange
@@ -383,6 +522,9 @@ const styles = StyleSheet.create({
   },
   positiveText: {
     color: theme.color.positive,
+  },
+  infoText: {
+    color: theme.color.info,
   },
   negativeText: {
     color: theme.color.danger,
