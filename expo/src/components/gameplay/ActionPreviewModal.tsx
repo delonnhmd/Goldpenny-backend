@@ -9,6 +9,8 @@ import SecondaryButton from '@/components/ui/SecondaryButton';
 import SurfaceCard from '@/components/ui/SurfaceCard';
 import { ActionExecutionGuard } from '@/hooks/useDailySession';
 import { confidenceLabel, trendLabel } from '@/lib/gameplayFormatters';
+import { BALANCE } from '@/lib/balanceConfig';
+import { isTimedActivityActionKey } from '@/lib/realtimeActivity';
 import { ActionPreviewResponse, DailyActionItem } from '@/types/gameplay';
 import { theme } from '@/design/theme';
 
@@ -61,6 +63,14 @@ export default function ActionPreviewModal({
     !hasPreviewBlockers &&
     !blockedByGuard &&
     !executing;
+  const normalizedActionKey = String(action?.action_key || '').trim().toLowerCase();
+  const isTimedAction = isTimedActivityActionKey(normalizedActionKey);
+  const timeCostLabel = isTimedAction
+    ? `1u/${BALANCE.REALTIME.MINUTES_PER_UNIT}m`
+    : `${Math.max(0, Number(executeGuard?.timeCostUnits || 0))}u`;
+  const executeButtonLabel = executing
+    ? 'Executing...'
+    : `Execute Action (${timeCostLabel})`;
 
   return (
     <SlideUpPanel visible={visible} onClose={onClose}>
@@ -97,7 +107,7 @@ export default function ActionPreviewModal({
                   <Text style={styles.metaTitle}>Confidence</Text>
                   <Text style={styles.metaText}>{confidenceLabel(preview.confidence_level)}</Text>
                   {executeGuard ? (
-                    <Text style={styles.metaText}>Time Cost: {executeGuard.timeCostUnits} units</Text>
+                    <Text style={styles.metaText}>Time Cost: {isTimedAction ? `${BALANCE.REALTIME.MINUTES_PER_UNIT} min per unit` : `${executeGuard.timeCostUnits} units`}</Text>
                   ) : null}
                 </SurfaceCard>
 
@@ -133,7 +143,7 @@ export default function ActionPreviewModal({
             <ActionRow>
               <SecondaryButton label="Back" onPress={onClose} />
               <PrimaryButton
-                label={executing ? 'Executing...' : 'Execute Action'}
+                label={executeButtonLabel}
                 onPress={action && onExecuteAction ? () => onExecuteAction() : undefined}
                 disabled={!canExecute}
                 loading={Boolean(executing)}

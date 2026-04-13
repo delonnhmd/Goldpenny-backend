@@ -66,5 +66,6 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     ...theme.typography.label,
     fontWeight: '800',
+    textAlign: 'center',
   },
 });

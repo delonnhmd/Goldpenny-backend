@@ -4,6 +4,8 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { theme } from '@/design/theme';
 
 import { actionStatusColor, confidenceLabel } from '@/lib/gameplayFormatters';
+import { BALANCE } from '@/lib/balanceConfig';
+import { isTimedActivityActionKey } from '@/lib/realtimeActivity';
 import { DailyActionItem } from '@/types/gameplay';
 import { ActionExecutionGuard } from '@/hooks/useDailySession';
 
@@ -21,6 +23,12 @@ export default function ActionCard({
   const priorityTone = action.status === 'recommended' ? styles.cardRecommended : null;
   const primaryWarning = action.warnings?.[0] || action.tradeoffs?.[0] || null;
   const metaSummary = confidenceLabel(action.confidence_level);
+  const normalizedActionKey = String(action.action_key || '').trim().toLowerCase();
+  const isTimedAction = isTimedActivityActionKey(normalizedActionKey);
+  const timeCostLabel = isTimedAction
+    ? `1u/${BALANCE.REALTIME.MINUTES_PER_UNIT}m`
+    : `${Math.max(0, executionGuard.timeCostUnits)}u`;
+  const buttonLabel = `Start (${timeCostLabel})`;
 
   return (
     <View style={[styles.card, priorityTone]}>
@@ -43,7 +51,7 @@ export default function ActionCard({
       <View style={styles.metaRow}>
         <View style={styles.metaChip}>
           <Text style={styles.metaChipLabel}>Time</Text>
-          <Text style={styles.metaChipValue}>{executionGuard.timeCostUnits} units</Text>
+          <Text style={styles.metaChipValue}>{isTimedAction ? `${BALANCE.REALTIME.MINUTES_PER_UNIT} min per unit` : `${executionGuard.timeCostUnits} units`}</Text>
         </View>
         <View style={styles.metaChip}>
           <Text style={styles.metaChipLabel}>Read</Text>
@@ -63,7 +71,7 @@ export default function ActionCard({
         disabled={disabled}
         style={[styles.button, disabled ? styles.buttonDisabled : null]}
       >
-        <Text style={styles.buttonText}>Start</Text>
+        <Text style={styles.buttonText}>{buttonLabel}</Text>
       </TouchableOpacity>
     </View>
   );
@@ -181,5 +189,6 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     ...theme.typography.label,
     fontWeight: '700',
+    textAlign: 'center',
   },
 });

@@ -205,6 +205,16 @@ function formatMinutesLabel(totalMinutes: number): string {
   return `${rounded} min`;
 }
 
+function formatUnitButtonLabel(units: number): string {
+  const safeUnits = Math.max(0, Math.round(Number(units) || 0));
+  return `${safeUnits}u`;
+}
+
+function formatTimedUnitRateLabel(units = 1): string {
+  const safeUnits = Math.max(0, Math.round(Number(units) || 0));
+  return `${safeUnits}u/${BALANCE.REALTIME.MINUTES_PER_UNIT}m`;
+}
+
 function shiftWindowLabel(workState?: {
   is_weekend?: boolean | null;
   scheduled_shift_window_label?: string | null;
@@ -870,6 +880,7 @@ export default function DashboardScreen() {
   const rideshareDailyCap = rideshareState?.max_trips ?? Math.max(1, rideshareCapToday || Number(BALANCE.ACTION_CAPS.side_income || 6));
   const rideshareRemainingTrips = rideshareState?.remaining_trips ?? Math.max(0, rideshareDailyCap - rideshareTripsToday);
   const rideshareHoursRemainingToday = rideshareState?.hours_remaining_today ?? Math.max(0, Number(workState?.hours_available || 0));
+  const rideshareTimeCostPerTrip = Math.max(1, Number(rideshareState?.time_cost_per_trip_units || 1));
   const rideshareStressThreshold = Math.max(1, Number(rideshareState?.stress_threshold || BALANCE.RIDESHARE.MAX_STRESS));
   const rideshareHealthThreshold = Math.max(0, Number(rideshareState?.health_threshold || BALANCE.RIDESHARE.MIN_HEALTH));
   const rideshareEarnedToday = useMemo(
@@ -2070,7 +2081,7 @@ export default function DashboardScreen() {
                   ? 'Starting shift...'
                   : backendShiftActive
                     ? `On shift (${shiftRemainingLabel})`
-                    : String(workShiftAction?.title || 'Clock In')
+                    : `${String(workShiftAction?.title || 'Clock In')} (${formatUnitButtonLabel(workExecutionGuard.timeCostUnits)})`
             }
             onPress={() => void handleClockIn()}
             disabled={!canClockIn || backendShiftActive || autoClockingOut || runningWorkAction}
@@ -2329,7 +2340,11 @@ export default function DashboardScreen() {
                   </View>
                   <View style={styles.recoveryActionWrap}>
                     <SecondaryButton
-                      label={runningSideIncome ? 'Running...' : `Run ${tripOption}`}
+                      label={
+                        runningSideIncome
+                          ? 'Running...'
+                          : `Run ${tripOption} (${formatUnitButtonLabel(tripOption * rideshareTimeCostPerTrip)})`
+                      }
                       onPress={() => void runRideShareTrip(tripOption)}
                       disabled={Boolean(buttonDisabledReason)}
                     />
@@ -2506,7 +2521,7 @@ export default function DashboardScreen() {
                 </View>
                 <View style={styles.recoveryActionWrap}>
                   <SecondaryButton
-                    label={running ? 'Stop' : 'Start'}
+                    label={running ? 'Stop' : `Start (${formatTimedUnitRateLabel(1)})`}
                     onPress={() => {
                       handleTimedActivityPress(preset.id);
                     }}
@@ -2583,26 +2598,26 @@ export default function DashboardScreen() {
           />
         ) : null}
         <Text style={styles.helperText}>
-          Meals start immediately, require at least {BALANCE.REALTIME.MEAL_MIN_MINUTES} minutes, and deduct time over time instead of on button press.
+          Meals cost 6 XGP each, require at least {BALANCE.REALTIME.MEAL_MIN_MINUTES} minutes, and then deduct {formatTimedUnitRateLabel(1)} while active instead of charging time on button press.
         </Text>
         <View style={styles.buttonRow}>
           <View style={styles.mealBtn}>
             <PrimaryButton
-              label={busyMeal === 'eat_breakfast' ? 'Eating...' : 'Breakfast (-6 XGP)'}
+              label={busyMeal === 'eat_breakfast' ? 'Eating...' : `Breakfast\n(-6 XGP • ${formatTimedUnitRateLabel(1)})`}
               onPress={() => void handleEat('breakfast')}
               disabled={busyLife || cash < 6}
             />
           </View>
           <View style={styles.mealBtn}>
             <SecondaryButton
-              label={busyMeal === 'eat_lunch' ? 'Eating...' : 'Lunch (-6 XGP)'}
+              label={busyMeal === 'eat_lunch' ? 'Eating...' : `Lunch\n(-6 XGP • ${formatTimedUnitRateLabel(1)})`}
               onPress={() => void handleEat('lunch')}
               disabled={busyLife || cash < 6}
             />
           </View>
           <View style={styles.mealBtn}>
             <SecondaryButton
-              label={busyMeal === 'eat_dinner' ? 'Eating...' : 'Dinner (-6 XGP)'}
+              label={busyMeal === 'eat_dinner' ? 'Eating...' : `Dinner\n(-6 XGP • ${formatTimedUnitRateLabel(1)})`}
               onPress={() => void handleEat('dinner')}
               disabled={busyLife || Boolean(workState?.day_settled) || dinnerResolvedToday}
             />
@@ -2643,7 +2658,7 @@ export default function DashboardScreen() {
         </Text>
         <View style={styles.loanConfirmBtn}>
           <PrimaryButton
-            label={busyLoan ? 'Borrowing...' : `Borrow ${loanAmount} XGP`}
+            label={busyLoan ? 'Borrowing...' : `Borrow ${loanAmount} XGP (0u)`}
             onPress={() => void handleLoan()}
             disabled={busyFinance}
           />
@@ -2665,7 +2680,7 @@ export default function DashboardScreen() {
           />
           <View style={styles.debtPayButtonWrap}>
             <PrimaryButton
-              label={busyDebtPayment ? 'Paying...' : 'Pay Debt'}
+              label={busyDebtPayment ? 'Paying...' : 'Pay Debt (0u)'}
               onPress={() => void handleDebtPayment()}
               disabled={busyFinance || maxDebtPayable <= 0}
             />
@@ -2675,7 +2690,7 @@ export default function DashboardScreen() {
           {[10, 25, 50].map((quickAmount) => (
             <View key={`quick_debt_${quickAmount}`} style={styles.loanAmtBtn}>
               <SecondaryButton
-                label={`Pay ${quickAmount}`}
+                label={`Pay ${quickAmount} (0u)`}
                 onPress={() => void handleDebtPayment(quickAmount)}
                 disabled={busyFinance || quickAmount > maxDebtPayable}
               />
@@ -2683,7 +2698,7 @@ export default function DashboardScreen() {
           ))}
           <View style={styles.loanAmtBtn}>
             <SecondaryButton
-              label="Pay Max"
+              label="Pay Max (0u)"
               onPress={() => void handleDebtPayment(maxDebtPayable)}
               disabled={busyFinance || maxDebtPayable <= 0}
             />
@@ -2966,4 +2981,3 @@ const styles = StyleSheet.create({
     gap: theme.spacing.sm,
   },
 });
-

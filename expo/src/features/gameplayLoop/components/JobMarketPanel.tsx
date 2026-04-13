@@ -4,6 +4,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import SecondaryButton from '@/components/ui/SecondaryButton';
 import { theme } from '@/design/theme';
+import { BALANCE } from '@/lib/balanceConfig';
 import { formatMoney } from '@/lib/gameplayFormatters';
 import { JobMarketJobSnapshot, WorkJobMarketSnapshot } from '@/types/gameplay';
 
@@ -39,6 +40,8 @@ export default function JobMarketPanel({
   const currentJobProgressPct = currentJobXpToNext > 0
     ? Math.max(0, Math.min(100, (currentJobXp / currentJobXpToNext) * 100))
     : 100;
+  const switchJobUnitLabel = `${Math.max(0, Number(BALANCE.ACTION_TIME_COST.switch_job || 1))}u`;
+  const trainingUnitLabel = '1u';
 
   return (
     <GameplaySummaryCard
@@ -198,14 +201,14 @@ export default function JobMarketPanel({
 
               {canSwitch ? (
                 <PrimaryButton
-                  label={busySwitch ? 'Switching...' : `Switch to ${job.display_name}`}
+                  label={busySwitch ? 'Switching...' : `Switch to ${job.display_name}\n(${switchJobUnitLabel})`}
                   disabled={busySwitch || busyTraining}
                   onPress={() => onSwitchJob(job)}
                   style={styles.button}
                 />
               ) : canTrain ? (
                 <SecondaryButton
-                  label={busyTraining ? 'Starting...' : 'Start Training'}
+                  label={busyTraining ? 'Starting...' : `Start Training\n(${trainingUnitLabel})`}
                   disabled={busyTraining || busySwitch}
                   onPress={() => onStartTraining(job)}
                   style={styles.button}
