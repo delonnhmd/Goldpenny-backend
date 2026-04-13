@@ -79,6 +79,7 @@ SALARY_PAYMENT_STATUS_FAILED = "failed"
 RIDESHARE_DAILY_CAP = 6
 RIDESHARE_MIN_HEALTH = 16
 RIDESHARE_MAX_STRESS = 80
+DAILY_TIME_UNITS = 24
 GAME_EPOCH = date(2026, 1, 1)
 MISSED_SHIFT_HEALTH_DELTA = -5
 MISSED_SHIFT_STRESS_DELTA = 6
@@ -1522,7 +1523,7 @@ def _maybe_reset_daily_counters(player: Player, current_day: int) -> bool:
         or int(getattr(player, "side_job_hours_today", 0) or 0) != 0
         or int(getattr(player, "total_hours_worked_today", 0) or 0) != 0
         or int(getattr(player, "work_actions_today", 0) or 0) != 0
-        or int(getattr(player, "hours_available", 16) or 16) != 16
+        or int(getattr(player, "hours_available", DAILY_TIME_UNITS) or DAILY_TIME_UNITS) != DAILY_TIME_UNITS
         or bool(getattr(player, "main_shift_active_flag", False))
         or str(getattr(player, "main_shift_status", SHIFT_STATUS_IDLE) or SHIFT_STATUS_IDLE) != SHIFT_STATUS_IDLE
     )
@@ -1531,7 +1532,7 @@ def _maybe_reset_daily_counters(player: Player, current_day: int) -> bool:
     player.side_job_hours_today = 0
     player.total_hours_worked_today = 0
     player.work_actions_today = 0
-    player.hours_available = 16
+    player.hours_available = DAILY_TIME_UNITS
 
     if not bool(getattr(player, "main_shift_active_flag", False)):
         player.main_shift_status = SHIFT_STATUS_IDLE

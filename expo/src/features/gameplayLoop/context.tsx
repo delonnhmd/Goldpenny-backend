@@ -183,6 +183,26 @@ function deriveSuggestedTimeUnits(bundle: GameplayLoopBundle | null): number {
   return configuredUnits;
 }
 
+function deriveSuggestedRemainingTimeUnits(bundle: GameplayLoopBundle | null): number | undefined {
+  if (!bundle) return undefined;
+  const candidates = [
+    Number(bundle.authoritativeState?.work_state?.remaining_time_units),
+    Number(bundle.authoritativeState?.work_state?.hours_available),
+    Number(bundle.actionHub.work_state?.remaining_time_units),
+    Number(bundle.actionHub.work_state?.hours_available),
+    Number(bundle.dashboard.work_state?.remaining_time_units),
+    Number(bundle.dashboard.work_state?.hours_available),
+    Number(bundle.actionHub.debug_meta?.remaining_time_units),
+    Number(bundle.dashboard.debug_meta?.remaining_time_units),
+  ];
+  for (const candidate of candidates) {
+    if (Number.isFinite(candidate)) {
+      return Math.max(0, Math.round(candidate));
+    }
+  }
+  return undefined;
+}
+
 function resolveDailyActivityDay(
   bundle: GameplayLoopBundle,
   sessionStatus: 'active' | 'ended',
@@ -509,7 +529,11 @@ export function GameplayLoopProvider({
     const sessionDay = Number.isFinite(dayFromSummary) && dayFromSummary > 0
       ? dayFromSummary
       : dailyProgression.currentGameDay;
-    initializeDay(sessionDay, deriveSuggestedTimeUnits(bundle));
+    initializeDay(
+      sessionDay,
+      deriveSuggestedTimeUnits(bundle),
+      deriveSuggestedRemainingTimeUnits(bundle),
+    );
   }, [
     bundle,
     dailyProgression.currentGameDay,

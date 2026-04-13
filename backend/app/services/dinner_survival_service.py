@@ -25,6 +25,7 @@ MISSED_DINNER_HEALTH_DELTA = -4
 MISSED_DINNER_STRESS_DELTA = 6
 NIGHT_REMINDER_START_HOUR = 18
 MAX_OFFLINE_CATCHUP_DAYS = 30
+DEFAULT_DAILY_TIME_UNITS = 24
 
 
 def _d(value: object) -> Decimal:
@@ -58,8 +59,8 @@ def _get_or_create_daily_state(db: Session, *, player: Player, day_number: int) 
         player=player,
         day_number=int(day_number),
         defaults={
-            "hours_available_start": int(getattr(player, "hours_available", 16) or 16),
-            "hours_available_end": int(getattr(player, "hours_available", 16) or 16),
+            "hours_available_start": int(getattr(player, "hours_available", DEFAULT_DAILY_TIME_UNITS) or DEFAULT_DAILY_TIME_UNITS),
+            "hours_available_end": int(getattr(player, "hours_available", DEFAULT_DAILY_TIME_UNITS) or DEFAULT_DAILY_TIME_UNITS),
             "worked_main_job": False,
             "did_settlement": False,
             "stress_start": int(getattr(player, "stress", 0) or 0),
@@ -344,7 +345,7 @@ def run_offline_survival_catchup(
         )
         pds = _get_or_create_daily_state(db, player=player, day_number=day_number)
         pds.did_settlement = True
-        pds.hours_available_end = int(getattr(player, "hours_available", 16) or 16)
+        pds.hours_available_end = int(getattr(player, "hours_available", DEFAULT_DAILY_TIME_UNITS) or DEFAULT_DAILY_TIME_UNITS)
         player.last_settled_day = max(int(getattr(player, "last_settled_day", 0) or 0), day_number)
         processed_days.append(snapshot)
 
@@ -352,7 +353,7 @@ def run_offline_survival_catchup(
     player.side_job_hours_today = 0
     player.total_hours_worked_today = 0
     player.work_actions_today = 0
-    player.hours_available = 16
+    player.hours_available = DEFAULT_DAILY_TIME_UNITS
     player.last_survival_resolved_date = today
 
     logger.info(

@@ -15,6 +15,7 @@ from app.models.player_daily_state import PlayerDailyState
 logger = logging.getLogger(__name__)
 
 Q4 = Decimal("0.0001")
+DEFAULT_DAILY_TIME_UNITS = 24
 
 
 def _q4(value: object) -> Decimal:
@@ -40,7 +41,7 @@ def _find_player_daily_state(db: Session, *, player_id: Any, day_number: int) ->
 
 
 def _base_defaults(player: Player) -> dict[str, Any]:
-    hours_now = _safe_int(getattr(player, "hours_available", 16), 16)
+    hours_now = _safe_int(getattr(player, "hours_available", DEFAULT_DAILY_TIME_UNITS), DEFAULT_DAILY_TIME_UNITS)
     stress_now = _safe_int(getattr(player, "stress", 0), 0)
     health_now = _safe_int(getattr(player, "health", 100), 100)
     cash_now = _q4(getattr(player, "cash", 0))

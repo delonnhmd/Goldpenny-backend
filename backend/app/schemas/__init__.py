@@ -35,7 +35,7 @@ class PlayerBase(_OrmBase):
     reputation: int = 0
     health: int = 100
     stress: int = 0
-    hours_available: int = 16
+    hours_available: int = 24
     main_job: Optional[str] = None
     side_job: Optional[str] = None
     net_worth: float = 1000.0

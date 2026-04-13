@@ -323,7 +323,7 @@ class WorkEngine:
             player.side_job_hours_today = 0
             player.total_hours_worked_today = 0
             player.work_actions_today = 0
-            player.hours_available = 16
+            player.hours_available = 24
 
     # â”€â”€ Validation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 

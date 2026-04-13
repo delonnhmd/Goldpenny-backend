@@ -101,6 +101,12 @@ function clampTotalUnits(value: number | undefined): number {
   });
 }
 
+function clampRemainingUnits(value: number | undefined, totalUnits: number): number | null {
+  if (!Number.isFinite(value)) return null;
+  const boundedTotal = Math.max(0, Math.round(totalUnits || 0));
+  return Math.max(0, Math.min(boundedTotal, Math.round(Number(value))));
+}
+
 function minutesFromIso(startIso: string | null | undefined, endDate = new Date()): number {
   if (!startIso) return 0;
   const startMs = new Date(startIso).getTime();
@@ -377,7 +383,11 @@ export function useDailySession(playerId: string) {
     void runTimedTick(timedActivityRef.current.currentActivity ? 'active_session' : 'idle_away');
   }, [currentDay, runTimedTick]);
 
-  const initializeDay = useCallback((nextDay: number, suggestedTotalUnits?: number) => {
+  const initializeDay = useCallback((
+    nextDay: number,
+    suggestedTotalUnits?: number,
+    suggestedRemainingUnits?: number,
+  ) => {
     const normalizedDay = Math.max(1, Math.round(Number(nextDay) || 0));
     if (!Number.isFinite(normalizedDay) || normalizedDay < 1) return;
     if (normalizedDay === currentDay) return;
@@ -385,12 +395,14 @@ export function useDailySession(playerId: string) {
     initializingRef.current = true;
 
     const clamped = clampTotalUnits(suggestedTotalUnits);
+    const suggestedRemaining = clampRemainingUnits(suggestedRemainingUnits, clamped);
 
-    const freshInit = (dayNumber: number, units: number) => {
+    const freshInit = (dayNumber: number, units: number, remainingUnits?: number | null) => {
       const defaultTimedActivity = createDefaultTimedActivityState();
+      const resolvedRemaining = remainingUnits == null ? units : remainingUnits;
       setCurrentDay(dayNumber);
       setTotalTimeUnits(units);
-      setRemainingTimeUnits(units);
+      setRemainingTimeUnits(resolvedRemaining);
       setActionCounts({});
       setActionsTakenToday([]);
       setSessionStatus('active');
@@ -400,7 +412,7 @@ export function useDailySession(playerId: string) {
     };
 
     if (!playerId) {
-      freshInit(normalizedDay, clamped);
+      freshInit(normalizedDay, clamped, suggestedRemaining);
       initializingRef.current = false;
       return;
     }
@@ -415,13 +427,17 @@ export function useDailySession(playerId: string) {
             Math.min(MAX_TOTAL_TIME_UNITS, Number(persistedSession.remainingTimeUnits) || 0),
           );
           const restoredTotal = clampTotalUnits(persistedSession.totalTimeUnits);
+          const restoredSuggestedRemaining = clampRemainingUnits(suggestedRemainingUnits, restoredTotal);
+          const resolvedRemainingUnits = restoredSuggestedRemaining == null
+            ? restoredUnits
+            : restoredSuggestedRemaining;
           const restoredStatus: DailySessionStatus =
             persistedSession.sessionStatus === 'ended' ? 'ended' : 'active';
           const restoredCounts = sanitizeActionCounts(persistedSession.actionCounts);
           const restoredTimedActivity = sanitizeTimedActivityState(persistedSession.timedActivity);
           setCurrentDay(normalizedDay);
           setTotalTimeUnits(restoredTotal);
-          setRemainingTimeUnits(restoredUnits);
+          setRemainingTimeUnits(resolvedRemainingUnits);
           setActionCounts(restoredCounts);
           setActionsTakenToday([]);
           setSessionStatus(restoredStatus);
@@ -432,7 +448,7 @@ export function useDailySession(playerId: string) {
             action: 'initialize_day',
             context: {
               currentDay: normalizedDay,
-              restoredRemainingTimeUnits: restoredUnits,
+              restoredRemainingTimeUnits: resolvedRemainingUnits,
               restoredStatus,
               restoredActionTypes: Object.keys(restoredCounts).length,
               currentActivity: restoredTimedActivity.currentActivity,
@@ -442,7 +458,7 @@ export function useDailySession(playerId: string) {
           return;
         }
 
-        freshInit(normalizedDay, clamped);
+        freshInit(normalizedDay, clamped, suggestedRemaining);
         initializingRef.current = false;
       })
       .catch((error) => {
@@ -453,7 +469,7 @@ export function useDailySession(playerId: string) {
           },
           error,
         });
-        freshInit(normalizedDay, clamped);
+        freshInit(normalizedDay, clamped, suggestedRemaining);
         initializingRef.current = false;
       });
   }, [currentDay, playerId, sanitizeActionCounts]);

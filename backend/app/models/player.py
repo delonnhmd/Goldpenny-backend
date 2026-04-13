@@ -63,7 +63,7 @@ class Player(Base):
     # hours_available is the player's remaining time budget for the current day.
     # It is consumed by work actions and ONLY resets through end-of-day settlement
     # (POST /daily/settle), never automatically.
-    hours_available = Column(Integer, nullable=False, default=16)
+    hours_available = Column(Integer, nullable=False, default=24)
     main_job_hours_today = Column(Integer, nullable=False, default=0)
     side_job_hours_today = Column(Integer, nullable=False, default=0)
     total_hours_worked_today = Column(Integer, nullable=False, default=0)

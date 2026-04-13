@@ -49,7 +49,7 @@ STARTER_BASELINES: dict[str, dict[str, Decimal | int]] = {
         "credit_score": 640,
         "health": 88,
         "stress": 24,
-        "available_hours": 16,
+        "available_hours": 24,
         "skill_level": 1,
         "reputation": 0,
     },
@@ -60,7 +60,7 @@ STARTER_BASELINES: dict[str, dict[str, Decimal | int]] = {
         "credit_score": 635,
         "health": 86,
         "stress": 28,
-        "available_hours": 16,
+        "available_hours": 24,
         "skill_level": 1,
         "reputation": 0,
     },
@@ -534,7 +534,7 @@ def initialize_starter_player_state(
     db.add(employment_state)
 
     cash_now = _money(_d(player.cash_xgp))
-    starter_hours = int(player.available_hours or 16)
+    starter_hours = int(player.available_hours or 24)
     ensure_player_daily_state(
         db,
         player=player,

@@ -91,7 +91,7 @@ class DayEngine:
 
         player.health = int(self._clamp(float(player.health), 0.0, 100.0))
 
-        player.hours_available = 16
+        player.hours_available = 24
         player.main_job_hours_today = 0
         player.side_job_hours_today = 0
         player.total_hours_worked_today = 0

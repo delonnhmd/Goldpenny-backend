@@ -19,6 +19,7 @@ WEEKDAY_OFF_HOURS_BLOCK = Decimal("2.0")
 WEEKDAY_PASSIVE_RECOVERY_PER_BLOCK = 2
 WEEKDAY_PASSIVE_RECOVERY_RIDESHARE_PER_BLOCK = 1
 WEEKDAY_PASSIVE_RECOVERY_CAP = 8
+DEFAULT_DAILY_TIME_UNITS = 24
 
 RECOVERY_CATEGORY_KEY = "recovery"
 RECOVERY_CATEGORY_LABEL = "Recovery / Leisure"
@@ -106,8 +107,8 @@ def _get_or_create_daily_state(db: Session, *, player: Player, day_number: int) 
         player=player,
         day_number=int(day_number),
         defaults={
-            "hours_available_start": int(getattr(player, "hours_available", 16) or 16),
-            "hours_available_end": int(getattr(player, "hours_available", 16) or 16),
+            "hours_available_start": int(getattr(player, "hours_available", DEFAULT_DAILY_TIME_UNITS) or DEFAULT_DAILY_TIME_UNITS),
+            "hours_available_end": int(getattr(player, "hours_available", DEFAULT_DAILY_TIME_UNITS) or DEFAULT_DAILY_TIME_UNITS),
             "worked_main_job": False,
             "did_settlement": False,
             "stress_start": int(getattr(player, "stress", 0) or 0),
