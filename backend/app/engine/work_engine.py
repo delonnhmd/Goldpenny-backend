@@ -31,7 +31,6 @@ from app.services.player_transaction_log_service import record_player_transactio
 # â”€â”€ Day limits â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 MAX_MAIN_HOURS_PER_DAY = 8
 MAX_SIDE_HOURS_PER_DAY = 4
-MAX_TOTAL_HOURS_PER_DAY = 12
 MAX_WORK_ACTIONS_PER_DAY = 2
 MIN_HEALTH_TO_WORK = 15
 MAX_FATIGUE_FOR_SECOND_SHIFT = 90
@@ -409,14 +408,6 @@ class WorkEngine:
                     f"Side job hour cap is {MAX_SIDE_HOURS_PER_DAY} hours/day. "
                     f"You already worked {player.side_job_hours_today} side-job hours."
                 )
-
-        # Total daily hour cap
-        if int(player.total_hours_worked_today) + hours_worked > MAX_TOTAL_HOURS_PER_DAY:
-            hours_left = MAX_TOTAL_HOURS_PER_DAY - int(player.total_hours_worked_today)
-            raise ValueError(
-                f"Total work cap is {MAX_TOTAL_HOURS_PER_DAY} hours/day. "
-                f"You can work at most {hours_left} more hours today."
-            )
 
         # Available hours check
         if hours_worked > int(player.hours_available):

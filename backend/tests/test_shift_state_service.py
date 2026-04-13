@@ -25,6 +25,7 @@ from app.models.macro_state import MacroState
 from app.models.player import Player
 from app.models.player_daily_state import PlayerDailyState
 from app.models.player_employment_state import PlayerEmploymentState
+from app.models.player_job_progression import PlayerJobProgression
 from app.models.player_transaction_log import PlayerTransactionLog
 from app.models.shift_salary_audit_log import ShiftSalaryAuditLog
 from app.models.side_income_action import SideIncomeAction
@@ -54,6 +55,7 @@ class ShiftStateServiceTests(unittest.TestCase):
                 JobDefinition.__table__,
                 PlayerDailyState.__table__,
                 PlayerEmploymentState.__table__,
+                PlayerJobProgression.__table__,
                 JobAction.__table__,
                 SideIncomeAction.__table__,
                 XGPTransaction.__table__,
@@ -827,6 +829,69 @@ class ShiftStateServiceTests(unittest.TestCase):
         )
         self.assertTrue(bool(overtime_audit.get("overtime_applied")))
         self.assertEqual(float(overtime_audit.get("overtime_multiplier_used") or 0.0), 1.5)
+
+    def test_weekday_overtime_remains_available_after_six_rideshare_trips(self) -> None:
+        self.player.main_job = "warehouse_operator"
+        self.player.hours_available = 24
+        self.db.commit()
+
+        first_shift_time = self._houston_datetime(2026, 1, 1, 10, 0)
+        rideshare_time = self._houston_datetime(2026, 1, 1, 15, 0)
+        second_shift_time = self._houston_datetime(2026, 1, 1, 15, 30)
+
+        with patch("app.services.shift_state_service.get_houston_now", return_value=first_shift_time):
+            with patch("app.api.gameplay.get_houston_now", return_value=first_shift_time):
+                first_shift = execute_gameplay_action(
+                    str(self.player.id),
+                    GameplayActionRequest(
+                        action_key="work_shift",
+                        parameters={"job_name": "warehouse_operator", "hours_worked": 6},
+                    ),
+                    db=self.db,
+                )
+
+        with patch("app.services.shift_state_service.get_houston_now", return_value=rideshare_time):
+            process_rideshare_action(self.db, self.player, trips=5)
+            process_rideshare_action(self.db, self.player, trips=1)
+            post_rideshare_state = build_work_state_payload(self.db, self.player, now_houston=rideshare_time)
+
+        with patch("app.services.shift_state_service.get_houston_now", return_value=second_shift_time):
+            actions_payload = get_gameplay_actions(str(self.player.id), db=self.db)
+            with patch("app.api.gameplay.get_houston_now", return_value=second_shift_time):
+                second_shift = execute_gameplay_action(
+                    str(self.player.id),
+                    GameplayActionRequest(
+                        action_key="work_shift",
+                        parameters={"job_name": "warehouse_operator", "hours_worked": 6},
+                    ),
+                    db=self.db,
+                )
+
+        self.db.refresh(self.player)
+
+        testing_mode = post_rideshare_state.get("testing_mode") or {}
+        recommended_titles = [str(item.get("title") or "") for item in actions_payload.get("recommended_actions", [])]
+        salary_rows = (
+            self.db.query(GameplayTransaction)
+            .filter(
+                GameplayTransaction.player_id == self.player.id,
+                GameplayTransaction.day == 1,
+                GameplayTransaction.category == "salary",
+            )
+            .order_by(GameplayTransaction.timestamp.asc())
+            .all()
+        )
+
+        self.assertTrue(bool(first_shift["success"]))
+        self.assertEqual(int(self.player.side_job_hours_today or 0), 6)
+        self.assertEqual(int(self.player.total_hours_worked_today or 0), 18)
+        self.assertEqual(int(self.player.hours_available or 0), 6)
+        self.assertEqual(int(testing_mode.get("shifts_completed_today") or 0), 1)
+        self.assertTrue(bool(testing_mode.get("overtime_shift_available")))
+        self.assertIn("Start Overtime Shift", recommended_titles)
+        self.assertTrue(bool(second_shift["success"]))
+        self.assertEqual(len(salary_rows), 2)
+        self.assertEqual(str(salary_rows[1].description), "Overtime Salary - Shift 2 - Warehouse Manager (1.5x)")
 
     def test_testing_mode_weekend_is_rideshare_only_with_cap_18(self) -> None:
         self.player.main_job = "warehouse_operator"

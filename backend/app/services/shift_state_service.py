@@ -22,7 +22,7 @@ from app.engine.balance_config import (
     apply_stress_sensitivity,
 )
 from app.engine.daily_engine import get_or_create_game_state
-from app.engine.work_engine import MAX_FATIGUE_FOR_SECOND_SHIFT, MAX_MAIN_HOURS_PER_DAY, MAX_TOTAL_HOURS_PER_DAY
+from app.engine.work_engine import MAX_FATIGUE_FOR_SECOND_SHIFT, MAX_MAIN_HOURS_PER_DAY
 from app.models.contribution_event import ContributionEvent
 from app.models.gameplay_transaction import GameplayTransaction
 from app.models.job_action import JobAction
@@ -2688,13 +2688,8 @@ def _validate_main_shift_start(
             f"You already worked {player.main_job_hours_today} main-shift hours."
         )
 
-    if int(player.total_hours_worked_today or 0) + hours_worked > MAX_TOTAL_HOURS_PER_DAY:
-        hours_left = MAX_TOTAL_HOURS_PER_DAY - int(player.total_hours_worked_today or 0)
-        raise ValueError(
-            f"Total work cap is {MAX_TOTAL_HOURS_PER_DAY} hours/day. "
-            f"You can work at most {hours_left} more hours today."
-        )
-
+    # Time units are the authoritative daily cap. Side income should not consume the
+    # separate weekday overtime allowance for main shifts.
     if hours_worked > int(player.hours_available or 0):
         raise ValueError(
             f"Not enough available hours. Requested {hours_worked}h but only {player.hours_available}h remaining today."
