@@ -130,7 +130,7 @@ function formatStartSummary(activity: TimedActivityType, mealType: MealType | nu
     return `${formatTimedActivityName(activity, mealType)} started. Minimum duration: ${MEAL_MIN_MINUTES} min.`;
   }
   if (activity === 'skill_training') {
-    return 'Skill training started. Time and progress now advance every 20 minutes.';
+    return `Skill training started. Time and progress now advance every ${BALANCE.REALTIME.MINUTES_PER_UNIT} minutes.`;
   }
   return `${formatTimedActivityName(activity, mealType)} started. Stress recovers while the activity runs.`;
 }

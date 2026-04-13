@@ -8,6 +8,7 @@ import EmptyStateView from '@/components/ui/EmptyStateView';
 import { theme } from '@/design/theme';
 import { useOnboarding } from '@/features/onboarding';
 import { useScreenTimer } from '@/hooks/useScreenTimer';
+import { BALANCE } from '@/lib/balanceConfig';
 import { recordInfo } from '@/lib/logger';
 import { DailyActionItem, JobMarketJobSnapshot } from '@/types/gameplay';
 
@@ -217,7 +218,7 @@ export default function WorkScreen() {
             label="Time left"
             value={`${loop.dailySession.remainingTimeUnits}/${loop.dailySession.totalTimeUnits}`}
             tone={loop.dailySession.remainingTimeUnits <= 2 ? 'warning' : 'info'}
-            note="1 unit = 20 mins. Timed activities now consume units over time."
+            note={`1 unit = ${BALANCE.REALTIME.MINUTES_PER_UNIT} mins. Timed activities now consume units over time.`}
           />
         </View>
       </GameplaySummaryCard>

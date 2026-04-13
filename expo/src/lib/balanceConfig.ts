@@ -4,9 +4,9 @@
 
 export const BALANCE = {
   // ─── Daily time budget ────────────────────────────────────────────────────────
-  DEFAULT_TOTAL_TIME_UNITS: 20,
-  MIN_TOTAL_TIME_UNITS: 20,
-  MAX_TOTAL_TIME_UNITS: 20,
+  DEFAULT_TOTAL_TIME_UNITS: 24,
+  MIN_TOTAL_TIME_UNITS: 24,
+  MAX_TOTAL_TIME_UNITS: 24,
 
   // ─── Time cost per action type (units consumed per use) ───────────────────────
   ACTION_TIME_COST: {
@@ -53,7 +53,7 @@ export const BALANCE = {
   },
 
   REALTIME: {
-    MINUTES_PER_UNIT: 20,
+    MINUTES_PER_UNIT: 60,
     IDLE_STRESS_RECOVERY_MINUTES: 10,
     ACTIVE_STRESS_RECOVERY_MINUTES: 2,
     MEAL_MIN_MINUTES: 15,
