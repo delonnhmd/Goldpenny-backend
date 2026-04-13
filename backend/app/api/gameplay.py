@@ -711,27 +711,28 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
     work_shift_description = f"Use your current role ({current_job_display_name}) for stable day-1 cash."
     work_shift_tradeoffs = [f"Consumes {standard_shift_time_cost_units} time units and improves short-term cash safety."]
     work_shift_blockers: list[str] = []
-    if testing_mode_enabled:
-        if weekend_rideshare_only:
-            work_shift_title = "Weekend Ride Share Only"
-            work_shift_description = "Weekend testing rule active. No required main shift today - rideshare only."
-            work_shift_blockers = ["Weekend testing rule active. No required main shift today - rideshare only."]
-        elif overtime_shift_available:
-            work_shift_title = "Start Overtime Shift"
-            work_shift_description = (
-                f"Shift {int(next_shift_number_available or 2)}/{max_daily_main_shifts} available for {current_job_display_name}. "
-                f"Overtime pays {overtime_multiplier:.1f}x and resolves immediately."
-            )
-            work_shift_tradeoffs = [
-                f"Consumes {standard_shift_time_cost_units} time units. Higher pay, but stress and fatigue rise faster on overtime."
-            ]
-        else:
-            next_shift_number = int(next_shift_number_available or max(1, shifts_completed_today + 1))
-            work_shift_title = (
-                f"Start Shift {next_shift_number}"
-                if max_daily_main_shifts > 1
-                else "Start Shift 1"
-            )
+    if weekend_rideshare_only:
+        work_shift_title = "Weekend Ride Share Only"
+        work_shift_description = "Weekend testing rule active. No required main shift today - rideshare only."
+        work_shift_blockers = ["Weekend testing rule active. No required main shift today - rideshare only."]
+    elif overtime_shift_available:
+        work_shift_title = "Start Overtime Shift"
+        work_shift_description = (
+            f"Shift {int(next_shift_number_available or 2)}/{max_daily_main_shifts} available for {current_job_display_name}. "
+            f"Overtime pays {overtime_multiplier:.1f}x and resolves immediately."
+        )
+        work_shift_tradeoffs = [
+            f"Consumes {standard_shift_time_cost_units} time units. Higher pay, but stress and fatigue rise faster on overtime."
+        ]
+    elif max_daily_main_shifts > 1:
+        next_shift_number = int(next_shift_number_available or max(1, shifts_completed_today + 1))
+        work_shift_title = f"Start Shift {next_shift_number}"
+        work_shift_description = (
+            f"Weekday shift {next_shift_number}/{max_daily_main_shifts} for {current_job_display_name}. "
+            f"Shift 2 pays {overtime_multiplier:.1f}x overtime."
+        )
+        work_shift_tradeoffs = [f"Uses {standard_shift_time_cost_units} time units. Shift 2 unlocks after shift 1."]
+        if testing_mode_enabled:
             work_shift_description = (
                 f"Testing mode active. {current_job_display_name} shifts consume time units and resolve immediately."
             )
@@ -3081,7 +3082,6 @@ def execute_gameplay_action(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         detail=f"Unsupported action_key '{action_key}'.",
     )
-
 
 
 

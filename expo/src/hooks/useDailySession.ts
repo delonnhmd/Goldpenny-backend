@@ -532,7 +532,19 @@ export function useDailySession(playerId: string) {
         };
       }
 
-      const timeCostUnits = estimateTimeCost(action.action_key, explicitCost);
+      const actionRecord = action as Partial<DailyActionItem> & {
+        parameters?: Record<string, unknown>;
+        debug_meta?: Record<string, unknown>;
+      };
+      const inlineCost = Number(
+        explicitCost
+        ?? actionRecord.parameters?.time_cost_units
+        ?? actionRecord.debug_meta?.time_cost_units,
+      );
+      const timeCostUnits = estimateTimeCost(
+        action.action_key,
+        Number.isFinite(inlineCost) ? inlineCost : undefined,
+      );
       if (currentDay == null) {
         return { allowed: false, reason: 'Gameplay is still restoring your saved day.', timeCostUnits };
       }

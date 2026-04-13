@@ -811,6 +811,22 @@ export default function DashboardScreen() {
         : maxDailyMainShifts > 1 && nextShiftNumberAvailable > 0
           ? `Shift ${nextShiftNumberAvailable}/${maxDailyMainShifts} available`
           : 'Standard shift available';
+  const shiftRulesValue = weekendRideshareOnly
+    ? 'Rideshare only'
+    : overtimeShiftAvailable
+      ? 'Overtime unlocked'
+      : maxDailyMainShifts > 1
+        ? 'Regular + overtime'
+        : 'Single shift';
+  const shiftRulesNote = weekendRideshareOnly
+    ? 'Weekend rideshare-only rule is active.'
+    : overtimeShiftAvailable
+      ? `Shift 2 is ready at ${Number(testingMode?.second_shift_overtime_multiplier || 1.5).toFixed(1)}x pay.`
+      : maxDailyMainShifts > 1
+        ? `Weekdays allow ${maxDailyMainShifts} shifts. Shift 2 pays ${Number(testingMode?.second_shift_overtime_multiplier || 1.5).toFixed(1)}x.`
+        : testingModeEnabled
+          ? `Testing profile: ${testingShiftLabel}`
+          : 'One weekday shift is available.';
 
   useEffect(() => {
     setAutoClockingOut(false);
@@ -2016,10 +2032,10 @@ export default function DashboardScreen() {
             note={shiftScheduleCardNote}
           />
           <GameplayStatCard
-            label="Testing mode"
-            value={testingModeEnabled ? 'On' : 'Off'}
-            tone={testingModeEnabled ? 'warning' : 'neutral'}
-            note={testingModeEnabled ? `Shift profile: ${testingShiftLabel}` : 'Production rules active.'}
+            label="Shift rules"
+            value={shiftRulesValue}
+            tone={overtimeShiftAvailable ? 'positive' : testingModeEnabled ? 'warning' : 'neutral'}
+            note={shiftRulesNote}
           />
           <GameplayStatCard
             label="Shifts today"
@@ -2098,7 +2114,7 @@ export default function DashboardScreen() {
                   ? 'Starting shift...'
                   : backendShiftActive
                     ? `On shift (${shiftRemainingLabel})`
-                    : `${String(workShiftAction?.title || 'Clock In')} (${formatUnitButtonLabel(workExecutionGuard.timeCostUnits)})`
+                    : `${String(workShiftAction?.title || 'Clock In')} (${formatUnitButtonLabel(workShiftTimeCostUnits || workExecutionGuard.timeCostUnits)})`
             }
             onPress={() => void handleClockIn()}
             disabled={!canClockIn || backendShiftActive || autoClockingOut || runningWorkAction}

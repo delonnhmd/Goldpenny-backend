@@ -359,12 +359,9 @@ def _testing_mode_job_eligible(job_key: object, *, config: dict[str, Any] | None
     """STEP 93G — every main job is eligible for the Regular + Overtime slots
     on weekdays (and for the single overtime slot on weekends). The legacy
     two_shift_jobs list is retained for debug/overrides but is no longer the
-    gate — any normalizable main job returns True in testing mode."""
+    gate — any normalizable main job returns True."""
     resolved = normalize_main_job_key(job_key, allow_aliases=True)
-    if not resolved:
-        return False
-    active_config = config or get_gameplay_testing_mode_config()
-    return bool(active_config.get("testing_mode"))
+    return bool(resolved)
 
 
 def _max_daily_main_shifts_for_job(
@@ -374,8 +371,6 @@ def _max_daily_main_shifts_for_job(
     config: dict[str, Any] | None = None,
 ) -> int:
     active_config = config or get_gameplay_testing_mode_config()
-    if not bool(active_config.get("testing_mode")):
-        return 1
     if not _testing_mode_job_eligible(job_key, config=active_config):
         return 1
     # STEP 93G — weekend = single overtime shift only.
@@ -1785,8 +1780,6 @@ def _overtime_multiplier_for_shift(
     config: dict[str, Any] | None = None,
 ) -> Decimal:
     active_config = config or get_gameplay_testing_mode_config()
-    if not bool(active_config.get("testing_mode")):
-        return Decimal("1.0")
     ot_rate = Decimal(
         str(active_config.get("second_shift_overtime_multiplier") or Decimal("1.5"))
     )
@@ -2648,7 +2641,7 @@ def _validate_main_shift_start(
         config=testing_config,
     )
     max_main_hours_per_day = MAX_MAIN_HOURS_PER_DAY
-    if bool(testing_config.get("testing_mode")) and max_daily_main_shifts > 1:
+    if max_daily_main_shifts > 1:
         max_main_hours_per_day = max(
             MAX_MAIN_HOURS_PER_DAY,
             int(hours_worked) * int(max_daily_main_shifts),
@@ -2813,8 +2806,7 @@ def _build_testing_mode_work_payload(
     # already an overtime shift by rule, so no separate "overtime_shift_available" flag).
     # A completed weekday_late shift forfeits the overtime slot for the rest of the day.
     overtime_shift_available = bool(
-        testing_config.get("testing_mode")
-        and eligible_for_two_shifts
+        eligible_for_two_shifts
         and not is_weekend
         and shift_1_completed
         and not shift_2_completed
@@ -3878,3 +3870,4 @@ def resolve_expired_shift_if_needed(
         rollover_result=rollover_result,
     )
     return work_state
+
