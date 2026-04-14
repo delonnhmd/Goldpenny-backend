@@ -3,7 +3,10 @@
 import logging
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from sqlalchemy import text
 
 # Load environment variables from the project root `.env` file at app import/startup time.
@@ -33,6 +36,14 @@ def _run_schema_migrations() -> None:
     own try/except so an already-existing column is silently ignored.
     """
     migrations = [
+        # Step 95C: ensure auth-account metadata columns exist on legacy prod
+        # databases that haven't yet run the 20260414_0027 alembic migration.
+        # Without these, /auth/register INSERTs raise a raw OperationalError
+        # and the client sees "Internal Server Error" with no JSON body.
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS auth_provider VARCHAR(50) NOT NULL DEFAULT 'password'",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(50) NOT NULL DEFAULT 'active'",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP",
         # Step 71I: ensure onboarding can persist gender on legacy prod schemas.
         "ALTER TABLE players ADD COLUMN IF NOT EXISTS gender VARCHAR(20)",
         # Step 5: track which day the economy engine last processed.
@@ -470,6 +481,52 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+
+
+@app.exception_handler(StarletteHTTPException)
+def _http_exception_to_json(request: Request, exc: StarletteHTTPException) -> JSONResponse:
+    detail = exc.detail if exc.detail is not None else "Request failed."
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "success": False,
+            "error_code": f"http_{exc.status_code}",
+            "message": str(detail),
+            "detail": detail,
+        },
+        headers=getattr(exc, "headers", None) or None,
+    )
+
+
+@app.exception_handler(RequestValidationError)
+def _validation_error_to_json(request: Request, exc: RequestValidationError) -> JSONResponse:
+    return JSONResponse(
+        status_code=422,
+        content={
+            "success": False,
+            "error_code": "validation_error",
+            "message": "Request body was invalid.",
+            "detail": exc.errors(),
+        },
+    )
+
+
+@app.exception_handler(Exception)
+def _unhandled_exception_to_json(request: Request, exc: Exception) -> JSONResponse:
+    # Never leak raw framework error pages to the mobile client — always JSON.
+    logger.exception(
+        "unhandled_server_error",
+        extra={"path": str(request.url.path), "method": request.method, "error_type": type(exc).__name__},
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "error_code": "internal_server_error",
+            "message": "The server hit an unexpected error. Please try again.",
+            "detail": "Internal Server Error",
+        },
+    )
 
 
 @app.get("/")

@@ -1,3 +1,4 @@
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -6,6 +7,7 @@ from uuid import UUID
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.context import CryptContext
@@ -21,7 +23,26 @@ from app.services.player_onboarding_service import STARTER_BASELINES, load_exist
 
 router = APIRouter()
 
+logger = logging.getLogger(__name__)
+
 load_dotenv()
+
+
+def _auth_error_json(
+    *,
+    status_code: int,
+    error_code: str,
+    message: str,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "success": False,
+            "error_code": error_code,
+            "message": message,
+            "detail": message,
+        },
+    )
 
 SECRET_KEY = os.getenv("SECRET_KEY", os.getenv("JWT_SECRET_KEY", "change-me"))
 ALGORITHM = os.getenv("ALGORITHM", os.getenv("JWT_ALGORITHM", "HS256"))
@@ -90,6 +111,10 @@ class AuthSessionResponse(BaseModel):
     expires_at: datetime
     account: AccountSummaryResponse
     player_profile: PlayerProfileResponse | None = None
+    success: bool = True
+    user_id: UUID | None = None
+    email: str | None = None
+    has_linked_player: bool = False
 
 
 class SessionStateResponse(BaseModel):
@@ -360,44 +385,103 @@ def get_current_user(
     return user
 
 
-@router.post("/register", response_model=AuthSessionResponse, status_code=status.HTTP_201_CREATED)
-def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> AuthSessionResponse:
-    email = _normalize_email(payload.email)
-    password = _validate_password(payload.password)
+@router.post("/register", status_code=status.HTTP_201_CREATED)
+def register(payload: RegisterRequest, db: Session = Depends(get_db)):
+    # Normalize + validate first so we emit structured 400s before touching the DB.
+    try:
+        email = _normalize_email(payload.email)
+        password = _validate_password(payload.password)
+    except HTTPException:
+        # Let the global HTTP handler format the JSON body.
+        raise
 
-    existing = db.query(User).filter(User.email == email).first()
-    if existing:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered.")
+    log_ctx = {"email": email, "stage": "start"}
+    logger.info("auth_register_attempt", extra=log_ctx)
 
+    # Pre-check for duplicate email. Uniqueness is also enforced at the DB level.
+    try:
+        existing = db.query(User).filter(User.email == email).first()
+    except Exception as exc:
+        logger.exception("auth_register_email_lookup_failed", extra={**log_ctx, "error_type": type(exc).__name__})
+        return _auth_error_json(
+            status_code=500,
+            error_code="internal_register_error",
+            message="Could not create account right now. Please try again.",
+        )
+
+    if existing is not None:
+        logger.info("auth_register_duplicate_email", extra={**log_ctx, "stage": "duplicate"})
+        return _auth_error_json(
+            status_code=400,
+            error_code="email_already_exists",
+            message="That email is already registered. Try logging in.",
+        )
+
+    # Account creation only — a linked player profile is created later via
+    # /auth/player-profile from a controlled post-login flow. Keeping register
+    # isolated from gameplay state bugs is intentional.
     now = _utc_now()
+    try:
+        hashed = get_password_hash(password)
+    except Exception as exc:
+        logger.exception("auth_register_password_hash_failed", extra={**log_ctx, "error_type": type(exc).__name__})
+        return _auth_error_json(
+            status_code=500,
+            error_code="password_hash_failed",
+            message="Could not create account right now. Please try again.",
+        )
+
     try:
         user = User(
             email=email,
             auth_provider="password",
-            hashed_password=get_password_hash(password),
+            hashed_password=hashed,
             status=ACTIVE_USER_STATUS,
             last_login_at=now,
             password_updated_at=now,
         )
         db.add(user)
         db.flush()
-
         db.commit()
         db.refresh(user)
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered.")
-    except Exception:
+        logger.info("auth_register_integrity_error", extra={**log_ctx, "stage": "insert", "error_type": type(exc).__name__})
+        return _auth_error_json(
+            status_code=400,
+            error_code="email_already_exists",
+            message="That email is already registered. Try logging in.",
+        )
+    except Exception as exc:
         db.rollback()
-        raise
+        logger.exception("auth_register_insert_failed", extra={**log_ctx, "stage": "insert", "error_type": type(exc).__name__})
+        return _auth_error_json(
+            status_code=500,
+            error_code="internal_register_error",
+            message="Could not create account right now. Please try again.",
+        )
 
-    access_token, expires_at = create_access_token(user)
-    account, player_profile = _build_session_state(db, user)
+    try:
+        access_token, expires_at = create_access_token(user)
+        account, player_profile = _build_session_state(db, user)
+    except Exception as exc:
+        logger.exception("auth_register_session_build_failed", extra={**log_ctx, "stage": "session", "error_type": type(exc).__name__})
+        return _auth_error_json(
+            status_code=500,
+            error_code="session_build_failed",
+            message="Account created but session could not start. Please log in.",
+        )
+
+    logger.info("auth_register_success", extra={**log_ctx, "stage": "complete", "user_id": str(user.id)})
     return AuthSessionResponse(
         access_token=access_token,
         expires_at=expires_at,
         account=account,
         player_profile=player_profile,
+        success=True,
+        user_id=user.id,
+        email=user.email,
+        has_linked_player=player_profile is not None,
     )
 
 
