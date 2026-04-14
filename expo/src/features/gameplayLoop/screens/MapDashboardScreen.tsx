@@ -1,25 +1,23 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
-  BottomSlidePanel,
   FloatingActionButtons,
   GameMap,
   MoneyFeedbackLayer,
   PlayerStatusBar,
 } from '@/components/gameMap';
 import type {
-  BriefItem,
   FABAction,
   MapNode,
   MapOpportunity,
   MoneyFeedbackItem,
-  OpportunityCard,
 } from '@/components/gameMap';
 import type { PlayerState } from '@/components/gameMap/PlayerAvatar';
 import type { OpportunityType } from '@/components/gameMap/OpportunityIndicator';
 import SafeAreaPage from '@/components/layout/SafeAreaPage';
 import { useOnboarding } from '@/features/onboarding';
+import type { OnboardingRouteKey } from '@/features/onboarding/context';
 import { useScreenTimer } from '@/hooks/useScreenTimer';
 import type { DashboardSignalItem, EconomySignalChip, WorkStateSnapshot } from '@/types/gameplay';
 
@@ -207,82 +205,20 @@ export default function MapDashboardScreen() {
     ];
   }, [loop, onboarding, workState]);
 
-  // ── Brief items ───────────────────────────────────────────────────────────
-  const briefItems: BriefItem[] = useMemo(() => {
-    const items: BriefItem[] = [];
-
-    const macroSignals = economyOverview?.macro_conditions || [];
-    if (macroSignals.length > 0) {
-      items.push({
-        key: 'economy',
-        icon: '\u{1F4C8}',
-        title: economyOverview?.summary_line || 'Market Update',
-        bullets: macroSignals.slice(0, 3).map((s: EconomySignalChip) =>
-          `${s.label || ''}: ${s.value_text || s.level || ''}`,
-        ),
-      });
-    }
-
-    const risks = loop.dashboard?.top_risks || [];
-    if (risks.length > 0) {
-      items.push({
-        key: 'risks',
-        icon: '\u{26A0}\u{FE0F}',
-        title: 'Watch Out',
-        bullets: risks.slice(0, 2).map((r: DashboardSignalItem) => r.title || ''),
-      });
-    }
-
-    if (items.length === 0) {
-      items.push({
-        key: 'default',
-        icon: '\u{1F4CB}',
-        title: 'Ready for Today',
-        bullets: ['Check opportunities below', 'Use actions to earn money'],
-      });
-    }
-
-    return items;
-  }, [economyOverview, loop.dashboard?.top_risks]);
-
-  // ── Opportunity cards ─────────────────────────────────────────────────────
-  const opportunityCards: OpportunityCard[] = useMemo(() => {
-    const signals = loop.dashboard?.top_opportunities || [];
-    return signals.slice(0, 3).map((sig: DashboardSignalItem, i: number) => {
-      const type = deriveOpportunityType(sig);
-      const emoji = type === 'delivery' ? '\u{1F69A}' : type === 'produce' ? '\u{1F34E}' : type === 'stress' ? '\u{1F525}' : '\u{1F4BC}';
-
-      return {
-        key: `opp_card_${sig.key || i}`,
-        icon: emoji,
-        title: sig.title || 'Opportunity',
-        subtitle: (sig.description || 'Tap to take action').slice(0, 50),
-        bonus: type === 'delivery' ? '+30% income' : undefined,
-        actionLabel: type === 'delivery' ? 'Drive Now' : type === 'produce' ? 'Open Business' : 'Take Action',
-        onPress: () => {
-          if (type === 'delivery') {
-            void loop.executeAction({
-              action_key: 'side_income',
-              title: 'Rideshare',
-              description: 'Start driving.',
-              status: 'available',
-              blockers: [],
-            });
-          } else if (type === 'produce') {
-            onboarding.navigateTo('business');
-          } else {
-            onboarding.navigateTo('work');
-          }
-        },
-      };
-    });
-  }, [loop, onboarding]);
+  // ── Bottom nav tabs ───────────────────────────────────────────────────────
+  const bottomTabs = useMemo(() => ([
+    { key: 'map' as OnboardingRouteKey, label: 'Map', icon: '\u{1F5FA}\u{FE0F}' },
+    { key: 'work' as OnboardingRouteKey, label: 'Work', icon: '\u{1F4BC}' },
+    { key: 'business' as OnboardingRouteKey, label: 'Business', icon: '\u{1F3EA}' },
+    { key: 'dashboard' as OnboardingRouteKey, label: 'Wallet', icon: '\u{1F4B0}' },
+    { key: 'life' as OnboardingRouteKey, label: 'Life', icon: '\u{2764}\u{FE0F}' },
+  ]), []);
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <SafeAreaPage edges={['top']}>
+    <SafeAreaPage edges={['top', 'bottom']}>
       <View style={styles.root}>
-        {/* Top status bar */}
+        {/* Top status HUD — floats above map */}
         <PlayerStatusBar
           cash={cash}
           stress={stress}
@@ -290,7 +226,7 @@ export default function MapDashboardScreen() {
           dayNumber={dayNumber}
         />
 
-        {/* Map area (takes ~70% of screen) */}
+        {/* Full-screen map — dominant surface */}
         <View style={styles.mapArea}>
           <GameMap
             nodes={nodes}
@@ -302,18 +238,34 @@ export default function MapDashboardScreen() {
             onMapLayout={setMapSize}
           />
 
-          {/* Floating action buttons overlay */}
           <FloatingActionButtons actions={fabActions} />
 
-          {/* Money feedback overlay */}
           <MoneyFeedbackLayer items={moneyPopups} onItemComplete={handleMoneyComplete} />
         </View>
 
-        {/* Bottom slide panel */}
-        <BottomSlidePanel
-          briefItems={briefItems}
-          opportunities={opportunityCards}
-        />
+        {/* Fixed bottom navigation */}
+        <View style={styles.bottomNav}>
+          {bottomTabs.map((tab) => {
+            const active = tab.key === 'map';
+            return (
+              <Pressable
+                key={tab.key}
+                onPress={() => {
+                  if (active) return;
+                  onboarding.navigateTo(tab.key);
+                }}
+                style={({ pressed }) => [
+                  styles.tab,
+                  active ? styles.tabActive : null,
+                  pressed ? styles.tabPressed : null,
+                ]}
+              >
+                <Text style={[styles.tabIcon, active ? styles.tabIconActive : null]}>{tab.icon}</Text>
+                <Text style={[styles.tabLabel, active ? styles.tabLabelActive : null]}>{tab.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
     </SafeAreaPage>
   );
@@ -330,5 +282,45 @@ const styles = StyleSheet.create({
     marginTop: 4,
     position: 'relative',
     overflow: 'hidden',
+  },
+  bottomNav: {
+    flexDirection: 'row',
+    backgroundColor: '#111827',
+    borderTopWidth: 1,
+    borderTopColor: '#1f2937',
+    paddingHorizontal: 6,
+    paddingTop: 6,
+    paddingBottom: 8,
+    gap: 4,
+  },
+  tab: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 2,
+    borderRadius: 10,
+    gap: 2,
+  },
+  tabActive: {
+    backgroundColor: 'rgba(59, 130, 246, 0.18)',
+  },
+  tabPressed: {
+    opacity: 0.7,
+  },
+  tabIcon: {
+    fontSize: 20,
+    opacity: 0.7,
+  },
+  tabIconActive: {
+    opacity: 1,
+  },
+  tabLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#94a3b8',
+  },
+  tabLabelActive: {
+    color: '#60a5fa',
   },
 });

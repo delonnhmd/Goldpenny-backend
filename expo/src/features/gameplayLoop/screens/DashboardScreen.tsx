@@ -27,7 +27,6 @@ import { useGameplayLoop } from '../context';
 import JobMarketPanel from '../components/JobMarketPanel';
 import {
   GameplayCompactMetricRows,
-  GameplayStickyActionArea,
   GameplaySummaryCard,
   GameplayStatCard,
   GameplayWarningBanner,
@@ -1782,22 +1781,6 @@ export default function DashboardScreen() {
       title="Dashboard"
       subtitle="Actions, status, and what to do now"
       activeNavKey="dashboard"
-      footer={guidedDashboardActive ? null : (
-        <GameplayStickyActionArea
-          summary={
-            backendShiftActive
-              ? `On shift - ${shiftRemainingLabel} remaining`
-              : autoClockingOut
-                ? 'Auto-finalizing shift...'
-                : `${loop.dailySession.remainingTimeUnits} time units left today`
-          }
-          secondaryLabel="Check Market"
-          onSecondaryPress={() => onboarding.navigateTo('market')}
-          primaryLabel="Open Summary"
-          onPrimaryPress={() => onboarding.navigateTo('summary')}
-          primaryDisabled={false}
-        />
-      )}
     >
       {/* Stats */}
       {stats ? (
