@@ -111,34 +111,24 @@ export default function BriefScreen() {
     [xgpSpendHistory],
   );
 
+  const showFooterAction = hasSummary || summaryMissingAfterSettlement || sessionEnded;
   const primaryLabel = hasSummary || summaryMissingAfterSettlement
     ? 'Start Next Day'
     : loop.endingDay
       ? 'Settling Day...'
-      : sessionEnded
-        ? 'Run Settlement'
-        : 'Go To Dashboard';
+      : 'Run Settlement';
 
   const onPrimaryPress = hasSummary || summaryMissingAfterSettlement
     ? () => void loop.startNextDay()
-    : sessionEnded
-      ? () => void loop.endCurrentDay()
-      : () => onboarding.navigateTo('dashboard');
-
-  // STEP 93G — never render the same label on both primary and secondary.
-  // When primary itself is "Go To Dashboard" we drop the secondary entirely.
-  const primaryIsDashboardNav = primaryLabel === 'Go To Dashboard';
-  const showSecondary = !sessionEnded && !primaryIsDashboardNav;
+    : () => void loop.endCurrentDay();
 
   return (
     <GameplayLoopScaffold
       title="Brief"
       subtitle="Day overview and settlement"
       activeNavKey="brief"
-      footer={guidedBriefActive ? null : (
+      footer={guidedBriefActive || !showFooterAction ? null : (
         <GameplayStickyActionArea
-          secondaryLabel={showSecondary ? 'Go To Dashboard' : undefined}
-          onSecondaryPress={showSecondary ? () => onboarding.navigateTo('dashboard') : undefined}
           primaryLabel={primaryLabel}
           onPrimaryPress={onPrimaryPress}
           primaryLoading={!hasSummary && !summaryMissingAfterSettlement && loop.endingDay}

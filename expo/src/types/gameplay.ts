@@ -535,6 +535,7 @@ export interface JobMarketJobSnapshot {
   training_in_progress?: boolean;
   training_days_completed?: number;
   training_days_required?: number;
+  training_days_remaining?: number;
   progression?: JobProgressSnapshot | null;
   is_locked?: boolean;
   is_unlocked?: boolean;

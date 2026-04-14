@@ -74,19 +74,25 @@ export default function AccountProfileScreen() {
             title="Linked Player Profile"
             summary="This is the gameplay profile that loads after sign-in and session restore."
           >
-            <InfoRow label="Player ID" value={playerProfile.id} />
-            <InfoRow label="Display Name" value={playerProfile.display_name || 'Not set yet'} />
-            <InfoRow label="Current Job" value={playerProfile.current_job || 'Unassigned'} />
-            <InfoRow label="Region" value={playerProfile.region || 'Unknown'} />
-            <InfoRow label="Cash" value={`${playerProfile.cash_xgp.toFixed(2)} XGP`} />
-            <InfoRow label="Debt" value={`${playerProfile.debt_xgp.toFixed(2)} XGP`} />
-            <InfoRow label="Health / Stress" value={`${playerProfile.health} / ${playerProfile.stress}`} />
-            <InfoRow label="Profile Created" value={formatTimestamp(playerProfile.created_at)} />
+            {playerProfile ? (
+              <>
+                <InfoRow label="Player ID" value={playerProfile.id} />
+                <InfoRow label="Display Name" value={playerProfile.display_name || 'Not set yet'} />
+                <InfoRow label="Current Job" value={playerProfile.current_job || 'Unassigned'} />
+                <InfoRow label="Region" value={playerProfile.region || 'Unknown'} />
+                <InfoRow label="Cash" value={`${playerProfile.cash_xgp.toFixed(2)} XGP`} />
+                <InfoRow label="Debt" value={`${playerProfile.debt_xgp.toFixed(2)} XGP`} />
+                <InfoRow label="Health / Stress" value={`${playerProfile.health} / ${playerProfile.stress}`} />
+                <InfoRow label="Profile Created" value={formatTimestamp(playerProfile.created_at)} />
+              </>
+            ) : (
+              <Text style={styles.note}>No player profile is linked yet. Create a fresh player to begin Day 1.</Text>
+            )}
           </SectionCard>
 
           <SecondaryButton
-            label="Back To Game"
-            onPress={() => router.replace('/gameplay')}
+            label={playerProfile ? 'Back To Game' : 'Create New Player'}
+            onPress={() => router.replace(playerProfile ? '/gameplay' : '/auth/create-player')}
             style={styles.fullWidthButton}
           />
           <PrimaryButton

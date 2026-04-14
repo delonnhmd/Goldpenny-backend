@@ -15,8 +15,8 @@ export default function SignupScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (auth.status === 'authenticated' && auth.session?.player_profile.id) {
-    return <Redirect href="/gameplay" />;
+  if (auth.status === 'authenticated') {
+    return <Redirect href={auth.hasPlayerProfile ? '/gameplay' : '/auth/create-player'} />;
   }
 
   const handleSignup = async () => {
@@ -74,7 +74,7 @@ export default function SignupScreen() {
         editable={!submitting}
       />
 
-      <Text style={authScreenStyles.helperText}>New signups create one linked player profile and starter gameplay state exactly once.</Text>
+      <Text style={authScreenStyles.helperText}>Create the account first, then start a fresh player profile from a clean Day 1 baseline.</Text>
       {error ? <Text style={authScreenStyles.errorText}>{error}</Text> : null}
 
       <PrimaryButton

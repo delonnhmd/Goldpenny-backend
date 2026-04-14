@@ -27,12 +27,12 @@ export interface AuthSessionResponse {
   token_type: string;
   expires_at: string;
   account: AccountSummary;
-  player_profile: PlayerProfileSummary;
+  player_profile: PlayerProfileSummary | null;
 }
 
 export interface AuthSessionStateResponse {
   account: AccountSummary;
-  player_profile: PlayerProfileSummary;
+  player_profile: PlayerProfileSummary | null;
 }
 
 export interface ForgotPasswordResponse {

@@ -78,6 +78,12 @@ function normalizePlayerProfile(raw: unknown): PlayerProfileSummary {
   };
 }
 
+function normalizeOptionalPlayerProfile(raw: unknown): PlayerProfileSummary | null {
+  const obj = toRecord(raw);
+  if (!obj.id) return null;
+  return normalizePlayerProfile(obj);
+}
+
 function normalizeSession(raw: unknown): AuthSessionResponse {
   const obj = toRecord(raw);
   return {
@@ -85,7 +91,7 @@ function normalizeSession(raw: unknown): AuthSessionResponse {
     token_type: toString(obj.token_type, 'bearer'),
     expires_at: toString(obj.expires_at),
     account: normalizeAccount(obj.account),
-    player_profile: normalizePlayerProfile(obj.player_profile),
+    player_profile: normalizeOptionalPlayerProfile(obj.player_profile),
   };
 }
 
@@ -93,7 +99,7 @@ function normalizeSessionState(raw: unknown): AuthSessionStateResponse {
   const obj = toRecord(raw);
   return {
     account: normalizeAccount(obj.account),
-    player_profile: normalizePlayerProfile(obj.player_profile),
+    player_profile: normalizeOptionalPlayerProfile(obj.player_profile),
   };
 }
 
@@ -125,6 +131,14 @@ export async function loginAccount(payload: SignInRequest): Promise<AuthSessionR
 
 export async function getCurrentSessionState(): Promise<AuthSessionStateResponse> {
   const raw = await fetchApi<unknown>('/auth/session');
+  return normalizeSessionState(raw);
+}
+
+export async function createPlayerProfile(payload?: { display_name?: string }): Promise<AuthSessionStateResponse> {
+  const raw = await fetchApi<unknown>('/auth/player-profile', {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  });
   return normalizeSessionState(raw);
 }
 

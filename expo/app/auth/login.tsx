@@ -15,8 +15,8 @@ export default function LoginScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (auth.status === 'authenticated' && auth.session?.player_profile.id) {
-    return <Redirect href="/gameplay" />;
+  if (auth.status === 'authenticated') {
+    return <Redirect href={auth.hasPlayerProfile ? '/gameplay' : '/auth/create-player'} />;
   }
 
   const handleLogin = async () => {

@@ -21,5 +21,9 @@ export default function RootIndexRoute() {
     );
   }
 
-  return <Redirect href={auth.isAuthenticated ? '/gameplay' : '/auth/login'} />;
+  if (!auth.isAuthenticated) {
+    return <Redirect href="/auth/login" />;
+  }
+
+  return <Redirect href={auth.hasPlayerProfile ? '/gameplay' : '/auth/create-player'} />;
 }

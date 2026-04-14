@@ -16,7 +16,8 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models.player import Player
 from app.models.user import User
-from app.services.player_onboarding_service import STARTER_BASELINES, initialize_starter_player_state, load_existing_player_state
+from app.services.player_daily_state_service import ensure_player_daily_state
+from app.services.player_onboarding_service import STARTER_BASELINES, load_existing_player_state
 
 router = APIRouter()
 
@@ -30,7 +31,6 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(
 RESET_TOKEN_EXPIRE_MINUTES = int(os.getenv("RESET_TOKEN_EXPIRE_MINUTES", "15"))
 RESET_URL_BASE = os.getenv("APP_RESET_URL_BASE", "goldpenny://auth/reset-password")
 STARTER_REGION = "suburban"
-STARTER_JOB_CODE = "retail"
 ACTIVE_USER_STATUS = "active"
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -54,6 +54,10 @@ class ForgotPasswordRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     token: str
     password: str
+
+
+class CreatePlayerProfileRequest(BaseModel):
+    display_name: str | None = None
 
 
 class AccountSummaryResponse(BaseModel):
@@ -85,12 +89,12 @@ class AuthSessionResponse(BaseModel):
     token_type: str = "bearer"
     expires_at: datetime
     account: AccountSummaryResponse
-    player_profile: PlayerProfileResponse
+    player_profile: PlayerProfileResponse | None = None
 
 
 class SessionStateResponse(BaseModel):
     account: AccountSummaryResponse
-    player_profile: PlayerProfileResponse
+    player_profile: PlayerProfileResponse | None = None
 
 
 class ForgotPasswordResponse(BaseModel):
@@ -212,16 +216,23 @@ def _decode_token(token: str, *, expected_purpose: str) -> tuple[UUID, int]:
         raise unauthorized
 
 
-def _bootstrap_default_player_profile(db: Session, user: User) -> Player:
+def _bootstrap_clean_player_profile(
+    db: Session,
+    user: User,
+    *,
+    display_name: str | None = None,
+) -> Player:
     starter = STARTER_BASELINES[STARTER_REGION]
     cash_xgp = Decimal(str(starter["cash_xgp"]))
     bank_savings_xgp = Decimal(str(starter["bank_savings_xgp"]))
     debt_xgp = Decimal(str(starter["debt_xgp"]))
     net_worth_xgp = cash_xgp + bank_savings_xgp - debt_xgp
+    starter_hours = int(starter["available_hours"])
+    resolved_display_name = str(display_name or "").strip() or _player_display_name_from_email(user.email)
 
     player = Player(
         user_id=user.id,
-        display_name=_player_display_name_from_email(user.email),
+        display_name=resolved_display_name[:80],
         gender=None,
         region=STARTER_REGION,
         cash_xgp=cash_xgp,
@@ -231,31 +242,44 @@ def _bootstrap_default_player_profile(db: Session, user: User) -> Player:
         net_worth_xgp=net_worth_xgp,
         health=int(starter["health"]),
         stress=int(starter["stress"]),
-        available_hours=int(starter["available_hours"]),
+        available_hours=starter_hours,
         skill_level=int(starter["skill_level"]),
         reputation=int(starter["reputation"]),
-        main_job=STARTER_JOB_CODE,
+        main_job=None,
         has_active_housing=False,
         housing_region_id=None,
+        account_created_day=1,
     )
     db.add(player)
     db.flush()
 
-    initialize_starter_player_state(
-        db=db,
-        player_id=player.id,
-        region=STARTER_REGION,
-        starter_job_code=STARTER_JOB_CODE,
+    ensure_player_daily_state(
+        db,
+        player=player,
+        day_number=1,
+        defaults={
+            "hours_available_start": starter_hours,
+            "hours_available_end": starter_hours,
+            "worked_main_job": False,
+            "worked_hours": 0,
+            "gross_income_xgp": Decimal("0.00"),
+            "did_settlement": False,
+            "stress_start": int(player.stress or 0),
+            "stress_end": int(player.stress or 0),
+            "health_start": int(player.health or 100),
+            "health_end": int(player.health or 100),
+            "cash_start": cash_xgp,
+            "cash_end": cash_xgp,
+            "housing_region_id": None,
+            "notes": "fresh_start_profile_created",
+        },
     )
     db.flush()
     return player
 
 
-def ensure_user_player_profile(db: Session, user: User) -> tuple[Player, bool]:
-    existing = db.query(Player).filter(Player.user_id == user.id).first()
-    if existing is not None:
-        return existing, False
-    return _bootstrap_default_player_profile(db, user), True
+def get_user_player_profile(db: Session, user: User) -> Player | None:
+    return db.query(Player).filter(Player.user_id == user.id).first()
 
 
 def _build_account_payload(user: User) -> AccountSummaryResponse:
@@ -298,15 +322,16 @@ def _build_player_profile_payload(db: Session, player: Player) -> PlayerProfileR
     )
 
 
-def _build_session_state(db: Session, user: User) -> tuple[AccountSummaryResponse, PlayerProfileResponse, bool]:
+def _build_session_state(db: Session, user: User) -> tuple[AccountSummaryResponse, PlayerProfileResponse | None]:
     if str(user.status or ACTIVE_USER_STATUS).strip().lower() != ACTIVE_USER_STATUS:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This account is not active.",
         )
 
-    player, created = ensure_user_player_profile(db, user)
-    return _build_account_payload(user), _build_player_profile_payload(db, player), created
+    player = get_user_player_profile(db, user)
+    player_profile = _build_player_profile_payload(db, player) if player is not None else None
+    return _build_account_payload(user), player_profile
 
 
 def get_current_user(
@@ -357,10 +382,8 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> AuthSes
         db.add(user)
         db.flush()
 
-        player, _ = ensure_user_player_profile(db, user)
         db.commit()
         db.refresh(user)
-        db.refresh(player)
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered.")
@@ -369,7 +392,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> AuthSes
         raise
 
     access_token, expires_at = create_access_token(user)
-    account, player_profile, _ = _build_session_state(db, user)
+    account, player_profile = _build_session_state(db, user)
     return AuthSessionResponse(
         access_token=access_token,
         expires_at=expires_at,
@@ -396,17 +419,14 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> AuthSessionRe
 
     try:
         user.last_login_at = _utc_now()
-        _, created = ensure_user_player_profile(db, user)
         db.commit()
         db.refresh(user)
-        if created and user.player is not None:
-            db.refresh(user.player)
     except Exception:
         db.rollback()
         raise
 
     access_token, expires_at = create_access_token(user)
-    account, player_profile, _ = _build_session_state(db, user)
+    account, player_profile = _build_session_state(db, user)
     return AuthSessionResponse(
         access_token=access_token,
         expires_at=expires_at,
@@ -420,15 +440,38 @@ def get_session_state(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> SessionStateResponse:
+    account, player_profile = _build_session_state(db, current_user)
+    return SessionStateResponse(account=account, player_profile=player_profile)
+
+
+@router.post("/player-profile", response_model=SessionStateResponse, status_code=status.HTTP_201_CREATED)
+def create_player_profile(
+    payload: CreatePlayerProfileRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> SessionStateResponse:
+    existing = get_user_player_profile(db, current_user)
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This account already has a linked player profile.",
+        )
+
     try:
-        account, player_profile, created = _build_session_state(db, current_user)
-        if created:
-            db.commit()
-            db.refresh(current_user)
-        return SessionStateResponse(account=account, player_profile=player_profile)
+        player = _bootstrap_clean_player_profile(
+            db,
+            current_user,
+            display_name=payload.display_name,
+        )
+        db.commit()
+        db.refresh(current_user)
+        db.refresh(player)
     except Exception:
         db.rollback()
         raise
+
+    account, player_profile = _build_session_state(db, current_user)
+    return SessionStateResponse(account=account, player_profile=player_profile)
 
 
 @router.post("/forgot-password", response_model=ForgotPasswordResponse)

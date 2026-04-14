@@ -1,16 +1,17 @@
-import React, { useMemo } from 'react';
-import { router } from 'expo-router';
+import React, { useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import BusinessOperationsCard from '@/components/gameplay/BusinessOperationsCard';
+import PrimaryButton from '@/components/ui/PrimaryButton';
+import SecondaryButton from '@/components/ui/SecondaryButton';
 import { theme } from '@/design/theme';
 import { formatMoney } from '@/lib/gameplayFormatters';
+import { openBusiness } from '@/lib/api/business';
 import { useScreenTimer } from '@/hooks/useScreenTimer';
 
 import { useGameplayLoop } from '../context';
 import {
   GameplayStatCard,
-  GameplayStickyActionArea,
   GameplaySummaryCard,
   GameplayWarningBanner,
 } from '../components/GameplayUIParts';
@@ -26,10 +27,11 @@ function canonicalActionKey(actionKey: string): string {
 export default function BusinessScreen() {
   useScreenTimer('business');
   const loop = useGameplayLoop();
+  const [openingBusinessType, setOpeningBusinessType] = useState<string | null>(null);
   const activeBusiness = useMemo(
     () => {
       const businesses = loop.businesses?.businesses || [];
-      return businesses.find((item) => item.is_active) || businesses[0] || null;
+      return businesses.find((item) => item.is_active) || null;
     },
     [loop.businesses?.businesses],
   );
@@ -72,20 +74,6 @@ export default function BusinessScreen() {
       title="Business"
       subtitle="Revenue, costs, margin, and risk"
       activeNavKey="business"
-      footer={(
-        <GameplayStickyActionArea
-          secondaryLabel="Back To Market"
-          onSecondaryPress={() => router.replace(`/gameplay/loop/${loop.playerId}/market`)}
-          primaryLabel={canOperateNow ? 'Operate Business' : 'Open Brief'}
-          onPrimaryPress={canOperateNow
-            ? () => {
-              void loop.operateBusiness();
-            }
-            : () => router.replace(`/gameplay/loop/${loop.playerId}/brief`)}
-          primaryDisabled={canOperateNow ? loop.executingAction : false}
-          primaryLoading={canOperateNow ? loop.executingAction : false}
-        />
-      )}
     >
       <GameplaySummaryCard
         eyebrow="Core split"
@@ -155,6 +143,7 @@ export default function BusinessScreen() {
           <View style={styles.starterList}>
             {starterOptions.map((option) => {
               const need = Math.max(option.cost_xgp - cashOnHand, 0);
+              const isOpening = openingBusinessType === option.business_type;
               return (
                 <View key={String(option.business_type)} style={styles.starterCard}>
                   <Text style={styles.starterTitle}>{option.label}</Text>
@@ -163,6 +152,44 @@ export default function BusinessScreen() {
                   <Text style={[styles.starterLine, need > 0 ? styles.needText : styles.readyText]}>
                     Need: {formatMoney(need)}
                   </Text>
+                  <View style={styles.starterCtaRow}>
+                    {need <= 0 ? (
+                      <PrimaryButton
+                        label={isOpening ? `Opening ${option.label}...` : `Open ${option.label}`}
+                        onPress={isOpening ? undefined : () => {
+                          setOpeningBusinessType(option.business_type);
+                          void openBusiness(option.business_type)
+                            .then(async (result) => {
+                              loop.setFeedback({
+                                tone: 'success',
+                                message: `${result.display_name} opened successfully. ${formatMoney(result.startup_cost)} invested.`,
+                              });
+                              await loop.refresh({ silent: true });
+                            })
+                            .catch((error: unknown) => {
+                              loop.setFeedback({
+                                tone: 'error',
+                                message: error instanceof Error ? error.message : 'Could not open this business right now.',
+                              });
+                            })
+                            .finally(() => {
+                              setOpeningBusinessType((current) => (
+                                current === option.business_type ? null : current
+                              ));
+                            });
+                        }}
+                        loading={isOpening}
+                        disabled={Boolean(openingBusinessType)}
+                        style={styles.fullWidthButton}
+                      />
+                    ) : (
+                      <SecondaryButton
+                        label={`Need ${formatMoney(need)} more XGP`}
+                        disabled
+                        style={styles.fullWidthButton}
+                      />
+                    )}
+                  </View>
                 </View>
               );
             })}
@@ -190,6 +217,9 @@ const styles = StyleSheet.create({
     gap: theme.spacing.xs,
     padding: theme.spacing.md,
   },
+  starterCtaRow: {
+    paddingTop: theme.spacing.xs,
+  },
   starterTitle: {
     color: theme.color.textPrimary,
     ...theme.typography.headingSm,
@@ -205,5 +235,8 @@ const styles = StyleSheet.create({
   readyText: {
     color: theme.color.positive,
     fontWeight: '700',
+  },
+  fullWidthButton: {
+    width: '100%',
   },
 });

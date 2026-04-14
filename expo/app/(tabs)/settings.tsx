@@ -338,7 +338,7 @@ export default function SettingsScreen() {
 
             <SectionCard
               title="Advanced API Settings"
-              summary="Optional support and QA overrides for server routing and authenticated maintenance requests. Gameplay does not require external account setup."
+              summary="Optional support and QA overrides for server routing and authenticated maintenance requests. Regular gameplay now uses the built-in account sign-in flow."
             >
               <Text style={styles.inputLabel}>Server URL Override</Text>
               <TextInput

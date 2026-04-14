@@ -8,6 +8,7 @@ import React, {
 } from 'react';
 
 import {
+  createPlayerProfile as createPlayerProfileApi,
   getCurrentSessionState,
   loginAccount,
   registerAccount,
@@ -29,8 +30,10 @@ interface AuthContextValue {
   status: AuthStatus;
   isAuthenticated: boolean;
   session: AuthSessionResponse | null;
+  hasPlayerProfile: boolean;
   signIn: (payload: { email: string; password: string }) => Promise<void>;
   signUp: (payload: { email: string; password: string }) => Promise<void>;
+  createPlayerProfile: (payload?: { display_name?: string }) => Promise<void>;
   signOut: () => Promise<void>;
   refreshSession: () => Promise<void>;
   requestPasswordReset: (email: string) => Promise<ForgotPasswordResponse>;
@@ -108,12 +111,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setSession(merged);
           setStatus('authenticated');
         }
-        recordInfo('auth', 'Session restored from persisted auth state.', {
-          action: 'restore_session',
-          context: {
-            playerId: merged.player_profile.id,
-          },
-        });
+      recordInfo('auth', 'Session restored from persisted auth state.', {
+        action: 'restore_session',
+        context: {
+          playerId: merged.player_profile?.id || null,
+        },
+      });
       } catch (error) {
         await clearStoredAuthSession();
         if (!cancelled) {
@@ -136,10 +139,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signIn = useCallback(async (payload: { email: string; password: string }) => {
     const nextSession = await loginAccount(payload);
     await applyAuthenticatedSession(nextSession);
-    recordInfo('auth', 'Account login completed.', {
+      recordInfo('auth', 'Account login completed.', {
       action: 'sign_in',
       context: {
-        playerId: nextSession.player_profile.id,
+        playerId: nextSession.player_profile?.id || null,
       },
     });
   }, [applyAuthenticatedSession]);
@@ -147,16 +150,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signUp = useCallback(async (payload: { email: string; password: string }) => {
     const nextSession = await registerAccount(payload);
     await applyAuthenticatedSession(nextSession);
-    recordInfo('auth', 'Account registration completed.', {
+      recordInfo('auth', 'Account registration completed.', {
       action: 'sign_up',
       context: {
-        playerId: nextSession.player_profile.id,
+        playerId: nextSession.player_profile?.id || null,
       },
     });
   }, [applyAuthenticatedSession]);
 
+  const createPlayerProfile = useCallback(async (payload?: { display_name?: string }) => {
+    const current = session;
+    if (!current) {
+      throw new Error('You must be signed in before creating a player profile.');
+    }
+
+    const state = await createPlayerProfileApi(payload);
+    const nextSession: AuthSessionResponse = {
+      ...current,
+      account: state.account,
+      player_profile: state.player_profile,
+    };
+    await applyAuthenticatedSession(nextSession);
+    recordInfo('auth', 'Fresh player profile created for account.', {
+      action: 'create_player_profile',
+      context: {
+        playerId: nextSession.player_profile?.id || null,
+      },
+    });
+  }, [applyAuthenticatedSession, session]);
+
   const signOut = useCallback(async () => {
-    const currentPlayerId = session?.player_profile.id || null;
+    const currentPlayerId = session?.player_profile?.id || null;
     await clearSession();
     recordInfo('auth', 'Account session cleared locally.', {
       action: 'sign_out',
@@ -164,7 +188,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         playerId: currentPlayerId,
       },
     });
-  }, [clearSession, session?.player_profile.id]);
+  }, [clearSession, session?.player_profile?.id]);
 
   const requestPasswordReset = useCallback(async (email: string) => (
     requestPasswordResetApi(email)
@@ -181,13 +205,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     status,
     isAuthenticated: status === 'authenticated' && Boolean(session?.access_token),
     session,
+    hasPlayerProfile: Boolean(session?.player_profile?.id),
     signIn,
     signUp,
+    createPlayerProfile,
     signOut,
     refreshSession,
     requestPasswordReset,
     resetPassword,
   }), [
+    createPlayerProfile,
     refreshSession,
     requestPasswordReset,
     resetPassword,

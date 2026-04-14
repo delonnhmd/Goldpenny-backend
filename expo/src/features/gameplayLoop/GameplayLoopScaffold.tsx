@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { usePathname } from 'expo-router';
+import { router, usePathname } from 'expo-router';
 import { LayoutChangeEvent, RefreshControl, ScrollView, StyleSheet } from 'react-native';
 
 import { OnboardingStepOverlay } from '@/components/onboarding';
@@ -9,6 +9,7 @@ import PageContainer from '@/components/layout/PageContainer';
 import ErrorStateView from '@/components/ui/ErrorStateView';
 import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
 import SectionCard from '@/components/ui/SectionCard';
+import TextButton from '@/components/ui/TextButton';
 import { useOnboarding } from '@/features/onboarding';
 import { OnboardingRouteKey } from '@/features/onboarding/context';
 import { FeedbackSheet, IssueReportSheet, SoftLaunchGate, useSoftLaunch } from '@/features/softLaunch';
@@ -282,6 +283,7 @@ export default function GameplayLoopScaffold({
     <AppShell
       title={title}
       subtitle={subtitle}
+      headerRight={<TextButton label="Account" onPress={() => router.push('/account')} />}
       bottomNavItems={bottomNavItems}
       activeBottomNavKey={activeNavKey}
       footer={footer}
