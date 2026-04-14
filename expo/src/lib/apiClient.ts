@@ -3,6 +3,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { BACKEND } from '@/constants';
+import { KEY_AUTH_ACCESS_TOKEN } from '@/features/auth/storage';
 import { recordError, recordWarning } from '@/lib/logger';
 
 // ─── Canonical AsyncStorage key registry ─────────────────────────────────────
@@ -155,7 +156,30 @@ export async function fetchApi<T>(path: string, init?: RequestInit): Promise<T> 
     adminToken = null;
   }
 
+  let authToken: string | null = null;
+  try {
+    authToken = await AsyncStorage.getItem(KEY_AUTH_ACCESS_TOKEN);
+  } catch (error) {
+    recordWarning('apiClient', 'Failed to read account auth token.', {
+      action: 'fetch_api',
+      context: {
+        path,
+      },
+      error,
+    });
+    authToken = null;
+  }
+
   const identityHeaders = await getIdentityHeaders();
+  const explicitHeaders = init?.headers;
+  const hasExplicitAuthorizationHeader = explicitHeaders instanceof Headers
+    ? explicitHeaders.has('Authorization')
+    : explicitHeaders != null
+      ? Object.keys(explicitHeaders as Record<string, string>).some((key) => key.toLowerCase() === 'authorization')
+      : false;
+  const bearerToken = hasExplicitAuthorizationHeader
+    ? null
+    : authToken || adminToken;
 
   let response: Response;
   try {
@@ -164,7 +188,7 @@ export async function fetchApi<T>(path: string, init?: RequestInit): Promise<T> 
       headers: {
         'content-type': 'application/json',
         ...identityHeaders,
-        ...(adminToken ? { Authorization: `Bearer ${adminToken}` } : {}),
+        ...(bearerToken ? { Authorization: `Bearer ${bearerToken}` } : {}),
         ...(init?.headers || {}),
       },
     } as RequestInit);

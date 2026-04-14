@@ -5,6 +5,7 @@ import React, { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import DiagnosticsErrorBoundary from '@/components/ui/DiagnosticsErrorBoundary';
 import { BACKEND } from '@/constants';
+import { AuthProvider } from '@/features/auth';
 import { recordInfo, recordWarning } from '@/lib/logger';
 
 export default function Layout() {
@@ -28,7 +29,9 @@ export default function Layout() {
 
   return (
     <DiagnosticsErrorBoundary>
-      <Stack screenOptions={{ headerShown: false }} />
+      <AuthProvider>
+        <Stack screenOptions={{ headerShown: false }} />
+      </AuthProvider>
     </DiagnosticsErrorBoundary>
   );
 }
