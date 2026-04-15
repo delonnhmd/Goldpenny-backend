@@ -15,14 +15,23 @@ import 'react-native-get-random-values';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+// Expo only inlines env vars prefixed with EXPO_PUBLIC_. Accept the common
+// NEXT_PUBLIC_ prefix as a fallback so a copy/paste from a Next.js project
+// still works during development.
+const SUPABASE_URL =
+  process.env.EXPO_PUBLIC_SUPABASE_URL ||
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  '';
+const SUPABASE_ANON_KEY =
+  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  '';
 
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  // Surface a clear setup error rather than a cryptic runtime failure.
-  // eslint-disable-next-line no-console
-  console.warn(
-    '[supabase] EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY is missing.'
+  throw new Error(
+    '[supabase] Missing EXPO_PUBLIC_SUPABASE_URL or EXPO_PUBLIC_SUPABASE_ANON_KEY. ' +
+      'Add them to expo/.env.local (use the EXPO_PUBLIC_ prefix — NEXT_PUBLIC_ is for Next.js, ' +
+      'Expo will not expose it) and restart Metro with `yarn start --clear`.',
   );
 }
 
