@@ -9,8 +9,10 @@
  * Supabase auth user.id is the canonical identity passed to the backend
  * via GET /player/by-user-id/{user_id}. The backend owns player creation.
  */
+import 'react-native-url-polyfill/auto';
+import 'react-native-get-random-values';
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
-// eslint-disable-next-line import/no-unresolved
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
