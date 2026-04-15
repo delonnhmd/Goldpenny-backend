@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import Boolean, Column, Date, DateTime, Float, Integer, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship, synonym
 
@@ -11,13 +11,10 @@ class Player(Base):
     __tablename__ = "players"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(
-        UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-        unique=True,
-        index=True,
-    )
+    # Supabase Auth user id (UUID string). Nullable to allow legacy rows that
+    # were created before the auth migration; uniqueness enforced via
+    # partial unique index ux_players_user_id.
+    user_id = Column(Text, nullable=True, unique=True, index=True)
 
     # ── Finances ──────────────────────────────────────────────────────────────
     cash = Column(Numeric(12, 2), nullable=False, default=1000)
@@ -174,7 +171,6 @@ class Player(Base):
     total_debt_xgp = synonym("debt_xgp")
     available_hours = synonym("hours_available")
 
-    user = relationship("User", back_populates="player")
     job_actions = relationship("JobAction", back_populates="player", order_by="JobAction.created_at.desc()")
     daily_states = relationship(
         "PlayerDailyState",

@@ -156,3 +156,44 @@ export async function submitPasswordReset(token: string, password: string): Prom
     body: JSON.stringify({ token, password }),
   });
 }
+
+export interface LinkedPlayer {
+  id: string;
+  user_id: string | null;
+  display_name: string | null;
+  region: string | null;
+  cash_xgp: number;
+  debt_xgp: number;
+  health: number;
+  stress: number;
+  main_job: string | null;
+  account_created_day: number;
+  created_at: string | null;
+}
+
+function normalizeLinkedPlayer(raw: unknown): LinkedPlayer {
+  const obj = toRecord(raw);
+  return {
+    id: toString(obj.id),
+    user_id: toNullableString(obj.user_id),
+    display_name: toNullableString(obj.display_name),
+    region: toNullableString(obj.region),
+    cash_xgp: toNumber(obj.cash_xgp, 0),
+    debt_xgp: toNumber(obj.debt_xgp, 0),
+    health: Math.round(toNumber(obj.health, 100)),
+    stress: Math.round(toNumber(obj.stress, 0)),
+    main_job: toNullableString(obj.main_job),
+    account_created_day: Math.round(toNumber(obj.account_created_day, 1)),
+    created_at: toNullableString(obj.created_at),
+  };
+}
+
+/**
+ * Get-or-create the canonical player linked to a Supabase Auth user id.
+ * The backend is the only place allowed to create the linked player.
+ */
+export async function getOrCreatePlayerByUserId(userId: string): Promise<LinkedPlayer> {
+  if (!userId) throw new Error('userId is required.');
+  const raw = await fetchApi<unknown>(`/player/by-user-id/${encodeURIComponent(userId)}`);
+  return normalizeLinkedPlayer(raw);
+}

@@ -2,7 +2,7 @@ import uuid
 
 from sqlalchemy import Column, DateTime, String, func
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship  # noqa: F401
 
 from app.db.database import Base
 
@@ -24,5 +24,3 @@ class User(Base):
         onupdate=func.now(),
         nullable=False,
     )
-
-    player = relationship("Player", back_populates="user", uselist=False)
