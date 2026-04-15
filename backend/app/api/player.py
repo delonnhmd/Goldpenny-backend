@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 from decimal import Decimal
 
@@ -5,6 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from app.api.auth import get_current_user
 from app.db.database import get_db
@@ -265,14 +268,28 @@ def get_or_create_player_by_user_id(
         player = _create_clean_day1_player(db, cleaned)
         db.commit()
         db.refresh(player)
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
         player = db.query(Player).filter(Player.user_id == cleaned).first()
         if player is None:
-            raise HTTPException(status_code=500, detail="Could not load linked player.")
-    except Exception:
+            logger.exception(
+                "player_by_user_id_integrity_error_no_existing_row",
+                extra={"user_id": cleaned},
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=f"Could not load linked player: {exc.orig if hasattr(exc, 'orig') else exc}",
+            )
+    except Exception as exc:
         db.rollback()
-        raise HTTPException(status_code=500, detail="Could not create linked player.")
+        logger.exception(
+            "player_by_user_id_create_failed",
+            extra={"user_id": cleaned},
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not create linked player: {type(exc).__name__}: {exc}",
+        )
 
     return _serialize_player(player)
 

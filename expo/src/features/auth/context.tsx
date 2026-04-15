@@ -102,16 +102,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       player = await getOrCreatePlayerByUserId(user.id);
     } catch (err) {
-      recordWarning('auth', 'Linked player load failed; signing out.', {
+      // Backend may be unreachable or the new player_id migration may not
+      // have been applied yet. Keep the Supabase session active so the
+      // user is not bounced back to the login screen — they can retry from
+      // create-player or via refreshSession().
+      recordWarning('auth', 'Linked player load failed; staying signed in without a player.', {
         action: 'load_linked_player_failed',
         error: err,
       });
-      await supabase.auth.signOut();
-      lastUserIdRef.current = null;
-      await clearStoredAuthSession();
-      setSession(null);
-      setStatus('unauthenticated');
-      return;
+      // eslint-disable-next-line no-console
+      console.warn('[auth] /player/by-user-id failed:', err);
     }
 
     const expiresAtIso = sb.expires_at
@@ -181,8 +181,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [applyFromSupabase]);
 
   const createPlayerProfile = useCallback(async (_payload?: { display_name?: string }) => {
-    // The backend creates the linked player automatically on first
-    // /player/by-user-id/{user_id} call. Re-syncing the session is enough.
+    // The backend get-or-creates the linked player on first call. We
+    // re-run applyFromSupabase to fetch it; any backend error here is
+    // surfaced to the caller (create-player screen) instead of swallowed.
+    const { data } = await supabase.auth.getSession();
+    if (!data?.session?.user?.id) {
+      throw new Error('You must be signed in before creating a player profile.');
+    }
+    await getOrCreatePlayerByUserId(data.session.user.id);
     await applyFromSupabase();
   }, [applyFromSupabase]);
 
