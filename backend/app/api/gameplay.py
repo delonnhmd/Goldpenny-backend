@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import json
+import traceback
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
@@ -1697,6 +1698,30 @@ def get_gameplay_dashboard(
     return dashboard
 
 
+def _log_loop_section_failure(
+    *,
+    section: str,
+    player_id: str,
+    exc: BaseException,
+) -> None:
+    """Emit the real exception class/message/traceback for a loop subsection.
+
+    The frontend only ever saw the generic 500 body because FastAPI masks
+    unhandled exceptions. We log traceback ourselves so the real cause is
+    visible in server logs for Part 1/Part 2 diagnostics.
+    """
+    logger.exception(
+        "gameplay.loop section failure",
+        extra={
+            "player_id": player_id,
+            "section": section,
+            "error_class": type(exc).__name__,
+            "error_message": str(exc),
+            "traceback": traceback.format_exc(),
+        },
+    )
+
+
 @router.get("/player/{player_id}/loop")
 def get_gameplay_loop_bundle(
     player_id: str,
@@ -1704,64 +1729,145 @@ def get_gameplay_loop_bundle(
     current_health: int | None = Query(default=None, ge=0, le=100),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
+    # Step 95F: the /loop endpoint must succeed for a brand new Day 1 player.
+    # Treat player resolution as the only truly critical step; every other
+    # section degrades gracefully so loop_core can still render starter state.
     try:
         player = _resolve_player(db, player_id)
-        effective_stress = _normalize_optional_stat_override(current_stress)
-        effective_health = _normalize_optional_stat_override(current_health)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _log_loop_section_failure(section="player_resolve", player_id=player_id, exc=exc)
+        _raise_gameplay_http_error(exc)
+
+    resolved_player_id = str(player.id)
+    logger.info(
+        "gameplay.loop bootstrap start",
+        extra={
+            "requested_player_id": player_id,
+            "resolved_player_id": resolved_player_id,
+            "new_player_first_session": _is_new_player_first_session(player),
+            "player_main_job": getattr(player, "main_job", None),
+            "player_account_created_day": int(getattr(player, "account_created_day", 0) or 0),
+        },
+    )
+
+    degraded_sections: list[str] = []
+
+    effective_stress = _normalize_optional_stat_override(current_stress)
+    effective_health = _normalize_optional_stat_override(current_health)
+
+    try:
         work_state = _sync_player_work_state(
             db,
             player,
             current_stress_override=effective_stress,
             current_health_override=effective_health,
         )
+    except Exception as exc:
+        _log_loop_section_failure(section="work_state", player_id=resolved_player_id, exc=exc)
+        degraded_sections.append("work_state")
+        work_state = {}
+
+    try:
         playable = get_playable_player_summary(db, player.id)
     except Exception as exc:
-        _raise_gameplay_http_error(exc)
+        _log_loop_section_failure(section="playable_summary", player_id=resolved_player_id, exc=exc)
+        degraded_sections.append("playable_summary")
+        playable = {
+            "player_id": resolved_player_id,
+            "display_name": getattr(player, "display_name", None),
+            "cash_xgp": float(getattr(player, "cash_xgp", 0) or 0),
+            "debt_xgp": float(getattr(player, "debt_xgp", 0) or 0),
+            "health": int(getattr(player, "health", 100) or 100),
+            "stress": int(getattr(player, "stress", 0) or 0),
+            "latest_daily_brief": {},
+        }
 
     brief_payload: dict[str, Any] | None = None
     economy_payload: dict[str, Any] | None = None
     job_payload: dict[str, Any] | None = None
-    degraded_sections: list[str] = []
 
     try:
         brief_payload = get_player_latest_daily_brief(db, player.id)
-    except Exception:
+    except Exception as exc:
+        _log_loop_section_failure(section="daily_brief", player_id=resolved_player_id, exc=exc)
         degraded_sections.append("daily_brief")
     try:
-        economy_payload = build_economy_presentation_summary(db=db, player_id=str(player.id))
-    except Exception:
+        economy_payload = build_economy_presentation_summary(db=db, player_id=resolved_player_id)
+    except Exception as exc:
+        _log_loop_section_failure(section="economy", player_id=resolved_player_id, exc=exc)
         degraded_sections.append("economy")
     try:
-        job_payload = get_player_job_summary(db=db, player_id=str(player.id))
-    except Exception:
+        job_payload = get_player_job_summary(db=db, player_id=resolved_player_id)
+    except Exception as exc:
+        _log_loop_section_failure(section="job_summary", player_id=resolved_player_id, exc=exc)
         degraded_sections.append("job_summary")
 
-    dashboard = _build_dashboard_payload(
-        db,
-        player=player,
-        work_state=work_state,
-        playable=playable,
-        brief_payload=brief_payload,
-        economy_payload=economy_payload,
-        job_payload=job_payload,
-        degraded_sections=degraded_sections,
-    )
-    authoritative_state = dashboard.get("authoritative_state") or _build_authoritative_gameplay_state(
-        player,
-        work_state=work_state,
-        playable=playable,
-    )
-    action_hub = _build_action_hub_payload(player, work_state=work_state)
-    action_hub["authoritative_state"] = authoritative_state
+    try:
+        dashboard = _build_dashboard_payload(
+            db,
+            player=player,
+            work_state=work_state,
+            playable=playable,
+            brief_payload=brief_payload,
+            economy_payload=economy_payload,
+            job_payload=job_payload,
+            degraded_sections=degraded_sections,
+        )
+    except Exception as exc:
+        _log_loop_section_failure(section="loop_core.dashboard", player_id=resolved_player_id, exc=exc)
+        degraded_sections.append("dashboard")
+        dashboard = {
+            "player_id": resolved_player_id,
+            "dashboard_unavailable": True,
+            "message": "Day 1 dashboard temporarily unavailable. Starter actions still available.",
+            "debug_meta": {
+                "section": "loop_core.dashboard",
+                "error_class": type(exc).__name__,
+                "error_message": str(exc),
+            },
+        }
+
+    try:
+        authoritative_state = dashboard.get("authoritative_state") or _build_authoritative_gameplay_state(
+            player,
+            work_state=work_state,
+            playable=playable,
+        )
+    except Exception as exc:
+        _log_loop_section_failure(
+            section="loop_core.authoritative_state", player_id=resolved_player_id, exc=exc
+        )
+        degraded_sections.append("authoritative_state")
+        authoritative_state = {
+            "player_id": resolved_player_id,
+            "current_day": 1,
+            "hours_available": int(getattr(player, "hours_available", 0) or 0),
+        }
+
+    try:
+        action_hub = _build_action_hub_payload(player, work_state=work_state)
+        action_hub["authoritative_state"] = authoritative_state
+    except Exception as exc:
+        _log_loop_section_failure(section="action_hub", player_id=resolved_player_id, exc=exc)
+        degraded_sections.append("action_hub")
+        action_hub = {
+            "player_id": resolved_player_id,
+            "actions": [],
+            "authoritative_state": authoritative_state,
+        }
+
     debug_meta = dict(dashboard.get("debug_meta") or {})
     return {
-        "player_id": str(player.id),
+        "player_id": resolved_player_id,
         "dashboard": dashboard,
         "action_hub": action_hub,
         "authoritative_state": authoritative_state,
         "debug_meta": {
             **debug_meta,
-            "degraded_sections": sorted({str(section) for section in degraded_sections if str(section).strip()}),
+            "degraded_sections": sorted({str(s) for s in degraded_sections if str(s).strip()}),
+            "new_player_first_session": _is_new_player_first_session(player),
         },
     }
 
