@@ -158,7 +158,7 @@ export default function BusinessScreen() {
                         label={isOpening ? `Opening ${option.label}...` : `Open ${option.label}`}
                         onPress={isOpening ? undefined : () => {
                           setOpeningBusinessType(option.business_type);
-                          void openBusiness(option.business_type)
+                          void openBusiness(option.business_type, loop.playerId)
                             .then(async (result) => {
                               loop.setFeedback({
                                 tone: 'success',
@@ -167,9 +167,15 @@ export default function BusinessScreen() {
                               await loop.refresh({ silent: true });
                             })
                             .catch((error: unknown) => {
+                              const raw = error instanceof Error ? error.message : String(error);
+                              const friendly = raw.includes('Invalid or expired token')
+                                ? 'Business session expired. Please refresh and try again.'
+                                : raw.includes('Not enough cash')
+                                  ? raw
+                                  : 'Could not open this business right now. Please try again.';
                               loop.setFeedback({
                                 tone: 'error',
-                                message: error instanceof Error ? error.message : 'Could not open this business right now.',
+                                message: friendly,
                               });
                             })
                             .finally(() => {

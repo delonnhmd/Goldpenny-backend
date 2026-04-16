@@ -19,7 +19,9 @@ POST /business/run              — Operate business for today (inputs → profi
 GET  /business/op-history       — Business operation log, newest first
 """
 
+import logging
 from datetime import date
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -67,9 +69,24 @@ from app.services.daily_settlement_service import SettlementNotFoundError, get_n
 
 router = APIRouter()
 _engine = BusinessEngine()
+_logger = logging.getLogger(__name__)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _resolve_player_by_id(db: Session, player_id: str) -> Player:
+    raw = str(player_id or "").strip()
+    if not raw:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found.")
+    try:
+        pid = UUID(raw)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found.")
+    player = db.query(Player).filter(Player.id == pid).first()
+    if player is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player not found.")
+    return player
+
 
 def _get_player_or_404(user: User, db: Session) -> Player:
     player = db.query(Player).filter(Player.user_id == user.id).first()
@@ -424,6 +441,102 @@ def open_business(
 
     db.commit()
 
+    return {
+        "message": f"Business '{btype.display_name}' opened successfully.",
+        "business_id":    body.business_id,
+        "display_name":   btype.display_name,
+        "startup_cost":   startup_cost,
+        "balance_before": balance_before,
+        "balance_after":  balance_after,
+        "created_day":    current_day,
+    }
+
+
+# ── POST /business/player/{player_id}/open ───────────────────────────────────
+# Player-id based variant — works with Supabase Auth (no legacy JWT needed).
+
+@router.post("/player/{player_id}/open")
+def open_business_by_player_id(
+    player_id: str,
+    body: OpenBusinessRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    from app.engine.macro_engine import get_or_create_macro_state_for_day
+    from app.models.xgp_transaction import XGPTransaction
+    import json as _json
+
+    player = _resolve_player_by_id(db, player_id)
+
+    btype = (
+        db.query(BusinessType)
+        .filter(BusinessType.business_id == body.business_id, BusinessType.is_active.is_(True))
+        .first()
+    )
+    if btype is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Business type '{body.business_id}' not found or inactive.",
+        )
+
+    existing = (
+        db.query(PlayerBusiness)
+        .filter(PlayerBusiness.player_id == player.id, PlayerBusiness.is_active.is_(True))
+        .first()
+    )
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"You already own an active business ({existing.business_id}). Close it before opening another.",
+        )
+
+    startup_cost = float(btype.startup_cost)
+    balance_before = round(float(player.cash), 4)
+    if balance_before < startup_cost:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Not enough cash. Startup costs {startup_cost:.2f} XGP, you have {balance_before:.2f} XGP.",
+        )
+
+    state = db.query(GameState).order_by(GameState.id.asc()).first()
+    current_day = int(state.current_day) if state else 0
+
+    balance_after = round(balance_before - startup_cost, 4)
+    player.cash = balance_after
+
+    pb = PlayerBusiness(
+        player_id=player.id,
+        business_id=body.business_id,
+        business_level=1,
+        created_day=current_day,
+        is_active=True,
+    )
+    db.add(pb)
+    db.flush()
+
+    xgp_tx = XGPTransaction(
+        player_id=player.id,
+        transaction_type="business_startup",
+        direction="out",
+        amount=startup_cost,
+        balance_before=balance_before,
+        balance_after=balance_after,
+        reference_type="player_business",
+        reference_id=str(pb.id),
+        description=f"Business startup — {btype.display_name} on day {current_day}",
+    )
+    db.add(xgp_tx)
+
+    db.commit()
+
+    _logger.info(
+        "business.open_by_player_id success",
+        extra={
+            "player_id": str(player.id),
+            "business_id": body.business_id,
+            "startup_cost": startup_cost,
+            "balance_after": balance_after,
+        },
+    )
     return {
         "message": f"Business '{btype.display_name}' opened successfully.",
         "business_id":    body.business_id,

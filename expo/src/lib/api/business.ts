@@ -19,10 +19,13 @@ export interface OpenBusinessResponse {
   created_day: number;
 }
 
-export async function openBusiness(businessId: string): Promise<OpenBusinessResponse> {
-  return fetchApiWithFallback<OpenBusinessResponse>([
-    '/business/open',
-  ], {
+export async function openBusiness(businessId: string, playerId?: string): Promise<OpenBusinessResponse> {
+  const paths: string[] = [];
+  if (playerId) {
+    paths.push(`/business/player/${playerId}/open`);
+  }
+  paths.push('/business/open');
+  return fetchApiWithFallback<OpenBusinessResponse>(paths, {
     method: 'POST',
     body: JSON.stringify({ business_id: businessId }),
   });
