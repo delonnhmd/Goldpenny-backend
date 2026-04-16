@@ -268,7 +268,7 @@ def get_or_create_player_by_user_id(
         player = _create_clean_day1_player(db, cleaned)
         db.commit()
         db.refresh(player)
-    except IntegrityError as exc:
+    except IntegrityError:
         db.rollback()
         player = db.query(Player).filter(Player.user_id == cleaned).first()
         if player is None:
@@ -278,9 +278,9 @@ def get_or_create_player_by_user_id(
             )
             raise HTTPException(
                 status_code=500,
-                detail=f"Could not load linked player: {exc.orig if hasattr(exc, 'orig') else exc}",
+                detail="Could not create your player profile right now. Please try again.",
             )
-    except Exception as exc:
+    except Exception:
         db.rollback()
         logger.exception(
             "player_by_user_id_create_failed",
@@ -288,7 +288,7 @@ def get_or_create_player_by_user_id(
         )
         raise HTTPException(
             status_code=500,
-            detail=f"Could not create linked player: {type(exc).__name__}: {exc}",
+            detail="Could not create your player profile right now. Please try again.",
         )
 
     return _serialize_player(player)
