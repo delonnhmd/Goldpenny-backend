@@ -123,7 +123,7 @@ class SideIncomeDailySummaryResponse(BaseModel):
 
 
 def _get_player_or_404(db: Session, user: User) -> Player:
-    player = db.query(Player).filter(Player.user_id == user.id).first()
+    player = db.query(Player).filter(Player.user_id == str(user.id)).first()
     if player is None:
         raise HTTPException(status_code=404, detail="Player profile not found.")
     return player

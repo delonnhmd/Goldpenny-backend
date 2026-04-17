@@ -298,10 +298,10 @@ function normalizeJobProgressSnapshot(
 
 function normalizeJobProgressTrack(raw: unknown): JobProgressionTrackSnapshot {
   const obj = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
-  return {
-    job_key: toString(obj.job_key, ''),
-    display_name: toString(obj.display_name, ''),
-    status: toString(obj.status, ''),
+    return {
+      job_key: toString(obj.job_key, ''),
+      display_name: toString(obj.display_name, ''),
+      status: toString(obj.status, ''),
     locked: Boolean(obj.locked),
     requires_certification: Boolean(obj.requires_certification),
     certification_key: obj.certification_key == null ? null : toString(obj.certification_key, ''),
@@ -317,15 +317,21 @@ function normalizeJobProgressTrack(raw: unknown): JobProgressionTrackSnapshot {
       obj.estimated_current_monthly_salary_xgp,
       { allowNegative: false, fallback: 0 },
     ),
-    estimated_next_level_monthly_salary_xgp: normalizeMoneyValue(
-      obj.estimated_next_level_monthly_salary_xgp,
-      { allowNegative: false, fallback: 0 },
-    ),
-    next_level_salary_increase_pct: normalizeFiniteNumber(obj.next_level_salary_increase_pct, { fallback: 10 }),
-    salary_preview_note: obj.salary_preview_note == null ? null : toString(obj.salary_preview_note, ''),
-    last_worked_at: obj.last_worked_at == null ? null : toString(obj.last_worked_at, ''),
-  };
-}
+      estimated_next_level_monthly_salary_xgp: normalizeMoneyValue(
+        obj.estimated_next_level_monthly_salary_xgp,
+        { allowNegative: false, fallback: 0 },
+      ),
+      next_level_salary_increase_pct: normalizeFiniteNumber(obj.next_level_salary_increase_pct, { fallback: 10 }),
+      salary_preview_note: obj.salary_preview_note == null ? null : toString(obj.salary_preview_note, ''),
+      last_worked_at: obj.last_worked_at == null ? null : toString(obj.last_worked_at, ''),
+      level_requirement: Math.max(1, Math.round(toNumber(obj.level_requirement, 1))),
+      experience_requirement_shifts: Math.max(0, Math.round(toNumber(obj.experience_requirement_shifts, 0))),
+      prerequisite_job_labels: Array.isArray(obj.prerequisite_job_labels)
+        ? (obj.prerequisite_job_labels as unknown[]).map((entry) => toString(entry, '')).filter(Boolean)
+        : [],
+      path_hint: obj.path_hint == null ? null : toString(obj.path_hint, ''),
+    };
+  }
 
 function normalizeJobProgressFeedback(raw: unknown): JobProgressionFeedbackSnapshot | null {
   if (!raw || typeof raw !== 'object') return null;
@@ -747,10 +753,10 @@ function normalizeJobMarket(raw: unknown): WorkStateSnapshot['job_market'] {
   const jobs = Array.isArray(obj.jobs)
     ? (obj.jobs as unknown[]).map((entry) => {
       const row = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : {};
-      return {
-        job_key: toString(row.job_key, ''),
-        display_name: toString(row.display_name, ''),
-        tier: toString(row.tier, 'entry'),
+        return {
+          job_key: toString(row.job_key, ''),
+          display_name: toString(row.display_name, ''),
+          tier: toString(row.tier, 'entry'),
         base_salary_xgp: normalizeMoneyValue(row.base_salary_xgp, { allowNegative: false, fallback: 0 }),
         stress_level: toString(row.stress_level, 'Moderate'),
         status: toString(row.status, 'locked'),
@@ -763,15 +769,25 @@ function normalizeJobMarket(raw: unknown): WorkStateSnapshot['job_market'] {
         requirement_label: row.requirement_label == null ? null : toString(row.requirement_label, ''),
         can_start_training: Boolean(row.can_start_training),
         can_switch: Boolean(row.can_switch),
-        training_in_progress: Boolean(row.training_in_progress),
-        training_days_completed: Math.max(0, Math.round(toNumber(row.training_days_completed, 0))),
-        training_days_required: Math.max(0, Math.round(toNumber(row.training_days_required, 0))),
-        progression: normalizeJobProgressSnapshot(row.progression, toString(row.job_key, '')),
-        is_locked: Boolean(row.is_locked),
-        is_unlocked: Boolean(row.is_unlocked),
-      };
-    })
-    : [];
+          training_in_progress: Boolean(row.training_in_progress),
+          training_days_completed: Math.max(0, Math.round(toNumber(row.training_days_completed, 0))),
+          training_days_required: Math.max(0, Math.round(toNumber(row.training_days_required, 0))),
+          training_days_remaining: Math.max(0, Math.round(toNumber(row.training_days_remaining, 0))),
+          progression: normalizeJobProgressSnapshot(row.progression, toString(row.job_key, '')),
+          is_locked: Boolean(row.is_locked),
+          is_unlocked: Boolean(row.is_unlocked),
+          level_requirement: Math.max(1, Math.round(toNumber(row.level_requirement, 1))),
+          experience_requirement_shifts: Math.max(0, Math.round(toNumber(row.experience_requirement_shifts, 0))),
+          prerequisite_job_keys: Array.isArray(row.prerequisite_job_keys)
+            ? (row.prerequisite_job_keys as unknown[]).map((entry) => toString(entry, '')).filter(Boolean)
+            : [],
+          prerequisite_job_labels: Array.isArray(row.prerequisite_job_labels)
+            ? (row.prerequisite_job_labels as unknown[]).map((entry) => toString(entry, '')).filter(Boolean)
+            : [],
+          path_hint: row.path_hint == null ? null : toString(row.path_hint, ''),
+        };
+      })
+      : [];
   const certifications = Array.isArray(obj.certifications)
     ? (obj.certifications as unknown[]).map((entry) => {
       const row = entry && typeof entry === 'object' ? (entry as Record<string, unknown>) : {};

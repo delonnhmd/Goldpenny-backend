@@ -41,28 +41,169 @@ SUPPORTED_STARTER_JOBS = {
     "delivery",
 }
 
+DAY_ONE_SURVIVAL_JOB_KEYS: frozenset[str] = frozenset({
+    "cleaner",
+    "delivery",
+    "retail",
+})
+
+DEFAULT_SIGNUP_QUESTIONNAIRE: dict[str, str] = {
+    "risk_tolerance": "balanced",
+    "work_ethic": "steady",
+    "spending_behavior": "stretch_every_coin",
+    "health_habits": "mixed",
+    "education_background": "high_school",
+    "hustle_preference": "hands_on",
+}
+
+SIGNUP_QUESTION_OPTIONS: dict[str, set[str]] = {
+    "risk_tolerance": {"cautious", "balanced", "bold"},
+    "work_ethic": {"steady", "grinder", "clock_out"},
+    "spending_behavior": {"stretch_every_coin", "balanced", "spend_freely"},
+    "health_habits": {"disciplined", "mixed", "rough_patch"},
+    "education_background": {"self_taught", "high_school", "college"},
+    "hustle_preference": {"hands_on", "service", "sales"},
+}
+
+SIGNUP_QUESTION_IMPACTS: dict[str, dict[str, dict[str, Decimal | int]]] = {
+    "risk_tolerance": {
+        "cautious": {
+            "cash_xgp": Decimal("20.00"),
+            "debt_xgp": -20,
+            "credit_score": 10,
+            "stress": -4,
+            "reputation": -1,
+        },
+        "balanced": {},
+        "bold": {
+            "cash_xgp": -10,
+            "debt_xgp": 25,
+            "credit_score": -10,
+            "stress": 3,
+            "reputation": 1,
+        },
+    },
+    "work_ethic": {
+        "steady": {
+            "productivity_modifier": Decimal("0.03"),
+            "base_productivity_modifier": Decimal("0.03"),
+            "career_progress_penalty": Decimal("-0.01"),
+            "stress": -1,
+        },
+        "grinder": {
+            "productivity_modifier": Decimal("0.05"),
+            "base_productivity_modifier": Decimal("0.05"),
+            "skill_level": 1,
+            "stress": 5,
+            "health": -2,
+        },
+        "clock_out": {
+            "productivity_modifier": Decimal("-0.04"),
+            "base_productivity_modifier": Decimal("-0.04"),
+            "career_progress_penalty": Decimal("0.02"),
+            "stress": -3,
+        },
+    },
+    "spending_behavior": {
+        "stretch_every_coin": {
+            "cash_xgp": Decimal("30.00"),
+            "debt_xgp": -25,
+            "credit_score": 12,
+            "borrowing_cost_modifier": Decimal("-0.03"),
+        },
+        "balanced": {},
+        "spend_freely": {
+            "cash_xgp": Decimal("-20.00"),
+            "debt_xgp": 35,
+            "credit_score": -15,
+            "borrowing_cost_modifier": Decimal("0.05"),
+            "business_risk_penalty": Decimal("0.02"),
+        },
+    },
+    "health_habits": {
+        "disciplined": {
+            "health": 8,
+            "stress": -5,
+            "productivity_modifier": Decimal("0.02"),
+            "base_productivity_modifier": Decimal("0.02"),
+        },
+        "mixed": {},
+        "rough_patch": {
+            "health": -8,
+            "stress": 6,
+            "productivity_modifier": Decimal("-0.03"),
+            "base_productivity_modifier": Decimal("-0.03"),
+            "borrowing_cost_modifier": Decimal("0.02"),
+        },
+    },
+    "education_background": {
+        "self_taught": {
+            "skill_level": 1,
+            "career_progress_penalty": Decimal("-0.02"),
+            "cash_xgp": Decimal("-5.00"),
+        },
+        "high_school": {},
+        "college": {
+            "skill_level": 1,
+            "debt_xgp": 40,
+            "credit_score": -5,
+            "career_progress_penalty": Decimal("-0.03"),
+            "opportunity_access_penalty": Decimal("-0.02"),
+        },
+    },
+    "hustle_preference": {
+        "hands_on": {
+            "productivity_modifier": Decimal("0.02"),
+            "base_productivity_modifier": Decimal("0.02"),
+            "reputation": 1,
+        },
+        "service": {
+            "reputation": 2,
+            "business_risk_penalty": Decimal("-0.02"),
+            "opportunity_access_penalty": Decimal("-0.01"),
+        },
+        "sales": {
+            "reputation": 3,
+            "stress": 2,
+            "business_risk_penalty": Decimal("-0.01"),
+        },
+    },
+}
+
 STARTER_BASELINES: dict[str, dict[str, Decimal | int]] = {
     "suburban": {
-        "cash_xgp": Decimal("850.00"),
-        "bank_savings_xgp": Decimal("125.00"),
-        "debt_xgp": Decimal("250.00"),
-        "credit_score": 640,
-        "health": 88,
-        "stress": 24,
+        "cash_xgp": Decimal("120.00"),
+        "bank_savings_xgp": Decimal("0.00"),
+        "debt_xgp": Decimal("260.00"),
+        "credit_score": 585,
+        "health": 76,
+        "stress": 39,
         "available_hours": 24,
         "skill_level": 1,
-        "reputation": 0,
+        "reputation": -2,
+        "productivity_modifier": Decimal("0.92"),
+        "base_productivity_modifier": Decimal("0.92"),
+        "borrowing_cost_modifier": Decimal("1.08"),
+        "opportunity_access_penalty": Decimal("0.10"),
+        "business_risk_penalty": Decimal("0.16"),
+        "career_progress_penalty": Decimal("0.08"),
     },
     "downtown": {
-        "cash_xgp": Decimal("780.00"),
-        "bank_savings_xgp": Decimal("110.00"),
-        "debt_xgp": Decimal("360.00"),
-        "credit_score": 635,
-        "health": 86,
-        "stress": 28,
+        "cash_xgp": Decimal("95.00"),
+        "bank_savings_xgp": Decimal("0.00"),
+        "debt_xgp": Decimal("310.00"),
+        "credit_score": 578,
+        "health": 74,
+        "stress": 43,
         "available_hours": 24,
         "skill_level": 1,
-        "reputation": 0,
+        "reputation": -3,
+        "productivity_modifier": Decimal("0.91"),
+        "base_productivity_modifier": Decimal("0.91"),
+        "borrowing_cost_modifier": Decimal("1.12"),
+        "opportunity_access_penalty": Decimal("0.12"),
+        "business_risk_penalty": Decimal("0.18"),
+        "career_progress_penalty": Decimal("0.10"),
     },
 }
 
@@ -94,6 +235,10 @@ def _q4(value: Decimal) -> Decimal:
     return value.quantize(Q4, rounding=ROUND_HALF_UP)
 
 
+def _clamp_decimal(value: Decimal, minimum: Decimal, maximum: Decimal) -> Decimal:
+    return max(minimum, min(maximum, value))
+
+
 def _normalize_display_name(display_name: str) -> str:
     cleaned = (display_name or "").strip()
     if not cleaned:
@@ -101,6 +246,18 @@ def _normalize_display_name(display_name: str) -> str:
     if len(cleaned) > 80:
         raise OnboardingValidationError("display_name must be 80 characters or fewer.")
     return cleaned
+
+
+def _resolve_survival_display_name(display_name: str | None, fallback_email: str | None = None) -> str:
+    cleaned = str(display_name or "").strip()
+    if cleaned:
+        return _normalize_display_name(cleaned)
+    fallback = _normalize_email(fallback_email)
+    if fallback:
+        local_part = fallback.split("@", 1)[0]
+        generated = re.sub(r"[._-]+", " ", local_part).strip() or "Gold Penny Player"
+        return _normalize_display_name(generated[:80])
+    return "Gold Penny Player"
 
 
 def _normalize_gender(gender: str) -> str:
@@ -188,6 +345,158 @@ def _normalize_email(email: str | None) -> str | None:
     if not normalized:
         return None
     return normalized
+
+
+def normalize_signup_questionnaire_answers(raw_answers: dict[str, Any] | None) -> dict[str, str]:
+    source = raw_answers if isinstance(raw_answers, dict) else {}
+    normalized: dict[str, str] = {}
+    for question_key, default_value in DEFAULT_SIGNUP_QUESTIONNAIRE.items():
+        raw_value = str(source.get(question_key, default_value) or "").strip().lower()
+        if raw_value not in SIGNUP_QUESTION_OPTIONS.get(question_key, set()):
+            raw_value = default_value
+        normalized[question_key] = raw_value
+    return normalized
+
+
+def build_survival_starter_baseline(
+    *,
+    region: str,
+    questionnaire_answers: dict[str, Any] | None = None,
+) -> tuple[dict[str, Decimal | int], dict[str, str]]:
+    clean_region = _normalize_region(region)
+    baseline = dict(STARTER_BASELINES[clean_region])
+    normalized_answers = normalize_signup_questionnaire_answers(questionnaire_answers)
+
+    for question_key, answer_key in normalized_answers.items():
+        deltas = SIGNUP_QUESTION_IMPACTS.get(question_key, {}).get(answer_key, {})
+        for stat_key, delta in deltas.items():
+            current_value = baseline.get(stat_key)
+            if current_value is None:
+                continue
+            if isinstance(current_value, Decimal):
+                baseline[stat_key] = current_value + _d(delta)
+            else:
+                baseline[stat_key] = int(current_value) + int(delta)
+
+    baseline["cash_xgp"] = _money(
+        _clamp_decimal(_d(baseline["cash_xgp"]), Decimal("40.00"), Decimal("220.00"))
+    )
+    baseline["bank_savings_xgp"] = _money(
+        _clamp_decimal(_d(baseline["bank_savings_xgp"]), Decimal("0.00"), Decimal("80.00"))
+    )
+    baseline["debt_xgp"] = _money(
+        _clamp_decimal(_d(baseline["debt_xgp"]), Decimal("160.00"), Decimal("420.00"))
+    )
+    baseline["credit_score"] = max(540, min(650, int(baseline["credit_score"])))
+    baseline["health"] = max(60, min(90, int(baseline["health"])))
+    baseline["stress"] = max(20, min(55, int(baseline["stress"])))
+    baseline["available_hours"] = 24
+    baseline["skill_level"] = max(1, min(3, int(baseline["skill_level"])))
+    baseline["reputation"] = max(-6, min(6, int(baseline["reputation"])))
+    baseline["productivity_modifier"] = _q4(
+        _clamp_decimal(_d(baseline["productivity_modifier"]), Decimal("0.82"), Decimal("1.08"))
+    )
+    baseline["base_productivity_modifier"] = _q4(
+        _clamp_decimal(_d(baseline["base_productivity_modifier"]), Decimal("0.82"), Decimal("1.08"))
+    )
+    baseline["borrowing_cost_modifier"] = _q4(
+        _clamp_decimal(_d(baseline["borrowing_cost_modifier"]), Decimal("0.92"), Decimal("1.22"))
+    )
+    baseline["opportunity_access_penalty"] = _q4(
+        _clamp_decimal(_d(baseline["opportunity_access_penalty"]), Decimal("0.00"), Decimal("0.25"))
+    )
+    baseline["business_risk_penalty"] = _q4(
+        _clamp_decimal(_d(baseline["business_risk_penalty"]), Decimal("0.00"), Decimal("0.25"))
+    )
+    baseline["career_progress_penalty"] = _q4(
+        _clamp_decimal(_d(baseline["career_progress_penalty"]), Decimal("0.00"), Decimal("0.25"))
+    )
+    return baseline, normalized_answers
+
+
+def is_day_one_survival_window(player: Player | None) -> bool:
+    if player is None:
+        return True
+    return int(getattr(player, "last_settled_day", 0) or 0) <= 0
+
+
+def create_survival_player_profile(
+    db: Session,
+    *,
+    user_id: str | UUID,
+    display_name: str | None = None,
+    fallback_email: str | None = None,
+    region: str = "suburban",
+    questionnaire_answers: dict[str, Any] | None = None,
+    daily_state_note: str = "fresh_start_profile_created",
+) -> Player:
+    clean_region = _normalize_region(region)
+    starter, _normalized_answers = build_survival_starter_baseline(
+        region=clean_region,
+        questionnaire_answers=questionnaire_answers,
+    )
+    cash_xgp = _money(_d(starter["cash_xgp"]))
+    bank_savings_xgp = _money(_d(starter["bank_savings_xgp"]))
+    debt_xgp = _money(_d(starter["debt_xgp"]))
+    net_worth_xgp = _money(cash_xgp + bank_savings_xgp - debt_xgp)
+    starter_hours = int(starter["available_hours"])
+    resolved_display_name = _resolve_survival_display_name(display_name, fallback_email)
+
+    player = Player(
+        user_id=str(user_id) if isinstance(user_id, UUID) else user_id,
+        display_name=resolved_display_name,
+        gender=None,
+        region=clean_region,
+        cash_xgp=cash_xgp,
+        bank_savings_xgp=bank_savings_xgp,
+        debt_xgp=debt_xgp,
+        credit_score=int(starter["credit_score"]),
+        net_worth_xgp=net_worth_xgp,
+        health=int(starter["health"]),
+        stress=int(starter["stress"]),
+        available_hours=starter_hours,
+        skill_level=int(starter["skill_level"]),
+        reputation=int(starter["reputation"]),
+        productivity_modifier=_q4(_d(starter["productivity_modifier"])),
+        base_productivity_modifier=_q4(_d(starter["base_productivity_modifier"])),
+        borrowing_cost_modifier=_q4(_d(starter["borrowing_cost_modifier"])),
+        opportunity_access_penalty=_q4(_d(starter["opportunity_access_penalty"])),
+        business_risk_penalty=_q4(_d(starter["business_risk_penalty"])),
+        career_progress_penalty=_q4(_d(starter["career_progress_penalty"])),
+        main_job=None,
+        has_active_housing=False,
+        housing_region_id=None,
+        account_created_day=1,
+        current_location_key="home",
+    )
+    db.add(player)
+    db.flush()
+
+    ensure_player_daily_state(
+        db,
+        player=player,
+        day_number=1,
+        defaults={
+            "hours_available_start": starter_hours,
+            "hours_available_end": starter_hours,
+            "worked_main_job": False,
+            "worked_hours": 0,
+            "gross_income_xgp": Decimal("0.00"),
+            "did_settlement": False,
+            "stress_start": int(player.stress or 0),
+            "stress_end": int(player.stress or 0),
+            "health_start": int(player.health or 100),
+            "health_end": int(player.health or 100),
+            "cash_start": cash_xgp,
+            "cash_end": cash_xgp,
+            "housing_region_id": None,
+            "productivity_modifier": _q4(_d(starter["productivity_modifier"])),
+            "borrowing_cost_modifier": _q4(_d(starter["borrowing_cost_modifier"])),
+            "notes": daily_state_note,
+        },
+    )
+    db.flush()
+    return player
 
 
 def _build_generated_email(db: Session, display_name: str) -> str:

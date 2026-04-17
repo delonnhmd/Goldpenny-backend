@@ -20,6 +20,7 @@ from app.services.job_market_service import (
     compute_job_market_pressure,
     get_player_job_summary,
 )
+from app.services.player_onboarding_service import DAY_ONE_SURVIVAL_JOB_KEYS, is_day_one_survival_window
 
 router = APIRouter()
 _engine = WorkEngine()
@@ -96,7 +97,7 @@ class JobActionOut(BaseModel):
 # ── Helper ────────────────────────────────────────────────────────────────────
 
 def _get_player_or_404(user: User, db: Session) -> Player:
-    player = db.query(Player).filter(Player.user_id == user.id).first()
+    player = db.query(Player).filter(Player.user_id == str(user.id)).first()
     if player is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player profile not found.")
     return player
@@ -377,6 +378,12 @@ def assign_job(
         )
 
     player = _get_player_or_404(current_user, db)
+    if is_day_one_survival_window(player) and canonical_job_id not in DAY_ONE_SURVIVAL_JOB_KEYS:
+        allowed_labels = ", ".join(sorted(job_key.replace("_", " ") for job_key in DAY_ONE_SURVIVAL_JOB_KEYS))
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Day 1 survival mode only allows starter jobs. Choose one of: {allowed_labels}.",
+        )
     player.main_job = canonical_job_id
     db.commit()
     db.refresh(player)

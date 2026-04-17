@@ -54,7 +54,12 @@ from app.models.player_career import PlayerCareer
 from app.models.player_daily_state import PlayerDailyState
 from app.models.player_employment_state import PlayerEmploymentState
 from app.services.job_key_service import normalize_main_job_key, require_canonical_main_job_key
-from app.services.player_job_progression_service import get_or_create_player_job_progression
+from app.services.player_onboarding_service import DAY_ONE_SURVIVAL_JOB_KEYS, is_day_one_survival_window
+from app.services.player_job_progression_service import (
+    get_or_create_player_job_progression,
+    progression_lookup_map,
+)
+from app.services.job_unlock_service import evaluate_job_unlock
 
 MONEY_Q = Decimal("0.01")
 Q4 = Decimal("0.0001")
@@ -635,11 +640,45 @@ def switch_player_job(
     career = get_or_create_player_career(db, player.id)
     cfg = get_job_config(canonical_new_job_key)
 
+    if is_day_one_survival_window(player) and canonical_new_job_key not in DAY_ONE_SURVIVAL_JOB_KEYS:
+        allowed_labels = ", ".join(
+            sorted(job_key.replace("_", " ") for job_key in DAY_ONE_SURVIVAL_JOB_KEYS)
+        )
+        raise CareerValidationError(
+            "Day 1 survival mode only allows starter jobs. "
+            f"Choose one of: {allowed_labels}."
+        )
+
     # Certification gate per target job.
     if cfg.certification_required and not _has_completed_certification(career, cfg.certification_track_key):
         raise CareerValidationError(
             f"Cannot switch to {canonical_new_job_key!r}: certification "
             f"{cfg.certification_track_key!r} must be completed first."
+        )
+
+    try:
+        progression_state = progression_lookup_map(db, player_id=player.id)
+    except (OperationalError, ProgrammingError):
+        progression_state = {}
+
+    unlock_state = evaluate_job_unlock(
+        canonical_new_job_key,
+        player=player,
+        progression_by_job=progression_state,
+        certification_completed=bool(
+            not cfg.certification_required
+            or _has_completed_certification(career, cfg.certification_track_key)
+        ),
+        certification_name=(
+            str((CERTIFICATION_CATALOG.get(cfg.certification_track_key, {}) or {}).get("display_name") or "").strip()
+            or None
+        ),
+    )
+    if not bool(unlock_state.get("unlocked")):
+        missing_parts = list(unlock_state.get("missing_parts") or [])
+        raise CareerValidationError(
+            "This job is still locked. "
+            + (" ".join(f"{part}." for part in missing_parts) if missing_parts else "Keep progressing first.")
         )
 
     old_job = normalize_main_job_key(career.current_job_key, allow_aliases=True)

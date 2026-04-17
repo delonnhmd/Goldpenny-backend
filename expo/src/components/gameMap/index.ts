@@ -1,6 +1,7 @@
 export { default as PlayerStatusBar } from './PlayerStatusBar';
-export { default as GameMap } from './GameMap';
-export type { MapNode, MapOpportunity } from './GameMap';
+export { default as GameMap, zoomTierFor } from './GameMap';
+export type { MapNode, MapTileActionTag, SandboxCityMap, SandboxMapTile } from './mapData';
+export { buildSandboxCityMap, describeTileKind } from './mapData';
 export { default as PlayerAvatar } from './PlayerAvatar';
 export type { PlayerState } from './PlayerAvatar';
 export { default as OpportunityIndicator } from './OpportunityIndicator';

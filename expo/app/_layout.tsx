@@ -3,6 +3,7 @@ import 'react-native-get-random-values';
 import 'react-native-url-polyfill/auto';
 import React, { useEffect } from 'react';
 import { Stack } from 'expo-router';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import DiagnosticsErrorBoundary from '@/components/ui/DiagnosticsErrorBoundary';
 import { BACKEND } from '@/constants';
 import { AuthProvider } from '@/features/auth';
@@ -29,9 +30,11 @@ export default function Layout() {
 
   return (
     <DiagnosticsErrorBoundary>
-      <AuthProvider>
-        <Stack screenOptions={{ headerShown: false }} />
-      </AuthProvider>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <AuthProvider>
+          <Stack screenOptions={{ headerShown: false }} />
+        </AuthProvider>
+      </GestureHandlerRootView>
     </DiagnosticsErrorBoundary>
   );
 }

@@ -9,10 +9,10 @@ import React, {
 } from 'react';
 import * as Linking from 'expo-linking';
 
-import { getOrCreatePlayerByUserId, LinkedPlayer } from '@/lib/api/auth';
+import { createPlayerByUserId, getPlayerByUserId, LinkedPlayer } from '@/lib/api/auth';
 import { recordInfo, recordWarning } from '@/lib/logger';
 import { supabase } from '@/lib/supabase';
-import { AuthSessionResponse, ForgotPasswordResponse } from '@/types/auth';
+import { AuthSessionResponse, CreatePlayerProfilePayload, ForgotPasswordResponse } from '@/types/auth';
 
 import {
   clearStoredAuthSession,
@@ -28,7 +28,7 @@ interface AuthContextValue {
   hasPlayerProfile: boolean;
   signIn: (payload: { email: string; password: string }) => Promise<void>;
   signUp: (payload: { email: string; password: string }) => Promise<void>;
-  createPlayerProfile: (payload?: { display_name?: string }) => Promise<void>;
+  createPlayerProfile: (payload?: CreatePlayerProfilePayload) => Promise<void>;
   signOut: () => Promise<void>;
   refreshSession: () => Promise<void>;
   requestPasswordReset: (email: string) => Promise<ForgotPasswordResponse>;
@@ -100,7 +100,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const user = sb.user;
     let player: LinkedPlayer | null = null;
     try {
-      player = await getOrCreatePlayerByUserId(user.id);
+      player = await getPlayerByUserId(user.id);
     } catch (err) {
       // Backend may be unreachable or the new player_id migration may not
       // have been applied yet. Keep the Supabase session active so the
@@ -110,8 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         action: 'load_linked_player_failed',
         error: err,
       });
-      // eslint-disable-next-line no-console
-      console.warn('[auth] /player/by-user-id failed:', err);
+      console.warn('[auth] /player/by-user-id lookup failed:', err);
     }
 
     const expiresAtIso = sb.expires_at
@@ -180,15 +179,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     recordInfo('auth', 'Supabase sign-up completed.', { action: 'sign_up' });
   }, [applyFromSupabase]);
 
-  const createPlayerProfile = useCallback(async (_payload?: { display_name?: string }) => {
-    // The backend get-or-creates the linked player on first call. We
-    // re-run applyFromSupabase to fetch it; any backend error here is
-    // surfaced to the caller (create-player screen) instead of swallowed.
+  const createPlayerProfile = useCallback(async (payload?: CreatePlayerProfilePayload) => {
     const { data } = await supabase.auth.getSession();
     if (!data?.session?.user?.id) {
       throw new Error('You must be signed in before creating a player profile.');
     }
-    await getOrCreatePlayerByUserId(data.session.user.id);
+    await createPlayerByUserId(data.session.user.id, payload);
     await applyFromSupabase();
   }, [applyFromSupabase]);
 

@@ -65,9 +65,11 @@ from app.services.job_market_service import (
     get_player_job_summary,
 )
 from app.services.player_onboarding_service import (
+    DAY_ONE_SURVIVAL_JOB_KEYS,
     OnboardingError,
     OnboardingNotFoundError,
     get_playable_player_summary,
+    is_day_one_survival_window,
 )
 from app.services.player_daily_state_service import ensure_player_daily_state
 from app.services.job_progress_service import (
@@ -94,6 +96,7 @@ from app.services.shift_state_service import (
     start_main_shift,
 )
 from app.services.player_job_progression_service import (
+    award_job_bonus_xp,
     award_training_session_xp,
 )
 from app.services.gameplay_transaction_service import (
@@ -574,9 +577,37 @@ def _first_line(text_value: Any, fallback: str) -> str:
     return head or fallback
 
 
-def _job_options_payload() -> list[dict[str, Any]]:
+DAY_ONE_JOB_TITLES: dict[str, str] = {
+    "cleaner": "Labor Helper",
+    "delivery": "Food Truck Crew",
+    "retail": "Fruit Stall Clerk",
+}
+
+SHIFT_FOCUS_TASKS: dict[str, dict[str, Any]] = {
+    "speed": {
+        "label": "Push Speed",
+        "summary": "Move product fast for a small XP spike.",
+        "bonus_xp": 4,
+    },
+    "quality": {
+        "label": "Protect Quality",
+        "summary": "Trade speed for cleaner execution and stronger XP gain.",
+        "bonus_xp": 6,
+    },
+    "steady": {
+        "label": "Steady Pace",
+        "summary": "Keep output stable and still bank a modest XP bonus.",
+        "bonus_xp": 3,
+    },
+}
+
+
+def _job_options_payload(player: Player | None = None) -> list[dict[str, Any]]:
     options: list[dict[str, Any]] = []
+    survival_gate_active = is_day_one_survival_window(player)
     for cfg in sorted(CAREER_CONFIG.values(), key=lambda row: row.display_name):
+        if survival_gate_active and cfg.job_key not in DAY_ONE_SURVIVAL_JOB_KEYS:
+            continue
         company = JOB_COMPANY_MAP.get(
             cfg.job_key,
             {
@@ -585,17 +616,18 @@ def _job_options_payload() -> list[dict[str, Any]]:
                 "position": cfg.display_name,
             },
         )
+        display_title = DAY_ONE_JOB_TITLES.get(cfg.job_key, cfg.display_name)
         options.append(
             {
                 "job_key": cfg.job_key,
-                "title": cfg.display_name,
+                "title": display_title,
                 "monthly_pay_xgp": _safe_float(cfg.base_pay_reference),
                 "stability_weight": _safe_float(cfg.stability_weight),
                 "performance_weight": _safe_float(cfg.performance_weight),
                 "stress_sensitivity": _safe_float(cfg.stress_sensitivity),
                 "employer_company_symbol": company["symbol"],
                 "employer_company_name": company["name"],
-                "position_title": company["position"],
+                "position_title": DAY_ONE_JOB_TITLES.get(cfg.job_key, company["position"]),
                 "default_shift_type": "standard_shift",
                 "shift_options": [
                     {
@@ -613,8 +645,9 @@ def _job_options_payload() -> list[dict[str, Any]]:
 
 def _starter_daily_brief(current_job: str | None) -> str:
     if current_job:
+        label = DAY_ONE_JOB_TITLES.get(current_job, current_job.replace("_", " "))
         return (
-            f"Day 1 starter lane: run one {current_job.replace('_', ' ')} shift, "
+            f"Day 1 starter lane: run one {label} shift, "
             "then check pressure before ending the day."
         )
     return (
@@ -630,7 +663,7 @@ def _build_action_hub_payload(player: Player, *, work_state: dict[str, Any]) -> 
     has_job = bool(current_job)
     is_first_session = _is_new_player_first_session(player)
     as_of_date = str((work_state or {}).get("current_houston_date") or date.today().isoformat())
-    job_options = _job_options_payload()
+    job_options = _job_options_payload(player)
     default_switch_job_key = next(
         (
             str(option.get("job_key") or "")
@@ -2581,6 +2614,13 @@ def execute_gameplay_action(
         shift_profile = SHIFT_PROFILES[shift_type]
         requested_hours = _safe_int(params.get("hours_worked"), int(shift_profile["hours_worked"]))
         hours_worked = max(1, min(8, requested_hours))
+        shift_focus_key = str(
+            params.get("shift_focus")
+            or params.get("shift_task_choice")
+            or params.get("shift_focus_key")
+            or ""
+        ).strip().lower()
+        shift_focus = SHIFT_FOCUS_TASKS.get(shift_focus_key)
         job_name = normalize_main_job_key(
             params.get("job_name")
             or (work_state or {}).get("authoritative_current_job_id")
@@ -2615,11 +2655,6 @@ def execute_gameplay_action(
                 trigger="time_unit_work_shift",
                 require_expired=False,
             )
-            job_progress = build_job_progress_payload(
-                latest_employment_state(db, player.id),
-                fallback_job_key=job_name,
-                fallback_shift_type=shift_type,
-            )
             completed_shift = (
                 work_state.get("last_completed_shift")
                 if isinstance(work_state.get("last_completed_shift"), dict)
@@ -2629,6 +2664,40 @@ def execute_gameplay_action(
             xp_gained = _safe_int(completed_shift.get("xp_gained"), 0)
             stress_change = _safe_int(completed_shift.get("stress_change"), 0)
             health_change = _safe_int(completed_shift.get("health_change"), 0)
+            shift_focus_result = None
+            if shift_focus is not None:
+                bonus_xp = max(0, _safe_int(shift_focus.get("bonus_xp"), 0))
+                shift_focus_result = award_job_bonus_xp(
+                    db,
+                    player_id=player.id,
+                    job_key=job_name,
+                    xp_gain=bonus_xp,
+                    worked_at=now_houston,
+                    reason_label=str(shift_focus.get("label") or "Shift focus"),
+                )
+                player.main_shift_last_xp_gained = max(
+                    _safe_int(getattr(player, "main_shift_last_xp_gained", 0), 0),
+                    xp_gained + bonus_xp,
+                )
+                db.commit()
+                db.refresh(player)
+                work_state = build_work_state_payload(db, player, now_houston=now_houston)
+                completed_shift = (
+                    work_state.get("last_completed_shift")
+                    if isinstance(work_state.get("last_completed_shift"), dict)
+                    else {}
+                )
+                xp_gained = _safe_int(completed_shift.get("xp_gained"), xp_gained + bonus_xp)
+
+            job_progress = (
+                work_state.get("current_job_progression")
+                if isinstance(work_state.get("current_job_progression"), dict)
+                else build_job_progress_payload(
+                    latest_employment_state(db, player.id),
+                    fallback_job_key=job_name,
+                    fallback_shift_type=shift_type,
+                )
+            )
             logger.info(
                 "gameplay.actions.execute work_shift resolved immediately.",
                 extra={
@@ -2654,6 +2723,17 @@ def execute_gameplay_action(
                 "employer_company_name": JOB_COMPANY_MAP.get(job_name, {}).get("name"),
                 "job_progress": job_progress,
                 "completed_shift": completed_shift,
+                "shift_task": (
+                    {
+                        "choice_key": shift_focus_key,
+                        "choice_label": str(shift_focus.get("label") or ""),
+                        "choice_summary": str(shift_focus.get("summary") or ""),
+                        "bonus_xp": int((shift_focus_result or {}).get("xp_gained") or shift_focus.get("bonus_xp") or 0),
+                        "feedback_message": str((shift_focus_result or {}).get("feedback_message") or ""),
+                    }
+                    if shift_focus is not None
+                    else None
+                ),
             }
             return _successful_action_response(
                 db,
@@ -2664,6 +2744,7 @@ def execute_gameplay_action(
                     f"Completed {str(work_state.get('current_job_display_name') or _job_display_name(job_name))} shift"
                     f" - Earned {earned_cash_xgp:.2f} XGP"
                     f"{f' and {xp_gained} work XP' if xp_gained > 0 else ''}"
+                    f"{f' ({str(shift_focus.get('label') or '')} bonus)' if shift_focus is not None else ''}"
                 ),
                 time_cost_units=hours_worked,
                 cash_delta_xgp=earned_cash_xgp,

@@ -1,7 +1,6 @@
 import logging
 import os
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 
@@ -18,8 +17,10 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.models.player import Player
 from app.models.user import User
-from app.services.player_daily_state_service import ensure_player_daily_state
-from app.services.player_onboarding_service import STARTER_BASELINES, load_existing_player_state
+from app.services.player_onboarding_service import (
+    create_survival_player_profile,
+    load_existing_player_state,
+)
 
 router = APIRouter()
 
@@ -79,6 +80,7 @@ class ResetPasswordRequest(BaseModel):
 
 class CreatePlayerProfileRequest(BaseModel):
     display_name: str | None = None
+    signup_answers: dict[str, str] | None = None
 
 
 class AccountSummaryResponse(BaseModel):
@@ -246,65 +248,22 @@ def _bootstrap_clean_player_profile(
     user: User,
     *,
     display_name: str | None = None,
+    signup_answers: dict[str, str] | None = None,
 ) -> Player:
-    starter = STARTER_BASELINES[STARTER_REGION]
-    cash_xgp = Decimal(str(starter["cash_xgp"]))
-    bank_savings_xgp = Decimal(str(starter["bank_savings_xgp"]))
-    debt_xgp = Decimal(str(starter["debt_xgp"]))
-    net_worth_xgp = cash_xgp + bank_savings_xgp - debt_xgp
-    starter_hours = int(starter["available_hours"])
     resolved_display_name = str(display_name or "").strip() or _player_display_name_from_email(user.email)
-
-    player = Player(
-        user_id=user.id,
-        display_name=resolved_display_name[:80],
-        gender=None,
-        region=STARTER_REGION,
-        cash_xgp=cash_xgp,
-        bank_savings_xgp=bank_savings_xgp,
-        debt_xgp=debt_xgp,
-        credit_score=int(starter["credit_score"]),
-        net_worth_xgp=net_worth_xgp,
-        health=int(starter["health"]),
-        stress=int(starter["stress"]),
-        available_hours=starter_hours,
-        skill_level=int(starter["skill_level"]),
-        reputation=int(starter["reputation"]),
-        main_job=None,
-        has_active_housing=False,
-        housing_region_id=None,
-        account_created_day=1,
-    )
-    db.add(player)
-    db.flush()
-
-    ensure_player_daily_state(
+    return create_survival_player_profile(
         db,
-        player=player,
-        day_number=1,
-        defaults={
-            "hours_available_start": starter_hours,
-            "hours_available_end": starter_hours,
-            "worked_main_job": False,
-            "worked_hours": 0,
-            "gross_income_xgp": Decimal("0.00"),
-            "did_settlement": False,
-            "stress_start": int(player.stress or 0),
-            "stress_end": int(player.stress or 0),
-            "health_start": int(player.health or 100),
-            "health_end": int(player.health or 100),
-            "cash_start": cash_xgp,
-            "cash_end": cash_xgp,
-            "housing_region_id": None,
-            "notes": "fresh_start_profile_created",
-        },
+        user_id=user.id,
+        display_name=resolved_display_name,
+        fallback_email=user.email,
+        region=STARTER_REGION,
+        questionnaire_answers=signup_answers,
+        daily_state_note="fresh_start_profile_created",
     )
-    db.flush()
-    return player
 
 
 def get_user_player_profile(db: Session, user: User) -> Player | None:
-    return db.query(Player).filter(Player.user_id == user.id).first()
+    return db.query(Player).filter(Player.user_id == str(user.id)).first()
 
 
 def _build_account_payload(user: User) -> AccountSummaryResponse:
@@ -546,6 +505,7 @@ def create_player_profile(
             db,
             current_user,
             display_name=payload.display_name,
+            signup_answers=payload.signup_answers,
         )
         db.commit()
         db.refresh(current_user)

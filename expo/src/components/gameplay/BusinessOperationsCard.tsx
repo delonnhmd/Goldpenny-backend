@@ -34,6 +34,7 @@ interface BusinessOperationsCardProps {
   sessionActive: boolean;
   isExecuting: boolean;
   onOperate: () => void;
+  showOperateButton?: boolean;
 }
 
 export default function BusinessOperationsCard({
@@ -45,6 +46,7 @@ export default function BusinessOperationsCard({
   sessionActive,
   isExecuting,
   onOperate,
+  showOperateButton = true,
 }: BusinessOperationsCardProps) {
   const operateDisabled = operatedToday || !sessionActive || isExecuting;
   const operateLabel = operatedToday ? 'Operated Today \u2713' : 'Run Business Today';
@@ -163,12 +165,14 @@ export default function BusinessOperationsCard({
         <Text style={styles.blockerText}>Day ended — start the next day to operate.</Text>
       ) : null}
 
-      <PrimaryButton
-        label={isExecuting && !operatedToday ? 'Running...' : operateLabel}
-        onPress={operateDisabled ? undefined : onOperate}
-        disabled={operateDisabled}
-        loading={isExecuting && !operatedToday}
-      />
+      {showOperateButton ? (
+        <PrimaryButton
+          label={isExecuting && !operatedToday ? 'Running...' : operateLabel}
+          onPress={operateDisabled ? undefined : onOperate}
+          disabled={operateDisabled}
+          loading={isExecuting && !operatedToday}
+        />
+      ) : null}
     </View>
   );
 }

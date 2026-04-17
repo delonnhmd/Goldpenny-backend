@@ -18,7 +18,7 @@ import {
 import GameplayLoopScaffold from '../GameplayLoopScaffold';
 
 const HOUSING_INFO = {
-  suburban: { label: 'Suburban', rent: 80, gas: 40, stressNote: '−2 stress/wk', stressMod: -2 },
+  suburban: { label: 'Suburban', rent: 80, gas: 40, stressNote: '-2 stress/wk', stressMod: -2 },
   downtown: { label: 'Downtown', rent: 140, gas: 20, stressNote: '+5 stress/wk', stressMod: 5 },
 } as const;
 
@@ -40,16 +40,6 @@ export default function LifeScreen() {
   const [busyAction, setBusyAction] = useState<string | null>(null);
 
   const busy = loop.executingAction || busyAction !== null;
-
-  async function handleEat(mealType: 'breakfast' | 'lunch' | 'dinner') {
-    if (busy) return;
-    setBusyAction(`eat_${mealType}`);
-    try {
-      await loop.eatMeal(mealType);
-    } finally {
-      setBusyAction(null);
-    }
-  }
 
   async function handleLoan() {
     if (busy) return;
@@ -87,7 +77,6 @@ export default function LifeScreen() {
         />
       )}
     >
-      {/* ── Health & Stress ── */}
       {stats ? (
         <GameplaySummaryCard eyebrow="Your condition" title="Health &amp; Stress">
           <GameplayCompactMetricRows
@@ -101,45 +90,28 @@ export default function LifeScreen() {
         </GameplaySummaryCard>
       ) : null}
 
-      {/* ── Food ── */}
       <GameplaySummaryCard
         eyebrow="Food"
-        title="Eat a Meal"
-        subtitle="Each meal costs 6 XGP, restores +2 health, and reduces stress by 2."
+        title="Meals moved to the map"
+        subtitle="Breakfast and lunch now happen at grocery nodes. Dinner now happens at restaurant and food truck nodes."
       >
         {cash < 6 ? (
           <GameplayWarningBanner
             title="Low cash for meals"
-            message="Breakfast/Lunch require cash. Dinner can still be covered by survival debt if needed."
+            message="Breakfast and lunch require cash. Dinner can still be covered by survival debt if needed."
             tone="warning"
           />
         ) : null}
-        <View style={styles.buttonRow}>
-          <View style={styles.mealBtn}>
-            <PrimaryButton
-              label={busyAction === 'eat_breakfast' ? 'Eating...' : 'Breakfast  (−6 XGP)'}
-              onPress={() => void handleEat('breakfast')}
-              disabled={busy || cash < 6}
-            />
-          </View>
-          <View style={styles.mealBtn}>
-            <SecondaryButton
-              label={busyAction === 'eat_lunch' ? 'Eating...' : 'Lunch  (−6 XGP)'}
-              onPress={() => void handleEat('lunch')}
-              disabled={busy || cash < 6}
-            />
-          </View>
-          <View style={styles.mealBtn}>
-            <SecondaryButton
-              label={busyAction === 'eat_dinner' ? 'Eating...' : 'Dinner  (−6 XGP)'}
-              onPress={() => void handleEat('dinner')}
-              disabled={busy}
-            />
-          </View>
-        </View>
+        <Text style={styles.mapHint}>
+          The city map is now the main interaction layer for food decisions. Open the map to choose where you eat instead of using a generic life-screen button.
+        </Text>
+        <PrimaryButton
+          label="Open Map Food Nodes"
+          onPress={() => onboarding.navigateTo('map')}
+          disabled={busy}
+        />
       </GameplaySummaryCard>
 
-      {/* ── Housing ── */}
       <GameplaySummaryCard
         eyebrow="Housing"
         title="Where You Live"
@@ -153,7 +125,7 @@ export default function LifeScreen() {
               <View key={key} style={[styles.housingCard, isActive ? styles.housingCardActive : null]}>
                 <Text style={styles.housingLabel}>{info.label}</Text>
                 <Text style={styles.housingMeta}>Rent: {info.rent} XGP/wk</Text>
-                <Text style={styles.housingMeta}>Gas:  {info.gas} XGP/wk</Text>
+                <Text style={styles.housingMeta}>Gas: {info.gas} XGP/wk</Text>
                 <Text style={[styles.housingStress, info.stressMod < 0 ? styles.textPositive : styles.textWarning]}>
                   {info.stressNote}
                 </Text>
@@ -162,8 +134,8 @@ export default function LifeScreen() {
                 ) : (
                   <View style={styles.housingBtnWrap}>
                     <SecondaryButton
-                      label={busyAction === `housing_${key}` ? 'Moving...' : `Move here`}
-                      onPress={() => void handleHousing(key)}
+                      label={busyAction === `housing_${key}` ? 'Moving...' : 'Move here'}
+                      onPress={() => { void handleHousing(key); }}
                       disabled={busy}
                     />
                   </View>
@@ -174,7 +146,6 @@ export default function LifeScreen() {
         </View>
       </GameplaySummaryCard>
 
-      {/* ── Loans ── */}
       <GameplaySummaryCard
         eyebrow="Emergency Money"
         title="Quick Loan"
@@ -183,7 +154,7 @@ export default function LifeScreen() {
         {debt > 200 ? (
           <GameplayWarningBanner
             title="You already have significant debt"
-            message={`Current debt: ${formatMoney(debt)}. Every loan adds more — try earning first.`}
+            message={`Current debt: ${formatMoney(debt)}. Every loan adds more - try earning first.`}
             tone="warning"
           />
         ) : null}
@@ -216,7 +187,7 @@ export default function LifeScreen() {
         <View style={styles.loanConfirmBtn}>
           <PrimaryButton
             label={busyAction === 'loan' ? 'Borrowing...' : `Borrow ${loanAmount} XGP`}
-            onPress={() => void handleLoan()}
+            onPress={() => { void handleLoan(); }}
             disabled={busy}
           />
         </View>
@@ -226,12 +197,10 @@ export default function LifeScreen() {
 }
 
 const styles = StyleSheet.create({
-  buttonRow: {
-    gap: theme.spacing.sm,
-    marginTop: theme.spacing.sm,
-  },
-  mealBtn: {
-    flex: 1,
+  mapHint: {
+    ...theme.typography.bodyMd,
+    color: theme.color.textSecondary,
+    marginBottom: theme.spacing.sm,
   },
   housingGrid: {
     flexDirection: 'row',

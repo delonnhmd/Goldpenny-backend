@@ -3,6 +3,31 @@
 
 export type BusinessTypeKey = 'fruit_shop' | 'food_truck';
 
+export type BusinessFamilyKey = 'fruit' | 'food';
+
+export type BusinessGrowthPhaseKey =
+  | 'fruit_cart'
+  | 'fruit_truck'
+  | 'small_fruit_shop'
+  | 'large_fruit_store'
+  | 'fruit_chain'
+  | 'fruit_corporation'
+  | 'food_cart'
+  | 'food_truck'
+  | 'food_kiosk'
+  | 'food_restaurant'
+  | 'food_franchise'
+  | 'food_corporation';
+
+export type BusinessLandZoneType =
+  | 'residential_edge'
+  | 'mixed_use'
+  | 'commercial_core'
+  | 'service_flex'
+  | 'logistics';
+
+export type BusinessLotSize = 'micro' | 'small' | 'medium' | 'large';
+
 export interface PlayerBusinessRecord {
   business_id: string;
   player_id: string;
@@ -17,7 +42,10 @@ export interface PlayerBusinessRecord {
   inventory_essentials_units: number;
   inventory_protein_units: number;
   operating_mode: string | null;
+  upgrades?: string[];
   last_operated_on: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface BusinessProfitSnapshot {
@@ -46,5 +74,110 @@ export interface PlayerBusinessesResponse {
     business_type: BusinessTypeKey | string;
     label: string;
     cost_xgp: number;
+  }[];
+}
+
+export interface BusinessGrowthPhaseDefinition {
+  key: BusinessGrowthPhaseKey;
+  family: BusinessFamilyKey;
+  label: string;
+  stage: number;
+  revenueBand: string;
+  costBand: string;
+  riskBand: string;
+  staffCapacity: number;
+  wageBaseXgp: number;
+  managementTools: string[];
+  unlockHint: string;
+}
+
+export interface BusinessMarketListing {
+  listing_id: string;
+  business_type: BusinessTypeKey | string;
+  business_family: BusinessFamilyKey;
+  listing_name: string;
+  price_xgp: number;
+  location_label: string;
+  district_key: string | null;
+  district_label: string | null;
+  tile_key: string | null;
+  tile_x: number | null;
+  tile_y: number | null;
+  growth_phase_key: BusinessGrowthPhaseKey;
+  growth_phase_label: string;
+  employees: number;
+  employee_capacity: number;
+  open_slots: number;
+  wage_cost_xgp: number;
+  performance_score: number;
+  demand_score: number;
+  reputation_score: number;
+  traffic_potential: number;
+  locked: boolean;
+  lock_reason: string | null;
+  management_tools: string[];
+  buyable: boolean;
+  compare_note: string;
+}
+
+export interface ActiveBusinessProfile {
+  business_id: string;
+  business_type: BusinessTypeKey | string;
+  business_family: BusinessFamilyKey;
+  display_name: string;
+  growth_phase_key: BusinessGrowthPhaseKey;
+  growth_phase_label: string;
+  next_phase_key: BusinessGrowthPhaseKey | null;
+  next_phase_label: string | null;
+  employees: number;
+  npc_employees: number;
+  player_employees: number;
+  employee_capacity: number;
+  open_slots: number;
+  wage_cost_xgp: number;
+  performance_score: number;
+  demand_score: number;
+  reputation_score: number;
+  traffic_score: number;
+  risk_band: string;
+  management_tools: string[];
+  location_label: string;
+  district_key: string | null;
+  district_label: string | null;
+  tile_key: string | null;
+  phase_progress_label: string;
+}
+
+export interface SandboxOwnedLot {
+  tile_key: string;
+  x: number;
+  y: number;
+  district_key: string | null;
+  district_label: string | null;
+  zone_type: BusinessLandZoneType;
+  size: BusinessLotSize;
+  value_xgp: number;
+  purchase_price_xgp: number;
+  traffic_score: number;
+  development_potential: number;
+  planned_business_type: string | null;
+  placed_business_id: string | null;
+  development_stage: 'land' | 'planned' | 'built';
+  purchased_at: string;
+}
+
+export interface BusinessSandboxState {
+  version: number;
+  player_id: string;
+  owned_lots: SandboxOwnedLot[];
+  business_market_links: {
+    business_id: string;
+    listing_id: string;
+    listing_name: string;
+    tile_key: string | null;
+    district_key: string | null;
+    district_label: string | null;
+    location_label: string;
+    growth_phase_key: BusinessGrowthPhaseKey;
   }[];
 }

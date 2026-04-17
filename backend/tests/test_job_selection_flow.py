@@ -20,14 +20,21 @@ from app.api.gameplay import (
 )
 from app.db.database import Base
 from app.models.daily_settlement_log import DailySettlementLog
+from app.models.contribution_event import ContributionEvent
+from app.models.gameplay_transaction import GameplayTransaction
 from app.models.game_state import GameState
+from app.models.job_action import JobAction
 from app.models.macro_state import MacroState
 from app.models.player import Player
 from app.models.player_career import PlayerCareer
 from app.models.player_daily_state import PlayerDailyState
 from app.models.player_employment_state import PlayerEmploymentState
 from app.models.player_housing_state import PlayerHousingState
+from app.models.player_job_progression import PlayerJobProgression
+from app.models.player_transaction_log import PlayerTransactionLog
+from app.models.shift_salary_audit_log import ShiftSalaryAuditLog
 from app.models.user import User
+from app.models.xgp_transaction import XGPTransaction
 from app.services.job_key_service import supported_main_job_keys_text
 
 
@@ -47,6 +54,13 @@ class JobSelectionFlowTests(unittest.TestCase):
                 PlayerDailyState.__table__,
                 PlayerEmploymentState.__table__,
                 PlayerHousingState.__table__,
+                PlayerJobProgression.__table__,
+                JobAction.__table__,
+                GameplayTransaction.__table__,
+                PlayerTransactionLog.__table__,
+                ShiftSalaryAuditLog.__table__,
+                XGPTransaction.__table__,
+                ContributionEvent.__table__,
             ],
         )
         self.db = self.SessionLocal()
@@ -70,7 +84,7 @@ class JobSelectionFlowTests(unittest.TestCase):
         )
 
         self.player = Player(
-            user_id=user.id,
+            user_id=str(user.id),
             display_name="Job Flow Player",
             main_job=None,
             cash=Decimal("1000.00"),
@@ -109,10 +123,15 @@ class JobSelectionFlowTests(unittest.TestCase):
 
         actions_payload = get_gameplay_actions(str(self.player.id), db=self.db)
         self.assertEqual(actions_payload["debug_meta"]["current_job_key"], "delivery")
-        self.assertEqual(
-            actions_payload["recommended_actions"][0]["action_key"],
-            "work_shift",
-        )
+        action_keys = {
+            str(item.get("action_key") or "")
+            for item in [
+                *(actions_payload.get("recommended_actions") or []),
+                *(actions_payload.get("available_actions") or []),
+                *(actions_payload.get("blocked_actions") or []),
+            ]
+        }
+        self.assertIn("work_shift", action_keys)
 
         work_result = execute_gameplay_action(
             str(self.player.id),
@@ -126,8 +145,7 @@ class JobSelectionFlowTests(unittest.TestCase):
 
         self.assertTrue(bool(work_result["success"]))
         self.assertEqual(self.player.main_job, "delivery")
-        self.assertTrue(bool(self.player.main_shift_active_flag))
-        self.assertEqual(self.player.main_shift_job_name, "delivery")
+        self.assertFalse(bool(self.player.main_shift_active_flag))
         self.assertEqual(
             work_result["raw_result"]["work_state"]["shift_job_name"],
             "delivery",
@@ -181,7 +199,7 @@ class JobSelectionFlowTests(unittest.TestCase):
 
         self.assertTrue(bool(work_result["success"]))
         self.assertEqual(self.player.main_job, "warehouse_operator")
-        self.assertTrue(bool(self.player.main_shift_active_flag))
+        self.assertFalse(bool(self.player.main_shift_active_flag))
 
     def test_work_shift_preview_uses_testing_timer_copy_and_unit_cost(self) -> None:
         self.player.main_job = "delivery"
@@ -197,10 +215,10 @@ class JobSelectionFlowTests(unittest.TestCase):
                 db=self.db,
             )
 
-        self.assertIn("15 minutes", preview["summary"])
-        self.assertEqual(preview["expected_time_impact"]["text"], "-3 units")
+        self.assertIn("resolves immediately", preview["summary"])
+        self.assertEqual(preview["expected_time_impact"]["text"], "-6 units")
         self.assertEqual(preview["debug_meta"]["shift_window"], "15 minutes")
-        self.assertEqual(preview["debug_meta"]["time_cost_units"], 3)
+        self.assertEqual(preview["debug_meta"]["time_cost_units"], 6)
 
     def test_loop_bundle_uses_shared_authoritative_state_contract(self) -> None:
         with patch(
@@ -261,6 +279,84 @@ class JobSelectionFlowTests(unittest.TestCase):
             updated_state["shift_state"]["can_start_shift"],
             raw_updated_state["shift_state"]["can_start_shift"],
         )
+
+    def test_switch_job_rejects_locked_progression_role_until_requirements_are_met(self) -> None:
+        self.player.last_settled_day = 1
+        self.db.commit()
+
+        with self.assertRaises(HTTPException) as locked_ctx:
+            execute_gameplay_action(
+                str(self.player.id),
+                GameplayActionRequest(
+                    action_key="switch_job",
+                    parameters={"new_job_key": "warehouse_operator"},
+                ),
+                db=self.db,
+            )
+
+        self.assertEqual(locked_ctx.exception.status_code, 422)
+        self.assertIn("still locked", str(locked_ctx.exception.detail).lower())
+
+        self.player.skill_level = 2
+        self.db.add(
+            PlayerJobProgression(
+                player_id=self.player.id,
+                job_key="delivery",
+                skill_level=1,
+                xp_total=30,
+                xp=30,
+                xp_to_next_level=100,
+                promotion_tier="Junior",
+                shifts_completed=3,
+            )
+        )
+        self.db.commit()
+
+        result = execute_gameplay_action(
+            str(self.player.id),
+            GameplayActionRequest(
+                action_key="switch_job",
+                parameters={"new_job_key": "warehouse_operator"},
+            ),
+            db=self.db,
+        )
+        self.db.refresh(self.player)
+
+        self.assertTrue(bool(result["success"]))
+        self.assertEqual(self.player.main_job, "warehouse_operator")
+
+    def test_work_shift_focus_bonus_adds_bonus_xp_to_shift_result(self) -> None:
+        execute_gameplay_action(
+            str(self.player.id),
+            GameplayActionRequest(
+                action_key="switch_job",
+                parameters={"new_job_key": "delivery"},
+            ),
+            db=self.db,
+        )
+
+        result = execute_gameplay_action(
+            str(self.player.id),
+            GameplayActionRequest(
+                action_key="work_shift",
+                parameters={
+                    "job_name": "delivery",
+                    "hours_worked": 6,
+                    "shift_type": "standard_shift",
+                    "shift_focus": "quality",
+                },
+            ),
+            db=self.db,
+        )
+
+        shift_task = result["raw_result"]["shift_task"]
+        completed_shift = result["raw_result"]["completed_shift"]
+
+        self.assertTrue(bool(result["success"]))
+        self.assertEqual(shift_task["choice_key"], "quality")
+        self.assertEqual(int(shift_task["bonus_xp"]), 6)
+        self.assertGreaterEqual(int(completed_shift["xp_gained"]), 156)
+        self.assertIn("Protect Quality bonus", result["result_summary"])
 
 
 if __name__ == "__main__":

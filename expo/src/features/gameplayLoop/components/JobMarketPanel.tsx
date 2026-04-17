@@ -16,6 +16,7 @@ interface JobMarketPanelProps {
   busyActionKey: string | null;
   onSwitchJob: (job: JobMarketJobSnapshot) => void;
   onStartTraining: (job: JobMarketJobSnapshot) => void;
+  interactionDisabledReason?: string | null;
 }
 
 export default function JobMarketPanel({
@@ -24,6 +25,7 @@ export default function JobMarketPanel({
   busyActionKey,
   onSwitchJob,
   onStartTraining,
+  interactionDisabledReason = null,
 }: JobMarketPanelProps) {
   if (!jobMarket || !Array.isArray(jobMarket.jobs) || jobMarket.jobs.length === 0) {
     return null;
@@ -42,6 +44,7 @@ export default function JobMarketPanel({
     : 100;
   const switchJobUnitLabel = `${Math.max(0, Number(BALANCE.ACTION_TIME_COST.switch_job || 1))}u`;
   const trainingUnitLabel = '1u';
+  const interactionsLocked = Boolean(interactionDisabledReason);
 
   return (
     <GameplaySummaryCard
@@ -68,6 +71,14 @@ export default function JobMarketPanel({
           title={`Training: ${jobMarket.training_certification_name || 'Certification'}`}
           message={`Progress ${Math.max(0, Number(jobMarket.training_days_completed || 0))} / ${Math.max(0, Number(jobMarket.training_days_required || 0))} days - ${Math.max(0, Number(jobMarket.training_days_remaining || 0))} remaining. Use Skill Training to advance progress.`}
           tone="info"
+        />
+      ) : null}
+
+      {interactionsLocked ? (
+        <GameplayWarningBanner
+          title="Job Center Actions Locked"
+          message={interactionDisabledReason || 'Travel to the Job Center before applying or starting training.'}
+          tone="warning"
         />
       ) : null}
 
@@ -150,9 +161,6 @@ export default function JobMarketPanel({
           const canTrain = Boolean(job.can_start_training) && !Boolean(job.is_future_unlock);
           const trainingInProgress = Boolean(job.training_in_progress);
           const salary = Math.max(0, Number(job.base_salary_xgp || 0));
-          const trainingProgress = trainingInProgress
-            ? `${Math.max(0, Number(job.training_days_completed || 0))} / ${Math.max(0, Number(job.training_days_required || 0))}`
-            : null;
           const progression = job.progression || null;
           const progressXp = Math.max(0, Number(progression?.job_xp || 0));
           const progressXpToNext = Math.max(0, Number(progression?.job_xp_to_next_level || 0));
@@ -162,6 +170,9 @@ export default function JobMarketPanel({
           const currentSalaryEstimate = Number(progression?.estimated_current_monthly_salary_xgp || 0);
           const nextSalaryEstimate = Number(progression?.estimated_next_level_monthly_salary_xgp || 0);
           const nextPct = Number(progression?.next_level_salary_increase_pct || 3);
+          const prerequisiteLine = Array.isArray(job.prerequisite_job_labels) && job.prerequisite_job_labels.length > 0
+            ? job.prerequisite_job_labels.join(' / ')
+            : 'Any starter lane';
 
           return (
             <View key={job.job_key} style={[styles.jobCard, isCurrent ? styles.jobCardCurrent : null]}>
@@ -176,6 +187,18 @@ export default function JobMarketPanel({
               <Text style={styles.jobMeta}>
                 Requirement: {job.requires_certification ? `Requires ${job.certification_name || 'Certification'}` : 'No certification needed'}
               </Text>
+              <Text style={styles.jobMeta}>
+                Level requirement: {Math.max(1, Number(job.level_requirement || 1))}
+              </Text>
+              <Text style={styles.jobMeta}>
+                Experience requirement: {Math.max(0, Number(job.experience_requirement_shifts || 0))} total shifts
+              </Text>
+              <Text style={styles.jobMeta}>
+                Path: {job.path_hint || prerequisiteLine}
+              </Text>
+              {isLocked && job.requirement_label ? (
+                <Text style={styles.lockedHint}>{job.requirement_label}</Text>
+              ) : null}
               {progression ? (
                 <View style={styles.jobProgressWrap}>
                   <Text style={styles.jobProgressLabel}>
@@ -229,7 +252,7 @@ export default function JobMarketPanel({
               {canSwitch ? (
                 <PrimaryButton
                   label={busySwitch ? 'Switching...' : `Switch to ${job.display_name}\n(${switchJobUnitLabel})`}
-                  disabled={busySwitch || busyTraining}
+                  disabled={interactionsLocked || busySwitch || busyTraining}
                   onPress={() => onSwitchJob(job)}
                   style={styles.button}
                 />
@@ -242,7 +265,7 @@ export default function JobMarketPanel({
               ) : canTrain ? (
                 <SecondaryButton
                   label={busyTraining ? 'Starting...' : `Start Training\n(${trainingUnitLabel})`}
-                  disabled={busyTraining || busySwitch}
+                  disabled={interactionsLocked || busyTraining || busySwitch}
                   onPress={() => onStartTraining(job)}
                   style={styles.button}
                 />
@@ -401,6 +424,11 @@ const styles = StyleSheet.create({
     ...theme.typography.bodySm,
     color: theme.color.textSecondary,
   },
+  lockedHint: {
+    ...theme.typography.caption,
+    color: '#92400e',
+    fontWeight: '700',
+  },
   trainingWrap: {
     marginTop: theme.spacing.xxs,
     gap: theme.spacing.xxs,
@@ -460,4 +488,3 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.xs,
   },
 });
-

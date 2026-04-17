@@ -22,6 +22,21 @@ export interface PlayerProfileSummary {
   load_ready: boolean;
 }
 
+export type SignupQuestionKey =
+  | 'risk_tolerance'
+  | 'work_ethic'
+  | 'spending_behavior'
+  | 'health_habits'
+  | 'education_background'
+  | 'hustle_preference';
+
+export type SignupQuestionAnswers = Partial<Record<SignupQuestionKey, string>>;
+
+export interface CreatePlayerProfilePayload {
+  display_name?: string;
+  signup_answers?: SignupQuestionAnswers;
+}
+
 export interface AuthSessionResponse {
   access_token: string;
   token_type: string;

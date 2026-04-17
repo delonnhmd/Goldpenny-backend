@@ -1,6 +1,5 @@
 import logging
 from datetime import date
-from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -21,8 +20,7 @@ from app.engine.life_balance_service import (
 from app.models.player import Player
 from app.models.player_daily_state import PlayerDailyState
 from app.models.user import User
-from app.services.player_daily_state_service import ensure_player_daily_state
-from app.services.player_onboarding_service import STARTER_BASELINES
+from app.services.player_onboarding_service import create_survival_player_profile
 
 router = APIRouter()
 
@@ -96,7 +94,7 @@ def get_profile(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> dict:
-    profile = db.query(Player).filter(Player.user_id == current_user.id).first()
+    profile = db.query(Player).filter(Player.user_id == str(current_user.id)).first()
     if profile is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player profile not found.")
 
@@ -163,6 +161,11 @@ def get_player_life_history_route(
 STARTER_REGION = "suburban"
 
 
+class CreateLinkedPlayerByUserIdRequest(BaseModel):
+    display_name: str | None = None
+    signup_answers: dict[str, str] | None = None
+
+
 def _serialize_player(player: Player) -> dict:
     return {
         "id": str(player.id),
@@ -188,74 +191,29 @@ def _serialize_player(player: Player) -> dict:
     }
 
 
-def _create_clean_day1_player(db: Session, user_id: str) -> Player:
-    starter = STARTER_BASELINES[STARTER_REGION]
-    cash_xgp = Decimal(str(starter["cash_xgp"]))
-    bank_savings_xgp = Decimal(str(starter["bank_savings_xgp"]))
-    debt_xgp = Decimal(str(starter["debt_xgp"]))
-    net_worth_xgp = cash_xgp + bank_savings_xgp - debt_xgp
-    starter_hours = int(starter["available_hours"])
-
-    player = Player(
-        user_id=user_id,
-        display_name=None,
-        gender=None,
-        region=STARTER_REGION,
-        cash_xgp=cash_xgp,
-        bank_savings_xgp=bank_savings_xgp,
-        debt_xgp=debt_xgp,
-        credit_score=int(starter["credit_score"]),
-        net_worth_xgp=net_worth_xgp,
-        health=int(starter["health"]),
-        stress=int(starter["stress"]),
-        available_hours=starter_hours,
-        skill_level=int(starter["skill_level"]),
-        reputation=int(starter["reputation"]),
-        main_job=None,
-        has_active_housing=False,
-        housing_region_id=None,
-        account_created_day=1,
-        main_shift_active_flag=False,
-        main_shift_status="idle",
-    )
-    db.add(player)
-    db.flush()
-
-    ensure_player_daily_state(
-        db,
-        player=player,
-        day_number=1,
-        defaults={
-            "hours_available_start": starter_hours,
-            "hours_available_end": starter_hours,
-            "worked_main_job": False,
-            "worked_hours": 0,
-            "gross_income_xgp": Decimal("0.00"),
-            "did_settlement": False,
-            "stress_start": int(player.stress or 0),
-            "stress_end": int(player.stress or 0),
-            "health_start": int(player.health or 100),
-            "health_end": int(player.health or 100),
-            "cash_start": cash_xgp,
-            "cash_end": cash_xgp,
-            "housing_region_id": None,
-            "notes": "supabase_linked_player_created",
-        },
-    )
-    db.flush()
-    return player
-
-
 @router.get("/by-user-id/{user_id}")
-def get_or_create_player_by_user_id(
+def get_player_by_user_id(
     user_id: str,
     db: Session = Depends(get_db),
 ) -> dict:
-    """Get-or-create the canonical player linked to a Supabase Auth user id.
+    """Return the canonical player linked to a Supabase Auth user id."""
+    cleaned = (user_id or "").strip()
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="user_id is required.")
 
-    Idempotent: repeated calls return the same player. If a concurrent
-    request races the insert, the unique constraint trips and we re-query.
-    """
+    existing = db.query(Player).filter(Player.user_id == cleaned).first()
+    if existing is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player profile not found.")
+    return _serialize_player(existing)
+
+
+@router.post("/by-user-id/{user_id}", status_code=status.HTTP_200_OK)
+def create_player_by_user_id(
+    user_id: str,
+    body: CreateLinkedPlayerByUserIdRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Create the canonical player linked to a Supabase Auth user id if missing."""
     cleaned = (user_id or "").strip()
     if not cleaned:
         raise HTTPException(status_code=400, detail="user_id is required.")
@@ -265,7 +223,17 @@ def get_or_create_player_by_user_id(
         return _serialize_player(existing)
 
     try:
-        player = _create_clean_day1_player(db, cleaned)
+        player = create_survival_player_profile(
+            db,
+            user_id=cleaned,
+            display_name=body.display_name,
+            fallback_email=None,
+            region=STARTER_REGION,
+            questionnaire_answers=body.signup_answers,
+            daily_state_note="supabase_linked_player_created",
+        )
+        player.main_shift_active_flag = False
+        player.main_shift_status = "idle"
         db.commit()
         db.refresh(player)
     except IntegrityError:

@@ -3,6 +3,7 @@ import {
   AccountSummary,
   AuthSessionResponse,
   AuthSessionStateResponse,
+  CreatePlayerProfilePayload,
   ForgotPasswordResponse,
   PlayerProfileSummary,
 } from '@/types/auth';
@@ -134,7 +135,7 @@ export async function getCurrentSessionState(): Promise<AuthSessionStateResponse
   return normalizeSessionState(raw);
 }
 
-export async function createPlayerProfile(payload?: { display_name?: string }): Promise<AuthSessionStateResponse> {
+export async function createPlayerProfile(payload?: CreatePlayerProfilePayload): Promise<AuthSessionStateResponse> {
   const raw = await fetchApi<unknown>('/auth/player-profile', {
     method: 'POST',
     body: JSON.stringify(payload || {}),
@@ -188,12 +189,28 @@ function normalizeLinkedPlayer(raw: unknown): LinkedPlayer {
   };
 }
 
-/**
- * Get-or-create the canonical player linked to a Supabase Auth user id.
- * The backend is the only place allowed to create the linked player.
- */
-export async function getOrCreatePlayerByUserId(userId: string): Promise<LinkedPlayer> {
+export async function getPlayerByUserId(userId: string): Promise<LinkedPlayer | null> {
   if (!userId) throw new Error('userId is required.');
-  const raw = await fetchApi<unknown>(`/player/by-user-id/${encodeURIComponent(userId)}`);
+  try {
+    const raw = await fetchApi<unknown>(`/player/by-user-id/${encodeURIComponent(userId)}`);
+    return normalizeLinkedPlayer(raw);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error || '');
+    if (message.toLowerCase().includes('player profile not found')) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+export async function createPlayerByUserId(
+  userId: string,
+  payload?: CreatePlayerProfilePayload,
+): Promise<LinkedPlayer> {
+  if (!userId) throw new Error('userId is required.');
+  const raw = await fetchApi<unknown>(`/player/by-user-id/${encodeURIComponent(userId)}`, {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  });
   return normalizeLinkedPlayer(raw);
 }

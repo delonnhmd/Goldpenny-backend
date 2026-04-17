@@ -1,79 +1,133 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
-  FloatingActionButtons,
   GameMap,
-  MoneyFeedbackLayer,
   PlayerStatusBar,
+  buildSandboxCityMap,
+  describeTileKind,
 } from '@/components/gameMap';
 import type {
-  FABAction,
   MapNode,
-  MapOpportunity,
-  MoneyFeedbackItem,
+  MapTileActionTag,
+  SandboxMapTile,
 } from '@/components/gameMap';
-import type { PlayerState } from '@/components/gameMap/PlayerAvatar';
-import type { OpportunityType } from '@/components/gameMap/OpportunityIndicator';
 import SafeAreaPage from '@/components/layout/SafeAreaPage';
+import PrimaryButton from '@/components/ui/PrimaryButton';
+import SecondaryButton from '@/components/ui/SecondaryButton';
+import { theme } from '@/design/theme';
 import { useOnboarding } from '@/features/onboarding';
 import type { OnboardingRouteKey } from '@/features/onboarding/context';
+import BusinessMarketPanel from '@/features/gameplayLoop/components/BusinessMarketPanel';
+import JobMarketPanel from '@/features/gameplayLoop/components/JobMarketPanel';
 import { useScreenTimer } from '@/hooks/useScreenTimer';
-import type { DashboardSignalItem, EconomySignalChip, WorkStateSnapshot } from '@/types/gameplay';
+import {
+  businessLabel,
+  createEmptyBusinessSandboxState,
+  deriveActiveBusinessProfile,
+  deriveBusinessMarketListings,
+  describeLotSize,
+  describeZoneType,
+  getNextGrowthPhase,
+} from '@/lib/businessSandbox';
+import {
+  readBusinessSandboxState,
+  updateBusinessSandboxState,
+} from '@/lib/businessSandboxPersistence';
+import { formatMoney } from '@/lib/gameplayFormatters';
+import { openBusiness } from '@/lib/api/business';
+import type { BusinessMarketListing, BusinessSandboxState } from '@/types/business';
+import type { DailyActionItem, JobMarketJobSnapshot, WorkStateSnapshot } from '@/types/gameplay';
 
 import { useGameplayLoop } from '../context';
 
 const FALLBACK_NODES: MapNode[] = [
   { key: 'home', label: 'Home', region: 'Suburban', node_type: 'home', opportunity_tier: 'moderate', is_current_location: true },
+  { key: 'job_center', label: 'Job Center', region: 'Downtown', node_type: 'job_board', opportunity_tier: 'moderate', is_current_location: false },
   { key: 'work', label: 'Work', region: 'Downtown', node_type: 'work', opportunity_tier: 'moderate', is_current_location: false },
   { key: 'grocery', label: 'Grocery', region: 'Suburban', node_type: 'grocery', opportunity_tier: 'low', is_current_location: false },
   { key: 'rideshare_hotspot_downtown', label: 'Rideshare Hub', region: 'Downtown', node_type: 'rideshare_hotspot', opportunity_tier: 'high', is_current_location: false },
   { key: 'rideshare_hotspot_suburban', label: 'Pickup Zone', region: 'Suburban', node_type: 'rideshare_hotspot', opportunity_tier: 'moderate', is_current_location: false },
   { key: 'business_spot', label: 'Business', region: 'Downtown', node_type: 'business', opportunity_tier: 'moderate', is_current_location: false },
+  { key: 'bank', label: 'Bank', region: 'Downtown', node_type: 'bank', opportunity_tier: 'moderate', is_current_location: false },
+  { key: 'stock_center', label: 'Stock Center', region: 'Downtown', node_type: 'stock_center', opportunity_tier: 'moderate', is_current_location: false },
+  { key: 'certification_school', label: 'Certification School', region: 'Downtown', node_type: 'certification_school', opportunity_tier: 'moderate', is_current_location: false },
+  { key: 'housing', label: 'Housing Office', region: 'Suburban', node_type: 'housing', opportunity_tier: 'moderate', is_current_location: false },
+  { key: 'clinic', label: 'Clinic', region: 'Suburban', node_type: 'clinic', opportunity_tier: 'moderate', is_current_location: false },
+  { key: 'gas_station', label: 'Gas Station', region: 'Suburban', node_type: 'gas_station', opportunity_tier: 'low', is_current_location: false },
+  { key: 'car_sale', label: 'Car Dealership', region: 'Downtown', node_type: 'car_sale', opportunity_tier: 'moderate', is_current_location: false },
 ];
 
-function derivePlayerState(
-  workState: WorkStateSnapshot | null,
-  stress: number,
-): PlayerState {
-  if (!workState) return 'idle';
-  if (stress >= 80) return 'stressed';
-  const shiftActive = Boolean(workState.main_shift_active_flag || workState.is_on_shift);
-  const rideshareActive = Boolean(workState.rideshare_state?.status === 'active');
-  if (rideshareActive) return 'driving';
-  if (shiftActive) return 'working';
-  return 'idle';
+const SHIFT_FOCUS_OPTIONS = [
+  {
+    key: 'speed',
+    label: 'Push Speed',
+    detail: 'Light quick-action choice. Small XP bonus for moving product fast.',
+    bonusXp: 4,
+  },
+  {
+    key: 'quality',
+    label: 'Protect Quality',
+    detail: 'Light management choice. Best XP gain for careful execution.',
+    bonusXp: 6,
+  },
+  {
+    key: 'steady',
+    label: 'Steady Pace',
+    detail: 'Keep output stable and still lock in a modest bonus.',
+    bonusXp: 3,
+  },
+] as const;
+
+function canonicalMapActionKey(actionKey: string): string {
+  const raw = String(actionKey || '').toLowerCase().trim();
+  if (!raw) return '';
+  if (raw.includes('inventory') || raw.includes('stock')) return 'buy_inventory';
+  if (raw.includes('operate') && raw.includes('business')) return 'operate_business';
+  if (raw.includes('ride') || raw.includes('delivery') || raw.includes('side_income')) return 'side_income';
+  if (raw.includes('work') || raw.includes('shift')) return 'work_shift';
+  if (raw.includes('rest') || raw.includes('recover') || raw.includes('watch') || raw.includes('jog')) return 'recovery';
+  if (raw.includes('meal') || raw.includes('eat')) return 'eat_meal';
+  return raw;
 }
 
-function deriveOpportunityType(signal: DashboardSignalItem | EconomySignalChip): OpportunityType {
-  const text = `${signal.key || ''} ${'title' in signal ? signal.title : ''} ${'category' in signal ? signal.category : ''} ${'label' in signal ? signal.label : ''}`.toLowerCase();
-  if (text.includes('deliver') || text.includes('transport') || text.includes('truck')) return 'delivery';
-  if (text.includes('produce') || text.includes('food') || text.includes('grocery')) return 'produce';
-  if (text.includes('stress') || text.includes('pressure') || text.includes('risk')) return 'stress';
-  return 'job';
+interface TileActionButton {
+  key: string;
+  label: string;
+  detail: string;
+  variant: 'primary' | 'secondary';
+  disabled: boolean;
+  onPress: () => void;
 }
 
-const OPPORTUNITY_POSITIONS: Record<OpportunityType, { x: number; y: number }[]> = {
-  delivery: [{ x: 65, y: 38 }, { x: 40, y: 62 }],
-  produce: [{ x: 28, y: 18 }, { x: 15, y: 45 }],
-  job: [{ x: 82, y: 55 }, { x: 55, y: 30 }],
-  stress: [{ x: 85, y: 18 }, { x: 70, y: 80 }],
-};
+function marketLinkIdForBusiness(
+  state: BusinessSandboxState,
+  businessId: string,
+  fallbackListingId: string,
+): string {
+  return state.business_market_links.find((item) => item.business_id === businessId)?.listing_id
+    || fallbackListingId
+    || `owned_${businessId}`;
+}
 
 export default function MapDashboardScreen() {
   useScreenTimer('map');
   const loop = useGameplayLoop();
   const onboarding = useOnboarding();
 
-  const [mapSize, setMapSize] = useState({ width: 0, height: 0 });
-  const [moneyPopups, setMoneyPopups] = useState<MoneyFeedbackItem[]>([]);
-  const prevCashRef = useRef<number | null>(null);
+  const [zoomLevel, setZoomLevel] = useState(1);
+  const [selectedTileKey, setSelectedTileKey] = useState<string | null>(null);
+  const [openingBusinessType, setOpeningBusinessType] = useState<string | null>(null);
+  const [shiftFocusKey, setShiftFocusKey] = useState<(typeof SHIFT_FOCUS_OPTIONS)[number]['key']>('quality');
+  const [sandboxBusinessState, setSandboxBusinessState] = useState<BusinessSandboxState>(
+    createEmptyBusinessSandboxState(loop.playerId),
+  );
+  const [selectedListingId, setSelectedListingId] = useState<string | null>(null);
+  const [comparedListingIds, setComparedListingIds] = useState<string[]>([]);
 
-  // ── Derive state ──────────────────────────────────────────────────────────
   const authState = loop.authoritativeState || loop.dashboard?.authoritative_state || null;
   const workState = (loop.dashboard?.work_state || loop.actionHub?.work_state || null) as WorkStateSnapshot | null;
   const cityMap = workState?.city_map || null;
-  const economyOverview = loop.dashboard?.economy_risk_overview || null;
 
   const playerStateData = authState?.player_state;
   const cash = Number(playerStateData?.cash ?? loop.dashboard?.stats?.cash_xgp ?? 0);
@@ -81,28 +135,21 @@ export default function MapDashboardScreen() {
   const health = Number(playerStateData?.health ?? loop.dashboard?.stats?.health ?? 100);
   const dayNumber = Number(authState?.day_number ?? 1);
 
-  // Money change detection
-  if (prevCashRef.current !== null && prevCashRef.current !== cash) {
-    const diff = cash - prevCashRef.current;
-    if (Math.abs(diff) > 0.5) {
-      const id = `money_${Date.now()}_${Math.random()}`;
-      setTimeout(() => {
-        setMoneyPopups((prev) => [...prev.slice(-3), { id, amount: diff }]);
-      }, 0);
-    }
-  }
-  prevCashRef.current = cash;
-
-  const handleMoneyComplete = useCallback((id: string) => {
-    setMoneyPopups((prev) => prev.filter((p) => p.id !== id));
-  }, []);
-
-  // ── Map nodes ─────────────────────────────────────────────────────────────
   const currentLocationKey = String(
     workState?.current_location_key
     || cityMap?.current_location_key
     || 'home',
   );
+  const currentLocationLabel = String(
+    workState?.current_location_label
+    || cityMap?.current_location_label
+    || 'Home',
+  );
+
+  const backendShiftActive = Boolean(workState?.main_shift_active_flag || workState?.is_on_shift);
+  const dinnerResolvedToday = Boolean(workState?.dinner_resolved_today);
+  const daySettled = Boolean(workState?.day_settled);
+  const leisureActivityRunning = loop.dailySession.currentActivity === 'watch_tv';
 
   const nodes: MapNode[] = useMemo(() => {
     const rawNodes = cityMap?.nodes;
@@ -119,93 +166,629 @@ export default function MapDashboardScreen() {
     return FALLBACK_NODES;
   }, [cityMap]);
 
-  // ── Player state ──────────────────────────────────────────────────────────
-  const playerState = useMemo(
-    () => derivePlayerState(workState, stress),
-    [workState, stress],
+  const travelOptions = useMemo(
+    () => (
+      (workState?.travel_options && workState.travel_options.length > 0
+        ? workState.travel_options
+        : cityMap?.travel_options)
+      || []
+    ),
+    [cityMap?.travel_options, workState?.travel_options],
   );
 
-  // ── Opportunities from economy signals ────────────────────────────────────
-  const mapOpportunities: MapOpportunity[] = useMemo(() => {
-    const dashOps = loop.dashboard?.top_opportunities || [];
-    const ecoOps = economyOverview?.opportunity_signals || [];
-    const signals: Array<DashboardSignalItem | EconomySignalChip> = [
-      ...dashOps,
-      ...ecoOps,
-    ].slice(0, 4);
+  const sandboxMap = useMemo(
+    () => buildSandboxCityMap({
+      nodes,
+      travelOptions,
+      currentLocationKey,
+    }),
+    [currentLocationKey, nodes, travelOptions],
+  );
 
-    const posUsed: Record<string, number> = {};
-    return signals.map((sig, i) => {
-      const type = deriveOpportunityType(sig);
-      const idx = posUsed[type] || 0;
-      posUsed[type] = idx + 1;
-      const positions = OPPORTUNITY_POSITIONS[type];
-      const pos = positions[idx % positions.length];
-      const sigTitle = 'title' in sig ? sig.title : 'label' in sig ? sig.label : '';
-      return {
-        key: `opp_${sig.key || i}`,
-        type,
-        label: String(sigTitle).slice(0, 20),
-        x: pos.x,
-        y: pos.y,
-      };
+  useEffect(() => {
+    let active = true;
+    void readBusinessSandboxState(loop.playerId).then((state) => {
+      if (!active) return;
+      setSandboxBusinessState(state);
     });
-  }, [economyOverview?.opportunity_signals, loop.dashboard?.top_opportunities]);
+    return () => {
+      active = false;
+    };
+  }, [loop.playerId]);
 
-  // ── FAB Actions ───────────────────────────────────────────────────────────
-  const fabActions: FABAction[] = useMemo(() => {
-    const isShiftActive = Boolean(workState?.main_shift_active_flag || workState?.is_on_shift);
+  useEffect(() => {
+    const preferredKey = selectedTileKey && sandboxMap.tileByKey[selectedTileKey]
+      ? selectedTileKey
+      : sandboxMap.currentLocationTileKey;
 
+    if (preferredKey && preferredKey !== selectedTileKey) {
+      setSelectedTileKey(preferredKey);
+    }
+  }, [sandboxMap, selectedTileKey]);
+
+  const selectedTile = selectedTileKey ? sandboxMap.tileByKey[selectedTileKey] || null : null;
+  const selectedDistrict = selectedTile?.districtKey
+    ? sandboxMap.districts.find((district) => district.key === selectedTile.districtKey) || null
+    : null;
+
+  const allActionItems = useMemo(() => {
+    if (!loop.actionHub) return [];
     return [
-      {
-        key: 'work',
-        icon: '\u{1F4BC}',
-        label: 'Work',
-        color: '#3A7DFF',
-        disabled: isShiftActive,
-        onPress: () => onboarding.navigateTo('work'),
-      },
-      {
-        key: 'drive',
-        icon: '\u{1F697}',
-        label: 'Drive',
-        color: '#22C55E',
-        onPress: () => {
-          void loop.executeAction({
-            action_key: 'side_income',
-            title: 'Rideshare',
-            description: 'Start a rideshare trip.',
-            status: 'available',
-            blockers: [],
-          });
-        },
-      },
-      {
-        key: 'business',
-        icon: '\u{1F354}',
-        label: 'Business',
-        color: '#F59E0B',
-        onPress: () => onboarding.navigateTo('business'),
-      },
-      {
-        key: 'relax',
-        icon: '\u{1F9D8}',
-        label: 'Relax',
-        color: '#8B5CF6',
-        onPress: () => {
-          void loop.executeAction({
-            action_key: 'rest',
-            title: 'Rest & Relax',
-            description: 'Take a break to reduce stress.',
-            status: 'available',
-            blockers: [],
-          });
-        },
-      },
+      ...(loop.actionHub.recommended_actions || []),
+      ...(loop.actionHub.available_actions || []),
+      ...(loop.actionHub.blocked_actions || []),
     ];
-  }, [loop, onboarding, workState]);
+  }, [loop.actionHub]);
 
-  // ── Bottom nav tabs ───────────────────────────────────────────────────────
+  const workShiftAction = useMemo(
+    () => allActionItems.find((action) => canonicalMapActionKey(String(action.action_key || '')) === 'work_shift') || null,
+    [allActionItems],
+  );
+  const sideIncomeAction = useMemo(
+    () => allActionItems.find((action) => canonicalMapActionKey(String(action.action_key || '')) === 'side_income') || null,
+    [allActionItems],
+  );
+  const inventoryAction = useMemo(
+    () => allActionItems.find((action) => canonicalMapActionKey(String(action.action_key || '')) === 'buy_inventory') || null,
+    [allActionItems],
+  );
+  const selectedShiftFocus = useMemo(
+    () => SHIFT_FOCUS_OPTIONS.find((option) => option.key === shiftFocusKey) || SHIFT_FOCUS_OPTIONS[1],
+    [shiftFocusKey],
+  );
+
+  const activeBusiness = useMemo(
+    () => {
+      const businesses = loop.businesses?.businesses || [];
+      return businesses.find((item) => item.is_active) || null;
+    },
+    [loop.businesses?.businesses],
+  );
+  const starterOptions = useMemo(
+    () => loop.businesses?.starter_options || [
+      { business_type: 'fruit_shop', label: 'Fruit Shop', cost_xgp: 500 },
+      { business_type: 'food_truck', label: 'Food Truck', cost_xgp: 1200 },
+    ],
+    [loop.businesses?.starter_options],
+  );
+  const businessMarketListings = useMemo(
+    () => deriveBusinessMarketListings({
+      tiles: sandboxMap.tiles,
+      starterOptions,
+      activeBusiness,
+    }),
+    [activeBusiness, sandboxMap.tiles, starterOptions],
+  );
+  const selectedListing = useMemo(
+    () => businessMarketListings.find((listing) => listing.listing_id === selectedListingId) || null,
+    [businessMarketListings, selectedListingId],
+  );
+  const activeBusinessProfile = useMemo(
+    () => deriveActiveBusinessProfile({
+      activeBusiness,
+      sandboxState: sandboxBusinessState,
+      latestProfitXgp: Number(loop.businesses?.profit_snapshot.latest_daily_profit_xgp || 0),
+      trailingProfitXgp: Number(loop.businesses?.profit_snapshot.trailing_7d_profit_xgp || 0),
+      dayNumber,
+    }),
+    [activeBusiness, dayNumber, loop.businesses?.profit_snapshot.latest_daily_profit_xgp, loop.businesses?.profit_snapshot.trailing_7d_profit_xgp, sandboxBusinessState],
+  );
+  const ownedTileKeys = useMemo(
+    () => sandboxBusinessState.owned_lots.map((lot) => lot.tile_key),
+    [sandboxBusinessState.owned_lots],
+  );
+  const developedTileKeys = useMemo(
+    () => sandboxBusinessState.owned_lots
+      .filter((lot) => lot.development_stage === 'built')
+      .map((lot) => lot.tile_key),
+    [sandboxBusinessState.owned_lots],
+  );
+  const selectedLotOwnership = useMemo(
+    () => sandboxBusinessState.owned_lots.find((lot) => lot.tile_key === selectedTile?.key) || null,
+    [sandboxBusinessState.owned_lots, selectedTile?.key],
+  );
+  const operatedToday = loop.dailySession.actionsTakenToday.some(
+    (entry) => canonicalMapActionKey(String(entry.action_key || '')) === 'operate_business' && entry.success,
+  );
+
+  const persistSandboxState = async (
+    updater: (current: BusinessSandboxState) => BusinessSandboxState,
+  ) => {
+    const next = await updateBusinessSandboxState(loop.playerId, updater);
+    setSandboxBusinessState(next);
+    return next;
+  };
+
+  useEffect(() => {
+    const businessNodeActive = Boolean(selectedTile?.actionTags.includes('business_open') || selectedTile?.actionTags.includes('business_operate'));
+    if (!businessNodeActive || businessMarketListings.length === 0) return;
+    if (selectedListingId && businessMarketListings.some((listing) => listing.listing_id === selectedListingId)) return;
+    setSelectedListingId(businessMarketListings[0]?.listing_id || null);
+  }, [businessMarketListings, selectedListingId, selectedTile?.actionTags]);
+
+  const travelGuard = useMemo(() => {
+    if (!selectedTile?.travelOption) {
+      return { allowed: false, reason: 'Select a travel-linked tile to move your location.', timeCostUnits: 0 };
+    }
+    return loop.dailySession.canExecuteAction(
+      {
+        action_key: 'travel',
+        title: `Travel to ${selectedTile.travelOption.destination_label}`,
+        description: 'Travel across the city map.',
+        status: 'available',
+        blockers: [],
+      },
+      Number(selectedTile.travelOption.time_cost_units || 0),
+    );
+  }, [loop.dailySession, selectedTile]);
+
+  const handleTileSelect = (tile: SandboxMapTile) => {
+    setSelectedTileKey(tile.key);
+  };
+
+  const handleTravel = async () => {
+    if (!selectedTile?.travelOption || !travelGuard.allowed || loop.executingAction) return;
+    await loop.executeAction({
+      action_key: 'travel',
+      title: `Travel to ${selectedTile.travelOption.destination_label}`,
+      description: `Travel from ${selectedTile.travelOption.from_label} to ${selectedTile.travelOption.destination_label}.`,
+      status: 'available',
+      blockers: [],
+      warnings: [],
+      tradeoffs: [],
+      confidence_level: 'high',
+      parameters: {
+        destination_key: selectedTile.travelOption.destination_key,
+        time_cost_units: Number(selectedTile.travelOption.time_cost_units || 0),
+      },
+    });
+  };
+
+  const executeMealFromMap = async (mealType: 'breakfast' | 'lunch' | 'dinner') => {
+    if (backendShiftActive) {
+      loop.setFeedback({
+        tone: 'error',
+        message: 'Meals unlock after your shift ends.',
+      });
+      return;
+    }
+
+    if (mealType === 'dinner' && (daySettled || dinnerResolvedToday)) {
+      loop.setFeedback({
+        tone: 'info',
+        message: 'Dinner is already resolved for today.',
+      });
+      return;
+    }
+
+    const mealGuard = loop.dailySession.canStartTimedActivity('eat_meal', { mealType });
+    if (!mealGuard.allowed) {
+      loop.setFeedback({
+        tone: 'error',
+        message: mealGuard.reason || 'Meal is unavailable right now.',
+      });
+      return;
+    }
+
+    const ok = await loop.eatMeal(mealType);
+    if (ok) {
+      const started = loop.dailySession.startTimedActivity('eat_meal', {
+        mealType,
+        recordHistory: false,
+      });
+      if (!started.allowed && started.reason) {
+        loop.setFeedback({
+          tone: 'info',
+          message: started.reason,
+        });
+      }
+    }
+  };
+
+  const toggleRecoveryFromMap = () => {
+    if (backendShiftActive) {
+      loop.setFeedback({
+        tone: 'error',
+        message: 'Leisure spots unlock after your shift ends.',
+      });
+      return;
+    }
+
+    if (leisureActivityRunning) {
+      const stopped = loop.dailySession.stopTimedActivity();
+      if (!stopped.allowed && stopped.reason) {
+        loop.setFeedback({
+          tone: 'info',
+          message: stopped.reason,
+        });
+      }
+      return;
+    }
+
+    const guard = loop.dailySession.canStartTimedActivity('watch_tv');
+    if (!guard.allowed) {
+      loop.setFeedback({
+        tone: 'error',
+        message: guard.reason || 'Recovery spot unavailable right now.',
+      });
+      return;
+    }
+
+    loop.dailySession.startTimedActivity('watch_tv');
+  };
+
+  const executeMapAction = async (
+    action: DailyActionItem | null,
+    fallbackMessage: string,
+    extraParameters?: Record<string, unknown>,
+  ) => {
+    if (!action) {
+      loop.setFeedback({
+        tone: 'error',
+        message: fallbackMessage,
+      });
+      return;
+    }
+    await loop.executeAction({
+      ...action,
+      parameters: {
+        ...(action.parameters || {}),
+        ...(extraParameters || {}),
+      },
+    });
+  };
+
+  const switchToMarketJob = (job: JobMarketJobSnapshot) => {
+    const targetJobKey = String(job.job_key || '').trim().toLowerCase();
+    if (!targetJobKey) return;
+    const action: DailyActionItem = {
+      action_key: 'switch_job',
+      title: `Switch to ${job.display_name || targetJobKey.replace(/_/g, ' ')}`,
+      description: 'Switch main job from the map Job Center.',
+      status: 'available',
+      blockers: [],
+      warnings: [],
+      tradeoffs: [],
+      confidence_level: 'high',
+      parameters: {
+        new_job_key: targetJobKey,
+      },
+    };
+    void loop.executeAction(action);
+  };
+
+  const startMarketTraining = (job: JobMarketJobSnapshot) => {
+    const certificationKey = String(job.certification_key || '').trim().toLowerCase();
+    if (!certificationKey) return;
+    const action: DailyActionItem = {
+      action_key: 'start_training',
+      title: `Start Training: ${job.certification_name || certificationKey.replace(/_/g, ' ')}`,
+      description: 'Begin certification training from the map Job Center.',
+      status: 'available',
+      blockers: [],
+      warnings: [],
+      tradeoffs: [],
+      confidence_level: 'medium',
+      parameters: {
+        certification_key: certificationKey,
+      },
+    };
+    void loop.executeAction(action);
+  };
+
+  const openStarterBusinessFromMap = async (
+    businessType: string,
+    listing?: BusinessMarketListing | null,
+  ) => {
+    if (openingBusinessType || !selectedTile) return;
+    setOpeningBusinessType(businessType);
+    try {
+      const result = await openBusiness(businessType, loop.playerId);
+      if (listing) {
+        await persistSandboxState((current) => ({
+          ...current,
+          business_market_links: [
+            ...current.business_market_links.filter((item) => item.business_id !== result.business_id),
+            {
+              business_id: result.business_id,
+              listing_id: listing.listing_id,
+              listing_name: listing.listing_name,
+              tile_key: listing.tile_key,
+              district_key: listing.district_key,
+              district_label: listing.district_label,
+              location_label: listing.location_label,
+              growth_phase_key: listing.growth_phase_key,
+            },
+          ],
+        }));
+      }
+      loop.setFeedback({
+        tone: 'success',
+        message: `${listing?.listing_name || result.display_name} opened successfully. ${formatMoney(result.startup_cost)} invested.`,
+      });
+      await loop.refresh({ silent: true });
+    } catch (error) {
+      const raw = error instanceof Error ? error.message : String(error);
+      const friendly = raw.includes('Invalid or expired token')
+        ? 'Business session expired. Please refresh and try again.'
+        : raw.includes('Not enough cash')
+          ? raw
+          : 'Could not open this business right now. Please try again.';
+      loop.setFeedback({
+        tone: 'error',
+        message: friendly,
+      });
+    } finally {
+      setOpeningBusinessType((current) => (current === businessType ? null : current));
+    }
+  };
+
+  const toggleCompareListing = (listingId: string) => {
+    setComparedListingIds((current) => {
+      if (current.includes(listingId)) {
+        return current.filter((item) => item !== listingId);
+      }
+      return [...current, listingId].slice(-2);
+    });
+  };
+
+  const purchaseSelectedLot = async () => {
+    if (!selectedTile?.landProfile || selectedLotOwnership) return;
+    const landProfile = selectedTile.landProfile;
+    await persistSandboxState((current) => ({
+      ...current,
+      owned_lots: [
+        ...current.owned_lots,
+        {
+          tile_key: selectedTile.key,
+          x: selectedTile.x,
+          y: selectedTile.y,
+          district_key: selectedTile.districtKey || null,
+          district_label: selectedTile.districtLabel || null,
+          zone_type: landProfile.zoneType,
+          size: landProfile.size,
+          value_xgp: landProfile.valueXgp,
+          purchase_price_xgp: landProfile.valueXgp,
+          traffic_score: landProfile.trafficScore,
+          development_potential: landProfile.developmentPotential,
+          planned_business_type: null,
+          placed_business_id: null,
+          development_stage: 'land',
+          purchased_at: new Date().toISOString(),
+        },
+      ],
+    }));
+    loop.setFeedback({
+      tone: 'success',
+      message: `${selectedTile.label} secured as a development lot.`,
+    });
+  };
+
+  const placeActiveBusinessOnLot = async () => {
+    if (!selectedTile || !selectedLotOwnership || !activeBusiness) return;
+    await persistSandboxState((current) => ({
+      ...current,
+      owned_lots: current.owned_lots.map((lot) => (
+        lot.tile_key !== selectedTile.key
+          ? lot
+          : {
+            ...lot,
+            planned_business_type: String(activeBusiness.business_type),
+            placed_business_id: activeBusiness.business_id,
+            development_stage: 'built',
+          }
+      )),
+      business_market_links: current.business_market_links.map((link) => (
+        link.business_id !== activeBusiness.business_id
+          ? link
+          : {
+            ...link,
+            tile_key: selectedTile.key,
+            district_key: selectedTile.districtKey || null,
+            district_label: selectedTile.districtLabel || null,
+            location_label: `${selectedTile.districtLabel || 'Owned lot'} (${selectedTile.x},${selectedTile.y})`,
+          }
+      )),
+    }));
+    loop.setFeedback({
+      tone: 'success',
+      message: `${activeBusiness.business_name || businessLabel(activeBusiness.business_type)} placed on this lot.`,
+    });
+  };
+
+  const advanceActiveBusinessPhase = async () => {
+    if (!activeBusinessProfile) return;
+    const nextPhase = getNextGrowthPhase(activeBusinessProfile.growth_phase_key);
+    if (!nextPhase) return;
+    await persistSandboxState((current) => ({
+      ...current,
+      business_market_links: [
+        ...current.business_market_links.filter((link) => link.business_id !== activeBusinessProfile.business_id),
+        {
+          business_id: activeBusinessProfile.business_id,
+          listing_id: marketLinkIdForBusiness(current, activeBusinessProfile.business_id, selectedListing?.listing_id || ''),
+          listing_name: activeBusinessProfile.display_name,
+          tile_key: activeBusinessProfile.tile_key,
+          district_key: activeBusinessProfile.district_key,
+          district_label: activeBusinessProfile.district_label,
+          location_label: activeBusinessProfile.location_label,
+          growth_phase_key: nextPhase.key,
+        },
+      ],
+    }));
+    loop.setFeedback({
+      tone: 'success',
+      message: `${activeBusinessProfile.display_name} advanced to ${nextPhase.label}.`,
+    });
+  };
+
+  const tileRequiresPresence = (tag: MapTileActionTag): boolean => (
+    tag !== 'business_open'
+  );
+
+  const locationLockedReason = selectedTile && !selectedTile.isCurrentLocation
+    ? `Travel to ${selectedTile.label} before using this node.`
+    : null;
+  const jobBoardActive = Boolean(selectedTile?.actionTags.includes('job_board'));
+  const workNodeActive = Boolean(selectedTile?.actionTags.includes('work_shift'));
+  const businessNodeActive = Boolean(
+    selectedTile?.actionTags.includes('business_open')
+    || selectedTile?.actionTags.includes('business_operate')
+    || selectedTile?.actionTags.includes('business_inventory'),
+  );
+  const jobBoardDisabledReason = jobBoardActive && !selectedTile?.isCurrentLocation
+    ? `Travel to ${selectedTile?.label || 'the Job Center'} before applying or starting certifications.`
+    : null;
+  const businessNodeDisabledReason = businessNodeActive && !selectedTile?.isCurrentLocation
+    ? `Travel to ${selectedTile?.label || 'the Business District'} before buying or operating a business.`
+    : null;
+
+  const tileActionButtons: TileActionButton[] = (() => {
+    if (!selectedTile) return [];
+
+    const buttons: TileActionButton[] = [];
+    const actionTags = selectedTile.actionTags || [];
+
+    actionTags.forEach((tag) => {
+      const requiresPresence = tileRequiresPresence(tag);
+      const locationLocked = Boolean(requiresPresence && !selectedTile.isCurrentLocation);
+
+      if (tag === 'meal_breakfast') {
+        buttons.push({
+          key: 'meal_breakfast',
+          label: 'Buy Breakfast',
+          detail: 'Grocery lane food action routed through the meal system.',
+          variant: 'primary',
+          disabled: locationLocked || loop.executingAction || cash < 6,
+          onPress: () => { void executeMealFromMap('breakfast'); },
+        });
+        return;
+      }
+
+      if (tag === 'meal_lunch') {
+        buttons.push({
+          key: 'meal_lunch',
+          label: 'Buy Lunch',
+          detail: 'Fast grocery stop for the midday food lane.',
+          variant: 'secondary',
+          disabled: locationLocked || loop.executingAction || cash < 6,
+          onPress: () => { void executeMealFromMap('lunch'); },
+        });
+        return;
+      }
+
+      if (tag === 'meal_dinner') {
+        buttons.push({
+          key: 'meal_dinner',
+          label: 'Eat Dinner',
+          detail: 'Restaurant and food truck dinner action.',
+          variant: 'primary',
+          disabled: locationLocked || loop.executingAction || daySettled || dinnerResolvedToday,
+          onPress: () => { void executeMealFromMap('dinner'); },
+        });
+        return;
+      }
+
+      if (tag === 'work_shift') {
+        buttons.push({
+          key: 'work_shift',
+          label: workShiftAction?.title || 'Start Shift',
+          detail: `${selectedShiftFocus.label} selected. ${selectedShiftFocus.bonusXp} bonus XP if you run this shift from the map.`,
+          variant: 'primary',
+          disabled: locationLocked || loop.executingAction || !workShiftAction || loop.dailySession.canExecuteAction(workShiftAction).allowed === false,
+          onPress: () => {
+            void executeMapAction(
+              workShiftAction,
+              'No work shift is available right now.',
+              { shift_focus: selectedShiftFocus.key },
+            );
+          },
+        });
+        return;
+      }
+
+      if (tag === 'rideshare') {
+        buttons.push({
+          key: 'rideshare',
+          label: 'Run 1 Trip',
+          detail: 'Start rideshare from a hotspot tile instead of the dashboard lane.',
+          variant: 'primary',
+          disabled: locationLocked || loop.executingAction || !sideIncomeAction || loop.dailySession.canExecuteAction(sideIncomeAction).allowed === false,
+          onPress: () => { void executeMapAction(sideIncomeAction, 'Rideshare is not available at this location right now.'); },
+        });
+        return;
+      }
+
+      if (tag === 'recovery') {
+        buttons.push({
+          key: 'recovery',
+          label: leisureActivityRunning ? 'Stop Leisure' : 'Relax Here',
+          detail: leisureActivityRunning
+            ? 'Stop the current leisure session.'
+            : 'Start a timed leisure recovery session from the map.',
+          variant: 'secondary',
+          disabled: locationLocked || loop.executingAction,
+          onPress: toggleRecoveryFromMap,
+        });
+        return;
+      }
+
+      if (tag === 'business_operate' && activeBusiness) {
+        buttons.push({
+          key: 'business_operate',
+          label: operatedToday ? 'Operated Today' : 'Run Business',
+          detail: 'Operate the active business from its district node.',
+          variant: 'primary',
+          disabled: locationLocked || loop.executingAction || operatedToday || loop.dailySession.sessionStatus !== 'active',
+          onPress: () => { void loop.operateBusiness(); },
+        });
+        return;
+      }
+
+      if (tag === 'business_inventory' && activeBusiness && inventoryAction) {
+        buttons.push({
+          key: 'business_inventory',
+          label: 'Restock Inventory',
+          detail: 'Buy inventory from the map instead of a generic business button.',
+          variant: 'secondary',
+          disabled: locationLocked || loop.executingAction || loop.dailySession.canExecuteAction(inventoryAction).allowed === false,
+          onPress: () => { void executeMapAction(inventoryAction, 'Inventory restock is unavailable right now.'); },
+        });
+        return;
+      }
+
+      if (tag === 'business_open' && !activeBusiness) {
+        if (selectedListing) {
+          const need = Math.max(selectedListing.price_xgp - cash, 0);
+          buttons.push({
+            key: `business_open_${selectedListing.listing_id}`,
+            label: need > 0
+              ? `${selectedListing.listing_name} (${formatMoney(need)} short)`
+              : `Buy ${selectedListing.listing_name}`,
+            detail: `${selectedListing.growth_phase_label} · ${selectedListing.location_label}.`,
+            variant: 'primary',
+            disabled: locationLocked || Boolean(openingBusinessType) || need > 0 || !selectedListing.buyable,
+            onPress: () => { void openStarterBusinessFromMap(String(selectedListing.business_type), selectedListing); },
+          });
+        } else {
+          starterOptions.forEach((option, index) => {
+            const need = Math.max(option.cost_xgp - cash, 0);
+            buttons.push({
+              key: `business_open_${option.business_type}`,
+              label: need > 0 ? `${option.label} (${formatMoney(need)} short)` : `Open ${option.label}`,
+              detail: `Startup cost ${formatMoney(option.cost_xgp)}.`,
+              variant: index === 0 ? 'primary' : 'secondary',
+              disabled: locationLocked || Boolean(openingBusinessType) || need > 0,
+              onPress: () => { void openStarterBusinessFromMap(option.business_type); },
+            });
+          });
+        }
+      }
+    });
+
+    return buttons;
+  })();
+
   const bottomTabs = useMemo(() => ([
     { key: 'map' as OnboardingRouteKey, label: 'Map', icon: '\u{1F5FA}\u{FE0F}' },
     { key: 'work' as OnboardingRouteKey, label: 'Work', icon: '\u{1F4BC}' },
@@ -214,11 +797,9 @@ export default function MapDashboardScreen() {
     { key: 'life' as OnboardingRouteKey, label: 'Life', icon: '\u{2764}\u{FE0F}' },
   ]), []);
 
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <SafeAreaPage edges={['top', 'bottom']}>
       <View style={styles.root}>
-        {/* Top status HUD — floats above map */}
         <PlayerStatusBar
           cash={cash}
           stress={stress}
@@ -226,24 +807,280 @@ export default function MapDashboardScreen() {
           dayNumber={dayNumber}
         />
 
-        {/* Full-screen map — dominant surface */}
-        <View style={styles.mapArea}>
-          <GameMap
-            nodes={nodes}
-            opportunities={mapOpportunities}
-            playerState={playerState}
-            currentLocationKey={currentLocationKey}
-            stressLevel={stress}
-            mapSize={mapSize}
-            onMapLayout={setMapSize}
-          />
-
-          <FloatingActionButtons actions={fabActions} />
-
-          <MoneyFeedbackLayer items={moneyPopups} onItemComplete={handleMoneyComplete} />
+        <View style={styles.headerStrip}>
+          <View style={styles.headerCard}>
+            <Text style={styles.headerEyebrow}>Houston Sandbox</Text>
+            <Text style={styles.headerTitle}>Map-first economy layer</Text>
+            <Text style={styles.headerBody}>
+              Core work, food, rideshare, leisure, and business actions now live on the map itself.
+            </Text>
+          </View>
+          <View style={styles.metricRail}>
+            <View style={styles.metricChip}>
+              <Text style={styles.metricLabel}>Current</Text>
+              <Text style={styles.metricValue}>{currentLocationLabel}</Text>
+            </View>
+            <View style={styles.metricChip}>
+              <Text style={styles.metricLabel}>Selected</Text>
+              <Text style={styles.metricValue}>
+                {selectedTile ? `${selectedTile.x},${selectedTile.y}` : '--'}
+              </Text>
+            </View>
+            <View style={styles.metricChip}>
+              <Text style={styles.metricLabel}>Zoom</Text>
+              <Text style={styles.metricValue}>{Math.round(zoomLevel * 100)}%</Text>
+            </View>
+          </View>
         </View>
 
-        {/* Fixed bottom navigation */}
+        <View style={styles.mapArea}>
+          <GameMap
+            map={sandboxMap}
+            selectedTileKey={selectedTileKey}
+            onTileSelect={handleTileSelect}
+            onZoomChange={setZoomLevel}
+            ownedTileKeys={ownedTileKeys}
+            developedTileKeys={developedTileKeys}
+          />
+        </View>
+
+        <View style={styles.selectionPanel}>
+          <View style={styles.selectionHeader}>
+            <View style={styles.selectionTitleWrap}>
+              <Text style={styles.selectionEyebrow}>Selected Slot</Text>
+              <Text style={styles.selectionTitle}>
+                {selectedTile?.label || 'Pick a tile'}
+              </Text>
+            </View>
+            <View style={styles.kindBadge}>
+              <Text style={styles.kindBadgeText}>
+                {selectedTile ? describeTileKind(selectedTile.kind) : 'No Selection'}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.selectionStatsRow}>
+            <View style={styles.selectionStat}>
+              <Text style={styles.selectionStatLabel}>Coords</Text>
+              <Text style={styles.selectionStatValue}>
+                {selectedTile ? `${selectedTile.x}, ${selectedTile.y}` : '--'}
+              </Text>
+            </View>
+            <View style={styles.selectionStat}>
+              <Text style={styles.selectionStatLabel}>District</Text>
+              <Text style={styles.selectionStatValue}>
+                {selectedDistrict?.label || selectedTile?.districtLabel || 'Outer ring'}
+              </Text>
+            </View>
+            <View style={styles.selectionStat}>
+              <Text style={styles.selectionStatLabel}>Status</Text>
+              <Text style={styles.selectionStatValue}>
+                {selectedTile?.isCurrentLocation ? 'You are here' : selectedTile?.buildable ? 'Build-ready' : 'Scout / travel'}
+              </Text>
+            </View>
+          </View>
+
+          <Text style={styles.selectionDescription}>
+            {selectedTile?.description || 'Tap any tile to inspect land slots, roads, service buildings, businesses, and future expansion nodes.'}
+          </Text>
+
+          {selectedTile?.landProfile ? (
+            <View style={styles.landMetricsBox}>
+              <Text style={styles.actionSectionTitle}>Land Profile</Text>
+              <View style={styles.landMetricsRow}>
+                <View style={styles.landMetricCard}>
+                  <Text style={styles.landMetricLabel}>Zone</Text>
+                  <Text style={styles.landMetricValue}>{describeZoneType(selectedTile.landProfile.zoneType)}</Text>
+                </View>
+                <View style={styles.landMetricCard}>
+                  <Text style={styles.landMetricLabel}>Size</Text>
+                  <Text style={styles.landMetricValue}>{describeLotSize(selectedTile.landProfile.size)}</Text>
+                </View>
+                <View style={styles.landMetricCard}>
+                  <Text style={styles.landMetricLabel}>Value</Text>
+                  <Text style={styles.landMetricValue}>{formatMoney(selectedTile.landProfile.valueXgp)}</Text>
+                </View>
+                <View style={styles.landMetricCard}>
+                  <Text style={styles.landMetricLabel}>Traffic</Text>
+                  <Text style={styles.landMetricValue}>{selectedTile.landProfile.trafficScore}/100</Text>
+                </View>
+                <View style={styles.landMetricCard}>
+                  <Text style={styles.landMetricLabel}>Dev</Text>
+                  <Text style={styles.landMetricValue}>{selectedTile.landProfile.developmentPotential}/100</Text>
+                </View>
+              </View>
+            </View>
+          ) : null}
+
+          {selectedTile?.travelOption ? (
+            <View style={styles.travelRow}>
+              <View style={styles.travelMeta}>
+                <Text style={styles.travelMetaLine}>
+                  Travel: {selectedTile.travelOption.time_cost_units}u
+                  {' · '}
+                  {formatMoney(selectedTile.travelOption.cash_cost_xgp)}
+                </Text>
+                <Text style={styles.travelMetaLine}>
+                  Stress {selectedTile.travelOption.stress_delta >= 0 ? '+' : ''}{selectedTile.travelOption.stress_delta}
+                  {' · '}
+                  {selectedTile.travelOption.destination_region}
+                </Text>
+              </View>
+              <PrimaryButton
+                label={`Travel ${selectedTile.travelOption.time_cost_units}u`}
+                onPress={() => { void handleTravel(); }}
+                disabled={!travelGuard.allowed || loop.executingAction || selectedTile.isCurrentLocation}
+              />
+            </View>
+          ) : null}
+
+          {tileActionButtons.length > 0 ? (
+            <View style={styles.actionSection}>
+              <Text style={styles.actionSectionTitle}>Actions At This Node</Text>
+              {locationLockedReason ? (
+                <Text style={styles.guardText}>{locationLockedReason}</Text>
+              ) : null}
+              {tileActionButtons.map((button) => (
+                <View key={button.key} style={styles.actionRow}>
+                  <View style={styles.actionCopy}>
+                    <Text style={styles.actionTitle}>{button.label}</Text>
+                    <Text style={styles.actionDetail}>{button.detail}</Text>
+                  </View>
+                  <View style={styles.actionButtonWrap}>
+                    {button.variant === 'primary' ? (
+                      <PrimaryButton
+                        label={button.label}
+                        onPress={button.onPress}
+                        disabled={button.disabled}
+                      />
+                    ) : (
+                      <SecondaryButton
+                        label={button.label}
+                        onPress={button.onPress}
+                        disabled={button.disabled}
+                      />
+                    )}
+                  </View>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <View style={styles.actionSection}>
+              <Text style={styles.actionSectionTitle}>Map Interaction</Text>
+              <Text style={styles.actionDetail}>
+                This slot is terrain, infrastructure, or a future development surface. Core life actions appear on grocery, Job Center, work, rideshare, leisure, dinner, and business nodes.
+              </Text>
+            </View>
+          )}
+
+          {businessNodeActive ? (
+            <BusinessMarketPanel
+              listings={businessMarketListings}
+              selectedListingId={selectedListingId}
+              comparedListingIds={comparedListingIds}
+              activeBusinessProfile={activeBusinessProfile}
+              canTransact={!businessNodeDisabledReason}
+              onInspectListing={setSelectedListingId}
+              onToggleCompare={toggleCompareListing}
+              onBuyListing={(listing) => { void openStarterBusinessFromMap(String(listing.business_type), listing); }}
+              onAdvancePhase={() => { void advanceActiveBusinessPhase(); }}
+            />
+          ) : null}
+
+          {selectedTile?.landProfile ? (
+            <View style={styles.landControlBox}>
+              <Text style={styles.actionSectionTitle}>Land Development</Text>
+              <Text style={styles.actionDetail}>
+                Buy empty lots, hold them for traffic growth, and place your active business onto precise map slots.
+              </Text>
+              {selectedLotOwnership ? (
+                <>
+                  <Text style={styles.landOwnedText}>
+                    Owned lot · {selectedLotOwnership.development_stage === 'built' ? 'Business placed' : 'Ready for development'}
+                  </Text>
+                  <Text style={styles.actionDetail}>
+                    {selectedLotOwnership.placed_business_id
+                      ? `Linked business: ${activeBusinessProfile?.display_name || businessLabel(activeBusiness?.business_type || '')}`
+                      : 'No business placed yet.'}
+                  </Text>
+                  <PrimaryButton
+                    label={selectedLotOwnership.placed_business_id ? 'Business Placed' : activeBusiness ? `Place ${activeBusinessProfile?.growth_phase_label || businessLabel(activeBusiness.business_type)} Here` : 'Need Active Business'}
+                    onPress={selectedLotOwnership.placed_business_id || !activeBusiness ? undefined : () => { void placeActiveBusinessOnLot(); }}
+                    disabled={Boolean(selectedLotOwnership.placed_business_id) || !activeBusiness}
+                  />
+                </>
+              ) : (
+                <>
+                  <Text style={styles.actionDetail}>
+                    Purchase price {formatMoney(selectedTile.landProfile.valueXgp)} · Traffic {selectedTile.landProfile.trafficScore}/100 · Development {selectedTile.landProfile.developmentPotential}/100
+                  </Text>
+                  <PrimaryButton
+                    label={`Purchase Lot ${formatMoney(selectedTile.landProfile.valueXgp)}`}
+                    onPress={() => { void purchaseSelectedLot(); }}
+                    disabled={false}
+                  />
+                </>
+              )}
+            </View>
+          ) : null}
+
+          {workNodeActive && workShiftAction ? (
+            <View style={styles.shiftTaskPanel}>
+              <Text style={styles.actionSectionTitle}>Shift Focus</Text>
+              <Text style={styles.actionDetail}>
+                Light first version: pick one fast focus before clocking in to gain bonus job XP and speed up promotions.
+              </Text>
+              <View style={styles.shiftFocusList}>
+                {SHIFT_FOCUS_OPTIONS.map((option) => {
+                  const selected = option.key === selectedShiftFocus.key;
+                  return (
+                    <Pressable
+                      key={option.key}
+                      onPress={() => setShiftFocusKey(option.key)}
+                      style={({ pressed }) => [
+                        styles.shiftFocusCard,
+                        selected ? styles.shiftFocusCardActive : null,
+                        pressed ? styles.shiftFocusCardPressed : null,
+                      ]}
+                    >
+                      <Text style={[styles.shiftFocusTitle, selected ? styles.shiftFocusTitleActive : null]}>
+                        {option.label}
+                      </Text>
+                      <Text style={styles.shiftFocusDetail}>{option.detail}</Text>
+                      <Text style={styles.shiftFocusBonus}>Bonus: +{option.bonusXp} XP</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
+
+          {jobBoardActive ? (
+            <JobMarketPanel
+              jobMarket={workState?.job_market || null}
+              executingAction={loop.executingAction}
+              busyActionKey={loop.busyActionKey}
+              onSwitchJob={switchToMarketJob}
+              onStartTraining={startMarketTraining}
+              interactionDisabledReason={jobBoardDisabledReason}
+            />
+          ) : null}
+
+          {selectedTile?.actionTags.includes('meal_breakfast') || selectedTile?.actionTags.includes('meal_lunch') ? (
+            <Text style={styles.hintText}>
+              Grocery is temporarily routed through meal actions until a dedicated grocery purchasing action exists.
+            </Text>
+          ) : null}
+
+          {businessNodeDisabledReason ? (
+            <Text style={styles.guardText}>{businessNodeDisabledReason}</Text>
+          ) : null}
+
+          {!travelGuard.allowed && selectedTile?.travelOption && !selectedTile.isCurrentLocation ? (
+            <Text style={styles.guardText}>{travelGuard.reason}</Text>
+          ) : null}
+        </View>
+
         <View style={styles.bottomNav}>
           {bottomTabs.map((tab) => {
             const active = tab.key === 'map';
@@ -276,12 +1113,276 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0f172a',
   },
+  headerStrip: {
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    gap: 10,
+  },
+  headerCard: {
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: '#111827',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+  },
+  headerEyebrow: {
+    ...theme.typography.caption,
+    color: '#67e8f9',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  headerTitle: {
+    marginTop: 3,
+    ...theme.typography.headingMd,
+    color: '#f8fafc',
+  },
+  headerBody: {
+    marginTop: 4,
+    ...theme.typography.bodySm,
+    color: '#cbd5e1',
+  },
+  metricRail: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  metricChip: {
+    flex: 1,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#111827',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+  },
+  metricLabel: {
+    ...theme.typography.caption,
+    color: '#94a3b8',
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+  },
+  metricValue: {
+    marginTop: 4,
+    ...theme.typography.bodyMd,
+    color: '#f8fafc',
+    fontWeight: '700',
+  },
   mapArea: {
     flex: 1,
-    marginHorizontal: 0,
-    marginTop: 4,
+    marginHorizontal: 12,
+    marginTop: 12,
     position: 'relative',
     overflow: 'hidden',
+  },
+  selectionPanel: {
+    marginHorizontal: 12,
+    marginTop: 12,
+    marginBottom: 10,
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    backgroundColor: '#111827',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    gap: 12,
+  },
+  selectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  selectionTitleWrap: {
+    flex: 1,
+  },
+  selectionEyebrow: {
+    ...theme.typography.caption,
+    color: '#94a3b8',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  selectionTitle: {
+    marginTop: 3,
+    ...theme.typography.headingSm,
+    color: '#f8fafc',
+  },
+  kindBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: '#0f172a',
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  kindBadgeText: {
+    ...theme.typography.caption,
+    color: '#cbd5e1',
+  },
+  selectionStatsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  selectionStat: {
+    flex: 1,
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    backgroundColor: '#0f172a',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+  },
+  selectionStatLabel: {
+    ...theme.typography.caption,
+    color: '#94a3b8',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  selectionStatValue: {
+    marginTop: 3,
+    ...theme.typography.bodySm,
+    color: '#f8fafc',
+    fontWeight: '700',
+  },
+  selectionDescription: {
+    ...theme.typography.bodySm,
+    color: '#cbd5e1',
+  },
+  landMetricsBox: {
+    gap: 8,
+  },
+  landMetricsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  landMetricCard: {
+    flex: 1,
+    minWidth: 92,
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    backgroundColor: '#0f172a',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    gap: 4,
+  },
+  landMetricLabel: {
+    ...theme.typography.caption,
+    color: '#94a3b8',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  landMetricValue: {
+    ...theme.typography.bodySm,
+    color: '#f8fafc',
+    fontWeight: '700',
+  },
+  travelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  travelMeta: {
+    flex: 1,
+    gap: 4,
+  },
+  travelMetaLine: {
+    ...theme.typography.bodySm,
+    color: '#e2e8f0',
+  },
+  actionSection: {
+    gap: 10,
+  },
+  actionSectionTitle: {
+    ...theme.typography.caption,
+    color: '#67e8f9',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  actionRow: {
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: '#0f172a',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    gap: 10,
+  },
+  actionCopy: {
+    gap: 4,
+  },
+  actionTitle: {
+    ...theme.typography.bodyMd,
+    color: '#f8fafc',
+    fontWeight: '700',
+  },
+  actionDetail: {
+    ...theme.typography.bodySm,
+    color: '#cbd5e1',
+  },
+  actionButtonWrap: {
+    width: '100%',
+  },
+  landControlBox: {
+    gap: 10,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: '#0f172a',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+  },
+  landOwnedText: {
+    ...theme.typography.bodySm,
+    color: '#4ade80',
+    fontWeight: '700',
+  },
+  shiftTaskPanel: {
+    gap: 10,
+  },
+  shiftFocusList: {
+    gap: 8,
+  },
+  shiftFocusCard: {
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: '#0f172a',
+    borderWidth: 1,
+    borderColor: '#1f2937',
+    gap: 4,
+  },
+  shiftFocusCardActive: {
+    borderColor: '#38bdf8',
+    backgroundColor: 'rgba(14, 165, 233, 0.12)',
+  },
+  shiftFocusCardPressed: {
+    opacity: 0.8,
+  },
+  shiftFocusTitle: {
+    ...theme.typography.bodyMd,
+    color: '#f8fafc',
+    fontWeight: '700',
+  },
+  shiftFocusTitleActive: {
+    color: '#67e8f9',
+  },
+  shiftFocusDetail: {
+    ...theme.typography.bodySm,
+    color: '#cbd5e1',
+  },
+  shiftFocusBonus: {
+    ...theme.typography.caption,
+    color: '#67e8f9',
+    fontWeight: '700',
+  },
+  hintText: {
+    ...theme.typography.caption,
+    color: '#cbd5e1',
+  },
+  guardText: {
+    ...theme.typography.caption,
+    color: '#fbbf24',
   },
   bottomNav: {
     flexDirection: 'row',

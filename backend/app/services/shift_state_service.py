@@ -60,6 +60,8 @@ from app.services.player_job_progression_service import (
     safe_default_progression_for_job,
     salary_multiplier_for_total_xp,
 )
+from app.services.job_unlock_service import evaluate_job_unlock
+from app.services.player_onboarding_service import DAY_ONE_SURVIVAL_JOB_KEYS, is_day_one_survival_window
 from app.services.recovery_service import build_recovery_state
 from app.services.player_daily_state_service import ensure_player_daily_state
 from app.services.player_transaction_log_service import record_player_transaction
@@ -114,11 +116,11 @@ JOB_DISPLAY_NAMES: dict[str, str] = {
     "aircraft_mechanic": "Aircraft Mechanic",
     "banker": "Banker",
     "chef": "Chef",
-    "cleaner": "Cleaner",
+    "cleaner": "Labor Helper",
     "warehouse_operator": "Warehouse Manager",
     "real_estate_agent": "Real Estate Agent",
-    "retail": "Retail Seller",
-    "delivery": "Delivery Driver",
+    "retail": "Fruit Stall Clerk",
+    "delivery": "Food Truck Crew",
 }
 
 # STEP 93G — every weekday regular shift closes at 16:00 (4 PM CT).
@@ -138,24 +140,24 @@ JOB_SHIFT_MAP: dict[str, dict[str, str]] = {
 JOB_MARKET_TEMPLATES: tuple[dict[str, Any], ...] = (
     {
         "job_key": "retail",
-        "display_name": "Retail Seller",
-        "tier": "entry",
+        "display_name": "Fruit Stall Clerk",
+        "tier": "survival",
         "stress_level": "Moderate",
         "certification_key": None,
         "future_unlock": False,
     },
     {
         "job_key": "delivery",
-        "display_name": "Delivery Driver",
-        "tier": "entry",
+        "display_name": "Food Truck Crew",
+        "tier": "survival",
         "stress_level": "Moderate",
         "certification_key": None,
         "future_unlock": False,
     },
     {
         "job_key": "cleaner",
-        "display_name": "Cleaner",
-        "tier": "entry",
+        "display_name": "Labor Helper",
+        "tier": "survival",
         "stress_level": "Low",
         "certification_key": None,
         "future_unlock": False,
@@ -871,6 +873,7 @@ def _build_job_market_payload(
     progression_by_job: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     progression_by_job = progression_by_job or {}
+    survival_gate_active = is_day_one_survival_window(player)
     active_training_track = str(getattr(career, "certification_track_key", "") or "").strip().lower()
     active_training_completed = bool(getattr(career, "certification_completed", False))
     training_active = bool(active_training_track and not active_training_completed)
@@ -918,26 +921,45 @@ def _build_job_market_payload(
         is_current = bool(canonical_current_job and canonical_current_job == job_key)
         certification_completed = bool(not cert_key or cert_key in completed_cert_keys)
         supported_switch = bool(job_key in CAREER_CONFIG)
+        survival_job_allowed = bool(not survival_gate_active or job_key in DAY_ONE_SURVIVAL_JOB_KEYS)
+        unlock_state = evaluate_job_unlock(
+            job_key,
+            player=player,
+            progression_by_job=progression_by_job,
+            certification_completed=certification_completed,
+            certification_name=str(cert_meta.get("display_name") or "").strip() or None,
+        )
+        requirement_notes = list(unlock_state.get("missing_parts") or [])
 
         if is_current:
             status = "current"
         elif is_future_unlock:
             status = "locked"
-        elif certification_completed and supported_switch:
+        elif certification_completed and supported_switch and survival_job_allowed and bool(unlock_state.get("unlocked")):
             status = "available"
         else:
             status = "locked"
 
         required_track_name = str(cert_meta.get("display_name") or "").strip()
-        requirement_label = (
-            "No certification needed"
-            if not cert_key
-            else f"Requires: {required_track_name or cert_key.replace('_', ' ').title()}"
-        )
+        if survival_gate_active and not survival_job_allowed and not is_current:
+            requirement_label = "Unlock after surviving Day 1."
+        else:
+            if requirement_notes:
+                requirement_label = " | ".join(requirement_notes)
+            else:
+                requirement_label = (
+                    "No certification needed"
+                    if not cert_key
+                    else f"Requires: {required_track_name or cert_key.replace('_', ' ').title()}"
+                )
         can_start_training = bool(
             cert_key
             and not certification_completed
             and not is_future_unlock
+            and survival_job_allowed
+            and bool(unlock_state.get("prerequisite_met"))
+            and bool(unlock_state.get("level_met"))
+            and bool(unlock_state.get("experience_met"))
             and cert_key in CERTIFICATION_CATALOG
             and not (training_active and active_training_track == cert_key)
         )
@@ -979,9 +1001,15 @@ def _build_job_market_payload(
                 "training_in_progress": training_in_progress,
                 "training_days_completed": training_days_completed,
                 "training_days_required": training_days_required,
+                "training_days_remaining": int(max(0, training_days_required - training_days_completed)),
                 "progression": progression_snapshot,
                 "is_locked": bool(status == "locked"),
                 "is_unlocked": bool(status in {"available", "current"}),
+                "level_requirement": int(unlock_state.get("level_requirement") or 1),
+                "experience_requirement_shifts": int(unlock_state.get("experience_requirement_shifts") or 0),
+                "prerequisite_job_keys": list(unlock_state.get("prerequisite_job_keys") or []),
+                "prerequisite_job_labels": list(unlock_state.get("prerequisite_job_labels") or []),
+                "path_hint": str(unlock_state.get("path_hint") or ""),
             }
         )
         career_progression_rows.append(
@@ -1017,6 +1045,10 @@ def _build_job_market_payload(
                     or "Estimated only - live payroll remains unchanged."
                 ),
                 "last_worked_at": (progression_snapshot or {}).get("last_worked_at"),
+                "level_requirement": int(unlock_state.get("level_requirement") or 1),
+                "experience_requirement_shifts": int(unlock_state.get("experience_requirement_shifts") or 0),
+                "prerequisite_job_labels": list(unlock_state.get("prerequisite_job_labels") or []),
+                "path_hint": str(unlock_state.get("path_hint") or ""),
             }
         )
 
@@ -3135,9 +3167,10 @@ def build_work_state_payload(
             4,
         ),
         "xp_gained": int(
-            (current_day_salary_audit or {}).get("xp_gained")
-            or getattr(player, "main_shift_last_xp_gained", 0)
-            or 0
+            max(
+                _safe_int((current_day_salary_audit or {}).get("xp_gained"), 0),
+                _safe_int(getattr(player, "main_shift_last_xp_gained", 0), 0),
+            )
         ),
         "stress_change": int(
             (current_day_salary_audit or {}).get("stress_change")

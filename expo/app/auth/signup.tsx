@@ -34,7 +34,7 @@ export default function SignupScreen() {
         email: email.trim(),
         password,
       });
-      router.replace('/gameplay');
+      router.replace('/auth/create-player');
     } catch (nextError) {
       setError(getAuthErrorMessage(nextError));
     } finally {

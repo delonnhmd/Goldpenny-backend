@@ -72,6 +72,10 @@ export interface JobProgressionTrackSnapshot {
   next_level_salary_increase_pct: number;
   salary_preview_note?: string | null;
   last_worked_at?: string | null;
+  level_requirement?: number;
+  experience_requirement_shifts?: number;
+  prerequisite_job_labels?: string[];
+  path_hint?: string | null;
 }
 
 export interface JobProgressionFeedbackSnapshot {
@@ -539,6 +543,11 @@ export interface JobMarketJobSnapshot {
   progression?: JobProgressSnapshot | null;
   is_locked?: boolean;
   is_unlocked?: boolean;
+  level_requirement?: number;
+  experience_requirement_shifts?: number;
+  prerequisite_job_keys?: string[];
+  prerequisite_job_labels?: string[];
+  path_hint?: string | null;
 }
 
 export interface JobMarketCertificationSnapshot {

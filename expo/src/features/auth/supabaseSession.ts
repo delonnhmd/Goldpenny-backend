@@ -4,13 +4,13 @@
  * Flow:
  *   - login/register via supabase.auth
  *   - getCurrentSupabaseUserId()
- *   - getOrCreatePlayerByUserId(userId) on the backend
+ *   - getPlayerByUserId(userId) on the backend
  *   - persist player_id locally for fast restore (always re-confirmed by backend)
  *   - logout clears all local state and signs out of Supabase
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { getOrCreatePlayerByUserId, LinkedPlayer } from '@/lib/api/auth';
+import { getPlayerByUserId, LinkedPlayer } from '@/lib/api/auth';
 import { getCurrentSupabaseUserId, signOutSupabase, supabase } from '@/lib/supabase';
 
 import { KEY_LAST_PLAYER_ID } from './storage';
@@ -25,7 +25,8 @@ export interface LinkedSession {
 export async function loadLinkedSessionFromSupabase(): Promise<LinkedSession | null> {
   const userId = await getCurrentSupabaseUserId();
   if (!userId) return null;
-  const player = await getOrCreatePlayerByUserId(userId);
+  const player = await getPlayerByUserId(userId);
+  if (!player) return null;
   await AsyncStorage.multiSet([
     [KEY_SUPABASE_USER_ID, userId],
     [KEY_LAST_PLAYER_ID, player.id],

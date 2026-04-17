@@ -349,6 +349,58 @@ def award_training_session_xp(
     }
 
 
+def award_job_bonus_xp(
+    db: Session,
+    *,
+    player_id: UUID | str,
+    job_key: str | None,
+    xp_gain: int,
+    worked_at: datetime | None = None,
+    reason_label: str = "Shift task",
+) -> dict[str, Any] | None:
+    """Award bonus XP without incrementing shift-completion counts."""
+    row = get_or_create_player_job_progression(db, player_id=player_id, job_key=job_key)
+    if row is None:
+        return None
+
+    _apply_level_fields(row)
+    before_level = max(1, _safe_int(getattr(row, "skill_level", 1), 1))
+    before_tier = str(getattr(row, "promotion_tier", "") or promotion_tier_for_level(before_level))
+    gained = max(0, int(xp_gain))
+    if gained <= 0:
+        return None
+
+    row.xp_total = min(
+        SENIOR_CAP_XP,
+        max(0, _safe_int(getattr(row, "xp_total", 0), 0) + gained),
+    )
+    row.last_worked_at = worked_at or datetime.now(timezone.utc)
+    _apply_level_fields(row)
+    db.flush()
+
+    after_level = max(1, _safe_int(getattr(row, "skill_level", 1), 1))
+    after_tier = str(getattr(row, "promotion_tier", "") or promotion_tier_for_level(after_level))
+    snapshot = build_job_progression_snapshot(row)
+    leveled_up = after_level > before_level
+
+    return {
+        "job_key": _canonical_job_key(job_key),
+        "xp_gained": gained,
+        "level_before": before_level,
+        "level_after": after_level,
+        "promotion_tier_before": before_tier,
+        "promotion_tier_after": after_tier,
+        "leveled_up": leveled_up,
+        "tier_changed": after_tier != before_tier,
+        "progression": snapshot,
+        "feedback_message": (
+            f"{str((snapshot or {}).get('job_key') or job_key or 'Job').replace('_', ' ').title()} promoted to Senior!"
+            if leveled_up
+            else f"{reason_label} XP +{gained}"
+        ),
+    }
+
+
 def list_player_job_progressions(
     db: Session,
     *,

@@ -45,12 +45,27 @@ export default function WorkScreen() {
       'eat_meal',
       'skill_training',
       'start_training',
+      'work_shift',
+      'side_income',
+      'operate_business',
+      'buy_inventory',
     ]);
     const filterActions = (actions: DailyActionItem[]) =>
       actions.filter((action) => {
         const rawKey = String(action.action_key || '').trim().toLowerCase();
         if (hiddenKeys.has(rawKey)) return false;
-        if (rawKey.includes('recover') || rawKey.includes('watch_') || rawKey.includes('jog') || rawKey.includes('eat_')) {
+        if (
+          rawKey.includes('recover')
+          || rawKey.includes('watch_')
+          || rawKey.includes('jog')
+          || rawKey.includes('eat_')
+          || rawKey.includes('work')
+          || rawKey.includes('shift')
+          || rawKey.includes('ride')
+          || rawKey.includes('side_income')
+          || rawKey.includes('business')
+          || rawKey.includes('inventory')
+        ) {
           return false;
         }
         return true;
@@ -228,8 +243,17 @@ export default function WorkScreen() {
           busyActionKey={loop.busyActionKey}
           onSwitchJob={switchToMarketJob}
           onStartTraining={startMarketTraining}
+          interactionDisabledReason="Use the Job Center on the map to switch jobs or start certifications."
         />
       ) : null}
+
+      <GameplaySummaryCard
+        eyebrow="Map Actions"
+        title="Job board and shift actions now live on the map"
+        subtitle="Use the Job Center for hiring and certifications, then use your work location node to run shifts and shift-focus bonuses."
+      >
+        <View />
+      </GameplaySummaryCard>
 
       {actionHubForDisplay ? (
         <OnboardingHighlight target="work-first-action">
