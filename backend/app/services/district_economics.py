@@ -118,25 +118,25 @@ DISTRICT_MODIFIERS: dict[str, DistrictModifier] = {
 
 
 # Mapping from city-location keys (see city_map_service.CITY_LOCATIONS) to
-# their canonical district. Locations not listed here fall back to their
-# region's dominant district. The Heights/Midtown split within Suburban is
-# intentional: residential nodes weight toward heights, service nodes toward
-# midtown, so daily needs and jobs feel distinguishably placed.
+# their canonical district. These are kept in sync with the frontend's
+# FIXED_NODE_ANCHORS in expo/src/components/gameMap/mapData.ts so that the
+# economic modifier for a tile matches the district the player visually sees
+# it in. Changing anchor positions there means updating this map here too.
 LOCATION_TO_DISTRICT: dict[str, str] = {
-    "home": "heights",
-    "housing": "heights",
-    "clinic": "heights",
+    "home": "makers",
+    "housing": "makers",
+    "clinic": "makers",
     "gas_station": "makers",
     "grocery": "heights",
     "rideshare_hotspot_suburban": "makers",
-    "job_center": "commerce",
-    "certification_school": "commerce",
+    "job_center": "midtown",
+    "certification_school": "midtown",
     "work": "commerce",
-    "rideshare_hotspot_downtown": "exchange",
-    "business_spot": "exchange",
+    "rideshare_hotspot_downtown": "midtown",
+    "business_spot": "harbor",
     "bank": "exchange",
     "stock_center": "exchange",
-    "car_sale": "midtown",
+    "car_sale": "exchange",
 }
 
 
