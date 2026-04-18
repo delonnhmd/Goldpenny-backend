@@ -10,6 +10,7 @@ export { default as FloatingActionButtons } from './FloatingActionButtons';
 export type { FABAction } from './FloatingActionButtons';
 export { default as BottomSlidePanel } from './BottomSlidePanel';
 export type { BriefItem, OpportunityCard } from './BottomSlidePanel';
+export { default as MapDetailSheet } from './MapDetailSheet';
 export { default as MoneyFeedbackLayer } from './MoneyFeedback';
 export type { MoneyFeedbackItem } from './MoneyFeedback';
 export { default as StressHealthBars } from './StressHealthBars';

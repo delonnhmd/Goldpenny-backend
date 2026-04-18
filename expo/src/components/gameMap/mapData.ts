@@ -119,8 +119,8 @@ const DISTRICTS: SandboxDistrict[] = [
     y: 1,
     width: 8,
     height: 7,
-    fill: '#e6f4ea',
-    accent: '#3f7a52',
+    fill: '#12293a',
+    accent: '#68d391',
   },
   {
     key: 'midtown',
@@ -130,8 +130,8 @@ const DISTRICTS: SandboxDistrict[] = [
     y: 1,
     width: 8,
     height: 7,
-    fill: '#eef4ff',
-    accent: '#2f5f98',
+    fill: '#13273c',
+    accent: '#67e8f9',
   },
   {
     key: 'exchange',
@@ -141,8 +141,8 @@ const DISTRICTS: SandboxDistrict[] = [
     y: 1,
     width: 8,
     height: 7,
-    fill: '#fff5df',
-    accent: '#9b6a19',
+    fill: '#2a2115',
+    accent: '#fbbf24',
   },
   {
     key: 'makers',
@@ -152,8 +152,8 @@ const DISTRICTS: SandboxDistrict[] = [
     y: 14,
     width: 8,
     height: 7,
-    fill: '#f0f7ff',
-    accent: '#406c8f',
+    fill: '#11263a',
+    accent: '#7dd3fc',
   },
   {
     key: 'commerce',
@@ -163,8 +163,8 @@ const DISTRICTS: SandboxDistrict[] = [
     y: 14,
     width: 8,
     height: 7,
-    fill: '#f7f1ff',
-    accent: '#6947a3',
+    fill: '#1d1f37',
+    accent: '#c084fc',
   },
   {
     key: 'harbor',
@@ -174,8 +174,8 @@ const DISTRICTS: SandboxDistrict[] = [
     y: 14,
     width: 8,
     height: 7,
-    fill: '#eefcf7',
-    accent: '#20745f',
+    fill: '#10261f',
+    accent: '#5eead4',
   },
 ];
 

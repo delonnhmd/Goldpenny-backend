@@ -1,8 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import {
   GameMap,
+  MapDetailSheet,
   PlayerStatusBar,
   buildSandboxCityMap,
   describeTileKind,
@@ -110,6 +112,55 @@ function marketLinkIdForBusiness(
     || `owned_${businessId}`;
 }
 
+function formatMapNodeType(nodeType: string | null | undefined): string {
+  const raw = String(nodeType || '').trim();
+  if (!raw) return '';
+  return raw
+    .split('_')
+    .filter(Boolean)
+    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
+    .join(' ');
+}
+
+function selectedTileModeLabel(
+  tile: SandboxMapTile | null,
+  ownedLot: BusinessSandboxState['owned_lots'][number] | null,
+): string {
+  if (!tile) return 'Browse Mode';
+  if (ownedLot?.placed_business_id) return 'Owned Business';
+  if (ownedLot) return 'Owned Lot';
+
+  switch (tile.kind) {
+    case 'empty_lot':
+      return 'Land';
+    case 'building_slot':
+      return 'Building Slot';
+    case 'existing_business':
+      return 'Business';
+    case 'service_building':
+      return 'Service';
+    case 'expansion_node':
+      return 'Expansion';
+    case 'road':
+      return 'Road';
+    default:
+      return describeTileKind(tile.kind);
+  }
+}
+
+function selectedTileStatusLabel(
+  tile: SandboxMapTile | null,
+  ownedLot: BusinessSandboxState['owned_lots'][number] | null,
+): string {
+  if (!tile) return 'Tap a slot to inspect it.';
+  if (tile.isCurrentLocation) return 'You are here';
+  if (ownedLot?.placed_business_id) return 'Operating site';
+  if (ownedLot) return 'Ready for development';
+  if (tile.travelOption) return 'Travel to interact';
+  if (tile.buildable) return 'Build-ready';
+  return 'Scout / inspect';
+}
+
 export default function MapDashboardScreen() {
   useScreenTimer('map');
   const loop = useGameplayLoop();
@@ -197,12 +248,8 @@ export default function MapDashboardScreen() {
   }, [loop.playerId]);
 
   useEffect(() => {
-    const preferredKey = selectedTileKey && sandboxMap.tileByKey[selectedTileKey]
-      ? selectedTileKey
-      : sandboxMap.currentLocationTileKey;
-
-    if (preferredKey && preferredKey !== selectedTileKey) {
-      setSelectedTileKey(preferredKey);
+    if (selectedTileKey && !sandboxMap.tileByKey[selectedTileKey]) {
+      setSelectedTileKey(null);
     }
   }, [sandboxMap, selectedTileKey]);
 
@@ -210,6 +257,7 @@ export default function MapDashboardScreen() {
   const selectedDistrict = selectedTile?.districtKey
     ? sandboxMap.districts.find((district) => district.key === selectedTile.districtKey) || null
     : null;
+  const detailSheetOpen = Boolean(selectedTile);
 
   const allActionItems = useMemo(() => {
     if (!loop.actionHub) return [];
@@ -287,6 +335,18 @@ export default function MapDashboardScreen() {
     () => sandboxBusinessState.owned_lots.find((lot) => lot.tile_key === selectedTile?.key) || null,
     [sandboxBusinessState.owned_lots, selectedTile?.key],
   );
+  const selectedTileMode = useMemo(
+    () => selectedTileModeLabel(selectedTile, selectedLotOwnership),
+    [selectedLotOwnership, selectedTile],
+  );
+  const selectedTileStatus = useMemo(
+    () => selectedTileStatusLabel(selectedTile, selectedLotOwnership),
+    [selectedLotOwnership, selectedTile],
+  );
+  const selectedNodeTypeLabel = useMemo(
+    () => formatMapNodeType(selectedTile?.nodeType),
+    [selectedTile?.nodeType],
+  );
   const operatedToday = loop.dailySession.actionsTakenToday.some(
     (entry) => canonicalMapActionKey(String(entry.action_key || '')) === 'operate_business' && entry.success,
   );
@@ -298,6 +358,19 @@ export default function MapDashboardScreen() {
     setSandboxBusinessState(next);
     return next;
   };
+
+  const closeSelectedTile = useCallback(() => {
+    setSelectedTileKey(null);
+  }, []);
+
+  useFocusEffect(useCallback(() => {
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (!selectedTileKey) return false;
+      setSelectedTileKey(null);
+      return true;
+    });
+    return () => subscription.remove();
+  }, [selectedTileKey]));
 
   useEffect(() => {
     const businessNodeActive = Boolean(selectedTile?.actionTags.includes('business_open') || selectedTile?.actionTags.includes('business_operate'));
@@ -833,52 +906,115 @@ export default function MapDashboardScreen() {
           </View>
         </View>
 
-        <View style={styles.mapArea}>
-          <GameMap
-            map={sandboxMap}
-            selectedTileKey={selectedTileKey}
-            onTileSelect={handleTileSelect}
-            onZoomChange={setZoomLevel}
-            ownedTileKeys={ownedTileKeys}
-            developedTileKeys={developedTileKeys}
-          />
-        </View>
+        <View style={styles.mapStage}>
+          <View style={styles.mapArea}>
+            <GameMap
+              map={sandboxMap}
+              selectedTileKey={selectedTileKey}
+              onTileSelect={handleTileSelect}
+              onZoomChange={setZoomLevel}
+              ownedTileKeys={ownedTileKeys}
+              developedTileKeys={developedTileKeys}
+            />
 
-        <View style={styles.selectionPanel}>
-          <View style={styles.selectionHeader}>
-            <View style={styles.selectionTitleWrap}>
-              <Text style={styles.selectionEyebrow}>Selected Slot</Text>
-              <Text style={styles.selectionTitle}>
-                {selectedTile?.label || 'Pick a tile'}
-              </Text>
+            <View pointerEvents="none" style={styles.mapInfoDock}>
+              <View style={styles.mapHeroCard}>
+                <Text style={styles.mapHeroEyebrow}>Houston Sandbox</Text>
+                <Text style={styles.mapHeroTitle}>{currentLocationLabel}</Text>
+                <Text style={styles.mapHeroBody}>
+                  {detailSheetOpen
+                    ? 'Slot detail is open. Close it to return to full map browsing.'
+                    : 'Tap any slot to inspect land, service buildings, work nodes, meals, or business frontage.'}
+                </Text>
+              </View>
+              <View style={styles.mapMetricRail}>
+                <View style={styles.mapMetricChip}>
+                  <Text style={styles.mapMetricLabel}>Current</Text>
+                  <Text style={styles.mapMetricValue}>{currentLocationLabel}</Text>
+                </View>
+                <View style={styles.mapMetricChip}>
+                  <Text style={styles.mapMetricLabel}>Selected</Text>
+                  <Text style={styles.mapMetricValue}>
+                    {selectedTile ? `${selectedTile.x},${selectedTile.y}` : 'Browse'}
+                  </Text>
+                </View>
+                <View style={styles.mapMetricChip}>
+                  <Text style={styles.mapMetricLabel}>Zoom</Text>
+                  <Text style={styles.mapMetricValue}>{Math.round(zoomLevel * 100)}%</Text>
+                </View>
+              </View>
             </View>
-            <View style={styles.kindBadge}>
-              <Text style={styles.kindBadgeText}>
-                {selectedTile ? describeTileKind(selectedTile.kind) : 'No Selection'}
-              </Text>
-            </View>
-          </View>
 
-          <View style={styles.selectionStatsRow}>
-            <View style={styles.selectionStat}>
-              <Text style={styles.selectionStatLabel}>Coords</Text>
-              <Text style={styles.selectionStatValue}>
-                {selectedTile ? `${selectedTile.x}, ${selectedTile.y}` : '--'}
-              </Text>
-            </View>
-            <View style={styles.selectionStat}>
-              <Text style={styles.selectionStatLabel}>District</Text>
-              <Text style={styles.selectionStatValue}>
-                {selectedDistrict?.label || selectedTile?.districtLabel || 'Outer ring'}
-              </Text>
-            </View>
-            <View style={styles.selectionStat}>
-              <Text style={styles.selectionStatLabel}>Status</Text>
-              <Text style={styles.selectionStatValue}>
-                {selectedTile?.isCurrentLocation ? 'You are here' : selectedTile?.buildable ? 'Build-ready' : 'Scout / travel'}
-              </Text>
-            </View>
-          </View>
+            {!detailSheetOpen ? (
+              <View pointerEvents="none" style={styles.mapBrowseHint}>
+                <Text style={styles.mapBrowseHintTitle}>Browse Mode</Text>
+                <Text style={styles.mapBrowseHintBody}>
+                  Pan the city, zoom for frontage detail, then tap a slot to open its detail sheet.
+                </Text>
+              </View>
+            ) : null}
+
+            <MapDetailSheet
+              visible={detailSheetOpen}
+              title={selectedTile?.label || 'Selected Slot'}
+              subtitle={selectedTile ? `${selectedDistrict?.label || selectedTile.districtLabel || 'Outer ring'} / ${selectedTile.x},${selectedTile.y}` : null}
+              onClose={closeSelectedTile}
+            >
+              <View style={styles.selectionPanel}>
+                <View style={styles.sheetTopActions}>
+                  <SecondaryButton label="Back to Map" onPress={closeSelectedTile} />
+                </View>
+
+                <View style={styles.selectionHeader}>
+                  <View style={styles.selectionTitleWrap}>
+                    <Text style={styles.selectionEyebrow}>Selected Slot</Text>
+                    <Text style={styles.selectionTitle}>
+                      {selectedTile?.label || 'Pick a tile'}
+                    </Text>
+                  </View>
+                  <View style={styles.kindBadge}>
+                    <Text style={styles.kindBadgeText}>
+                      {selectedTileMode}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.selectionBadgeRow}>
+                  {selectedNodeTypeLabel ? (
+                    <View style={[styles.detailBadge, styles.detailBadgePrimary]}>
+                      <Text style={styles.detailBadgeText}>{selectedNodeTypeLabel}</Text>
+                    </View>
+                  ) : null}
+                  {selectedTile?.opportunityTier ? (
+                    <View style={styles.detailBadge}>
+                      <Text style={styles.detailBadgeText}>
+                        {String(selectedTile.opportunityTier).toUpperCase()} tier
+                      </Text>
+                    </View>
+                  ) : null}
+                  <View style={styles.detailBadge}>
+                    <Text style={styles.detailBadgeText}>{selectedTileStatus}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.selectionStatsRow}>
+                  <View style={styles.selectionStat}>
+                    <Text style={styles.selectionStatLabel}>Coords</Text>
+                    <Text style={styles.selectionStatValue}>
+                      {selectedTile ? `${selectedTile.x}, ${selectedTile.y}` : '--'}
+                    </Text>
+                  </View>
+                  <View style={styles.selectionStat}>
+                    <Text style={styles.selectionStatLabel}>District</Text>
+                    <Text style={styles.selectionStatValue}>
+                      {selectedDistrict?.label || selectedTile?.districtLabel || 'Outer ring'}
+                    </Text>
+                  </View>
+                  <View style={styles.selectionStat}>
+                    <Text style={styles.selectionStatLabel}>Status</Text>
+                    <Text style={styles.selectionStatValue}>{selectedTileStatus}</Text>
+                  </View>
+                </View>
 
           <Text style={styles.selectionDescription}>
             {selectedTile?.description || 'Tap any tile to inspect land slots, roads, service buildings, businesses, and future expansion nodes.'}
@@ -1079,6 +1215,9 @@ export default function MapDashboardScreen() {
           {!travelGuard.allowed && selectedTile?.travelOption && !selectedTile.isCurrentLocation ? (
             <Text style={styles.guardText}>{travelGuard.reason}</Text>
           ) : null}
+              </View>
+            </MapDetailSheet>
+          </View>
         </View>
 
         <View style={styles.bottomNav}>
@@ -1115,16 +1254,17 @@ const styles = StyleSheet.create({
   },
   headerStrip: {
     paddingHorizontal: 12,
-    paddingTop: 8,
-    gap: 10,
+    paddingTop: 6,
+    paddingBottom: 4,
+    gap: 8,
   },
   headerCard: {
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    backgroundColor: '#111827',
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: '#0b1220',
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: '#172033',
   },
   headerEyebrow: {
     ...theme.typography.caption,
@@ -1133,14 +1273,15 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
   headerTitle: {
-    marginTop: 3,
-    ...theme.typography.headingMd,
+    marginTop: 2,
+    ...theme.typography.bodyMd,
     color: '#f8fafc',
+    fontWeight: '800',
   },
   headerBody: {
-    marginTop: 4,
-    ...theme.typography.bodySm,
-    color: '#cbd5e1',
+    marginTop: 2,
+    ...theme.typography.caption,
+    color: '#94a3b8',
   },
   metricRail: {
     flexDirection: 'row',
@@ -1148,12 +1289,12 @@ const styles = StyleSheet.create({
   },
   metricChip: {
     flex: 1,
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: '#111827',
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#0b1220',
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: '#172033',
   },
   metricLabel: {
     ...theme.typography.caption,
@@ -1162,29 +1303,108 @@ const styles = StyleSheet.create({
     letterSpacing: 0.7,
   },
   metricValue: {
-    marginTop: 4,
-    ...theme.typography.bodyMd,
+    marginTop: 3,
+    ...theme.typography.bodySm,
     color: '#f8fafc',
     fontWeight: '700',
+  },
+  mapStage: {
+    flex: 1,
   },
   mapArea: {
     flex: 1,
     marginHorizontal: 12,
-    marginTop: 12,
+    marginTop: 8,
+    marginBottom: 10,
     position: 'relative',
     overflow: 'hidden',
   },
-  selectionPanel: {
-    marginHorizontal: 12,
-    marginTop: 12,
-    marginBottom: 10,
-    borderRadius: 22,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    backgroundColor: '#111827',
+  mapInfoDock: {
+    position: 'absolute',
+    left: 14,
+    right: 84,
+    top: 86,
+    gap: 10,
+  },
+  mapHeroCard: {
+    alignSelf: 'flex-start',
+    maxWidth: 280,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(7, 13, 26, 0.86)',
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: 'rgba(103, 232, 249, 0.14)',
+  },
+  mapHeroEyebrow: {
+    ...theme.typography.caption,
+    color: '#67e8f9',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  mapHeroTitle: {
+    marginTop: 3,
+    ...theme.typography.headingSm,
+    color: '#f8fafc',
+  },
+  mapHeroBody: {
+    marginTop: 4,
+    ...theme.typography.bodySm,
+    color: '#cbd5e1',
+  },
+  mapMetricRail: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  mapMetricChip: {
+    flex: 1,
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    backgroundColor: 'rgba(7, 13, 26, 0.82)',
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.14)',
+  },
+  mapMetricLabel: {
+    ...theme.typography.caption,
+    color: '#94a3b8',
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+  },
+  mapMetricValue: {
+    marginTop: 3,
+    ...theme.typography.bodySm,
+    color: '#f8fafc',
+    fontWeight: '700',
+  },
+  mapBrowseHint: {
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    bottom: 14,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(7, 13, 26, 0.9)',
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.14)',
+  },
+  mapBrowseHintTitle: {
+    ...theme.typography.caption,
+    color: '#67e8f9',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  mapBrowseHintBody: {
+    marginTop: 4,
+    ...theme.typography.bodySm,
+    color: '#cbd5e1',
+  },
+  selectionPanel: {
     gap: 12,
+  },
+  sheetTopActions: {
+    alignItems: 'flex-start',
   },
   selectionHeader: {
     flexDirection: 'row',
@@ -1217,6 +1437,28 @@ const styles = StyleSheet.create({
   kindBadgeText: {
     ...theme.typography.caption,
     color: '#cbd5e1',
+  },
+  selectionBadgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  detailBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.16)',
+  },
+  detailBadgePrimary: {
+    borderColor: 'rgba(103, 232, 249, 0.28)',
+    backgroundColor: 'rgba(8, 47, 73, 0.36)',
+  },
+  detailBadgeText: {
+    ...theme.typography.caption,
+    color: '#dbeafe',
+    fontWeight: '700',
   },
   selectionStatsRow: {
     flexDirection: 'row',
