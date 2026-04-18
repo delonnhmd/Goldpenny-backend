@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   PanResponder,
   ScrollView,
   StyleSheet,
@@ -32,6 +34,7 @@ export default function MapDetailSheet({
   const { height } = useWindowDimensions();
   const [mounted, setMounted] = useState(visible);
   const translateY = useRef(new Animated.Value(420)).current;
+  const scrollOffsetYRef = useRef(0);
 
   const hiddenOffset = useMemo(
     () => Math.max(height * 0.8, 420),
@@ -69,11 +72,36 @@ export default function MapDetailSheet({
     });
   }, [hiddenOffset, mounted, translateY, visible]);
 
-  const panResponder = useRef(
+  const springBack = () => {
+    Animated.spring(translateY, {
+      toValue: 0,
+      useNativeDriver: true,
+      damping: 24,
+      stiffness: 260,
+      mass: 0.9,
+    }).start();
+  };
+
+  const handleDismissRelease = (_: unknown, gesture: { dy: number; vy: number }) => {
+    if (gesture.dy > CLOSE_DISTANCE || gesture.vy > CLOSE_VELOCITY) {
+      onClose();
+      return;
+    }
+    springBack();
+  };
+
+  const headerPanResponder = useRef(
     PanResponder.create({
+      onStartShouldSetPanResponder: () => visible,
+      onStartShouldSetPanResponderCapture: () => visible,
       onMoveShouldSetPanResponder: (_, gesture) => (
         visible
         && Math.abs(gesture.dy) > 6
+        && Math.abs(gesture.dy) > Math.abs(gesture.dx)
+      ),
+      onMoveShouldSetPanResponderCapture: (_, gesture) => (
+        visible
+        && Math.abs(gesture.dy) > 4
         && Math.abs(gesture.dy) > Math.abs(gesture.dx)
       ),
       onPanResponderMove: (_, gesture) => {
@@ -83,30 +111,35 @@ export default function MapDetailSheet({
         }
         translateY.setValue(gesture.dy);
       },
-      onPanResponderRelease: (_, gesture) => {
-        if (gesture.dy > CLOSE_DISTANCE || gesture.vy > CLOSE_VELOCITY) {
-          onClose();
-          return;
-        }
-        Animated.spring(translateY, {
-          toValue: 0,
-          useNativeDriver: true,
-          damping: 24,
-          stiffness: 260,
-          mass: 0.9,
-        }).start();
-      },
-      onPanResponderTerminate: () => {
-        Animated.spring(translateY, {
-          toValue: 0,
-          useNativeDriver: true,
-          damping: 24,
-          stiffness: 260,
-          mass: 0.9,
-        }).start();
-      },
+      onPanResponderRelease: handleDismissRelease,
+      onPanResponderTerminate: springBack,
     }),
   ).current;
+
+  const contentPanResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponderCapture: (_, gesture) => (
+        visible
+        && scrollOffsetYRef.current <= 0
+        && gesture.dy > 8
+        && Math.abs(gesture.dy) > Math.abs(gesture.dx)
+      ),
+      onPanResponderMove: (_, gesture) => {
+        if (scrollOffsetYRef.current > 0) return;
+        if (gesture.dy <= 0) {
+          translateY.setValue(0);
+          return;
+        }
+        translateY.setValue(gesture.dy);
+      },
+      onPanResponderRelease: handleDismissRelease,
+      onPanResponderTerminate: springBack,
+    }),
+  ).current;
+
+  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    scrollOffsetYRef.current = Math.max(0, event.nativeEvent.contentOffset.y || 0);
+  };
 
   if (!mounted) return null;
 
@@ -120,7 +153,7 @@ export default function MapDetailSheet({
         },
       ]}
     >
-      <View style={styles.handleZone} {...panResponder.panHandlers}>
+      <View style={styles.handleZone} {...headerPanResponder.panHandlers}>
         <View style={styles.handle} />
         <View style={styles.headerRow}>
           <View style={styles.headerCopy}>
@@ -131,14 +164,20 @@ export default function MapDetailSheet({
         </View>
       </View>
 
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        nestedScrollEnabled
-      >
-        {children}
-      </ScrollView>
+      <View style={styles.scrollShell} {...contentPanResponder.panHandlers}>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          nestedScrollEnabled
+          bounces={false}
+          overScrollMode="never"
+          scrollEventThrottle={16}
+          onScroll={handleScroll}
+        >
+          {children}
+        </ScrollView>
+      </View>
     </Animated.View>
   );
 }
@@ -202,6 +241,9 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     ...theme.typography.bodySm,
     color: theme.gameUi.textSecondary,
+  },
+  scrollShell: {
+    flex: 1,
   },
   scrollView: {
     flex: 1,
