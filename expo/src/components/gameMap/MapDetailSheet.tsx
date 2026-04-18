@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   PanResponder,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -74,7 +73,7 @@ export default function MapDetailSheet({
     PanResponder.create({
       onMoveShouldSetPanResponder: (_, gesture) => (
         visible
-        && Math.abs(gesture.dy) > 8
+        && Math.abs(gesture.dy) > 6
         && Math.abs(gesture.dy) > Math.abs(gesture.dx)
       ),
       onPanResponderMove: (_, gesture) => {
@@ -129,9 +128,6 @@ export default function MapDetailSheet({
             <Text style={styles.headerTitle}>{title}</Text>
             {subtitle ? <Text style={styles.headerSubtitle}>{subtitle}</Text> : null}
           </View>
-          <Pressable onPress={onClose} style={({ pressed }) => [styles.closeButton, pressed ? styles.closeButtonPressed : null]}>
-            <Text style={styles.closeButtonText}>Close</Text>
-          </Pressable>
         </View>
       </View>
 
@@ -168,7 +164,8 @@ const styles = StyleSheet.create({
   handleZone: {
     paddingTop: 10,
     paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingBottom: 16,
+    minHeight: 88,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     backgroundColor: 'rgba(255, 255, 255, 0.98)',
@@ -184,9 +181,9 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   headerRow: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'flex-start',
-    gap: 12,
+    justifyContent: 'center',
   },
   headerCopy: {
     flex: 1,
@@ -205,24 +202,6 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     ...theme.typography.bodySm,
     color: theme.gameUi.textSecondary,
-  },
-  closeButton: {
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: theme.gameUi.secondaryButton,
-    borderWidth: 1,
-    borderColor: theme.gameUi.secondaryButtonBorder,
-  },
-  closeButtonPressed: {
-    opacity: 0.74,
-  },
-  closeButtonText: {
-    ...theme.typography.caption,
-    color: theme.gameUi.textPrimary,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.7,
   },
   scrollView: {
     flex: 1,

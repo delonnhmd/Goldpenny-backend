@@ -388,9 +388,9 @@ export default function MapDashboardScreen() {
     );
   }, [loop.dailySession, selectedTile]);
 
-  const handleTileSelect = (tile: SandboxMapTile) => {
+  const handleTileSelect = useCallback((tile: SandboxMapTile) => {
     setSelectedTileKey(tile.key);
-  };
+  }, []);
 
   const handleTravel = async () => {
     if (!selectedTile?.travelOption || !travelGuard.allowed || loop.executingAction) return;
@@ -890,10 +890,6 @@ export default function MapDashboardScreen() {
               onClose={closeSelectedTile}
             >
               <View style={styles.selectionPanel}>
-                <View style={styles.sheetTopActions}>
-                  <SecondaryButton label="Back to Map" onPress={closeSelectedTile} />
-                </View>
-
                 <View style={styles.selectionHeader}>
                   <View style={styles.selectionTitleWrap}>
                     <Text style={styles.selectionEyebrow}>Selected Slot</Text>
@@ -1196,9 +1192,6 @@ const styles = StyleSheet.create({
   },
   selectionPanel: {
     gap: 12,
-  },
-  sheetTopActions: {
-    alignItems: 'flex-start',
   },
   selectionHeader: {
     flexDirection: 'row',

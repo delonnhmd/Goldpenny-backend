@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -40,6 +40,18 @@ function districtPalette(district: SandboxDistrict | null | undefined) {
   return theme.gameUi.district.suburban;
 }
 
+function shouldShowTileLabel(tile: SandboxMapTile, isSelected: boolean, isCurrent: boolean): boolean {
+  if (isSelected || isCurrent) return true;
+  return tile.kind === 'service_building' || tile.kind === 'existing_business';
+}
+
+function shouldPulseDemand(tile: SandboxMapTile, isHighDemand: boolean): boolean {
+  if (!isHighDemand) return false;
+  return tile.kind === 'service_building'
+    || tile.kind === 'existing_business'
+    || Boolean(tile.nodeKey);
+}
+
 function tileVisualState(
   tile: SandboxMapTile,
   district: SandboxDistrict | null | undefined,
@@ -52,109 +64,99 @@ function tileVisualState(
   const opportunityTier = String(tile.opportunityTier || '').toLowerCase();
   const trafficScore = Number(tile.landProfile?.trafficScore || 0);
   const landValue = Number(tile.landProfile?.valueXgp || 0);
-  const isHighDemand = opportunityTier === 'high'
-    || trafficScore >= 78
+  const isHighDemand = (
+    opportunityTier === 'high'
     || tile.actionTags.includes('rideshare')
-    || tile.actionTags.includes('work_shift');
-  const isHighProfit = isOwned
+    || tile.actionTags.includes('work_shift')
+    || (Boolean(tile.nodeKey) && trafficScore >= 78)
+  );
+  const isHighProfit = (
+    isOwned
     || isDeveloped
-    || landValue >= 520
-    || (tile.kind === 'existing_business' && !tile.actionTags.includes('rideshare'));
-  const isLowActivity = opportunityTier === 'low'
+    || tile.kind === 'existing_business'
+    || (tile.kind === 'building_slot' && landValue >= 520)
+  );
+  const isLowActivity = (
+    tile.kind === 'expansion_node'
+    || opportunityTier === 'low'
     || (tile.kind === 'empty_lot' && trafficScore > 0 && trafficScore < 48)
-    || tile.kind === 'expansion_node';
+  );
 
   let backgroundColor: string = alpha(palette.accent, district?.tone === 'downtown' ? 0.24 : 0.16);
-  let borderColor: string = alpha(palette.accent, district?.tone === 'downtown' ? 0.6 : 0.48);
+  let borderColor: string = alpha(palette.accent, district?.tone === 'downtown' ? 0.58 : 0.42);
   let labelColor: string = district?.tone === 'downtown' ? palette.label : theme.gameUi.textPrimary;
-  let signalColor: string = theme.gameUi.icons.neutral;
 
   switch (tile.kind) {
     case 'road':
       backgroundColor = theme.gameUi.road;
-      borderColor = alpha(theme.gameUi.road, 0.92);
+      borderColor = alpha(theme.gameUi.road, 0.94);
       labelColor = theme.gameUi.card;
-      signalColor = theme.gameUi.icons.neutral;
       break;
     case 'building_slot':
-      backgroundColor = alpha(theme.gameUi.icons.openSlot, 0.22);
-      borderColor = alpha(theme.gameUi.icons.openSlot, 0.82);
-      labelColor = theme.gameUi.textPrimary;
-      signalColor = theme.gameUi.icons.openSlot;
+      backgroundColor = alpha(theme.gameUi.icons.openSlot, 0.18);
+      borderColor = alpha(theme.gameUi.icons.openSlot, 0.7);
       break;
     case 'existing_business':
-      backgroundColor = alpha(theme.gameUi.icons.neutral, 0.18);
-      borderColor = alpha(theme.gameUi.icons.neutral, 0.78);
-      labelColor = theme.gameUi.textPrimary;
-      signalColor = theme.gameUi.icons.neutral;
+      backgroundColor = alpha(theme.gameUi.icons.neutral, 0.16);
+      borderColor = alpha(theme.gameUi.icons.neutral, 0.66);
       break;
     case 'service_building':
-      backgroundColor = alpha(theme.gameUi.primary, district?.tone === 'downtown' ? 0.34 : 0.16);
-      borderColor = alpha(theme.gameUi.primary, 0.8);
+      backgroundColor = alpha(theme.gameUi.primary, district?.tone === 'downtown' ? 0.3 : 0.14);
+      borderColor = alpha(theme.gameUi.primary, 0.76);
       labelColor = district?.tone === 'downtown' ? theme.gameUi.card : theme.gameUi.textPrimary;
-      signalColor = theme.gameUi.primary;
       break;
     case 'expansion_node':
-      backgroundColor = alpha(theme.gameUi.signals.lowActivity, 0.12);
-      borderColor = alpha(theme.gameUi.signals.lowActivity, 0.42);
+      backgroundColor = alpha(theme.gameUi.signals.lowActivity, 0.14);
+      borderColor = alpha(theme.gameUi.signals.lowActivity, 0.36);
       labelColor = theme.gameUi.textSecondary;
-      signalColor = theme.gameUi.icons.neutral;
       break;
     default:
       break;
   }
 
   if (isLowActivity) {
-    backgroundColor = alpha(theme.gameUi.signals.lowActivity, tile.kind === 'expansion_node' ? 0.16 : 0.1);
-    borderColor = alpha(theme.gameUi.signals.lowActivity, 0.34);
+    backgroundColor = alpha(theme.gameUi.signals.lowActivity, tile.kind === 'expansion_node' ? 0.14 : 0.08);
+    borderColor = alpha(theme.gameUi.signals.lowActivity, 0.28);
     labelColor = theme.gameUi.textSecondary;
-    signalColor = theme.gameUi.icons.neutral;
   }
 
   if (isHighProfit) {
-    backgroundColor = alpha(theme.gameUi.signals.profit, isDeveloped ? 0.34 : 0.22);
-    borderColor = alpha(theme.gameUi.signals.profit, 0.84);
+    backgroundColor = alpha(theme.gameUi.success, isDeveloped ? 0.28 : 0.18);
+    borderColor = alpha(theme.gameUi.success, 0.8);
     labelColor = theme.gameUi.textPrimary;
-    signalColor = theme.gameUi.icons.ownedBusiness;
   }
 
   if (isOwned) {
     backgroundColor = alpha(theme.gameUi.success, 0.24);
     borderColor = theme.gameUi.success;
-    labelColor = theme.gameUi.textPrimary;
-    signalColor = theme.gameUi.icons.ownedBusiness;
   }
 
   if (isHighDemand) {
-    borderColor = alpha(theme.gameUi.signals.demand, 0.88);
-    signalColor = theme.gameUi.icons.hotspot;
+    borderColor = alpha(theme.gameUi.signals.demand, 0.84);
   }
 
   if (isSelected) {
-    backgroundColor = alpha(theme.gameUi.primary, 0.18);
+    backgroundColor = alpha(theme.gameUi.primary, 0.16);
     borderColor = theme.gameUi.primary;
     labelColor = theme.gameUi.textPrimary;
-    signalColor = theme.gameUi.primary;
   }
 
   if (isCurrent) {
     borderColor = theme.gameUi.primary;
     labelColor = theme.gameUi.textPrimary;
-    signalColor = theme.gameUi.icons.player;
   }
 
   return {
     backgroundColor,
     borderColor,
     labelColor,
-    signalColor,
     isHighDemand,
     isHighProfit,
     isLowActivity,
   };
 }
 
-function SignalPulse({
+const SignalPulse = memo(function SignalPulse({
   color,
   progress,
 }: {
@@ -162,8 +164,8 @@ function SignalPulse({
   progress: SharedValue<number>;
 }) {
   const haloStyle = useAnimatedStyle(() => ({
-    opacity: 0.16 + (progress.value * 0.18),
-    transform: [{ scale: 0.82 + (progress.value * 0.32) }],
+    opacity: 0.12 + (progress.value * 0.16),
+    transform: [{ scale: 0.86 + (progress.value * 0.28) }],
   }));
 
   return (
@@ -172,15 +174,135 @@ function SignalPulse({
       style={[
         styles.signalPulse,
         {
-          backgroundColor: alpha(color, 0.18),
-          borderColor: alpha(color, 0.62),
-          shadowColor: color,
+          backgroundColor: alpha(color, 0.12),
+          borderColor: alpha(color, 0.5),
         },
         haloStyle,
       ]}
     />
   );
-}
+});
+
+const DistrictBlock = memo(function DistrictBlock({
+  district,
+  tileSize,
+}: {
+  district: SandboxDistrict;
+  tileSize: number;
+}) {
+  const palette = districtPalette(district);
+
+  return (
+    <View
+      style={[
+        styles.districtBlock,
+        {
+          left: district.x * tileSize,
+          top: district.y * tileSize,
+          width: district.width * tileSize,
+          height: district.height * tileSize,
+          backgroundColor: district.fill,
+          borderColor: alpha(district.accent, 0.88),
+        },
+      ]}
+    >
+      <View
+        style={[
+          styles.districtBadge,
+          {
+            borderColor: alpha(district.accent, 0.72),
+            backgroundColor: palette.badgeBackground,
+          },
+        ]}
+      >
+        <Text style={[styles.districtTitle, { color: palette.label }]}>{district.label}</Text>
+        <Text style={[styles.districtSubtitle, { color: alpha(palette.label, 0.72) }]}>{district.subtitle}</Text>
+      </View>
+    </View>
+  );
+});
+
+const TileCell = memo(function TileCell({
+  tile,
+  tileSize,
+  district,
+  isSelected,
+  isOwned,
+  isDeveloped,
+  hotspotPulse,
+}: {
+  tile: SandboxMapTile;
+  tileSize: number;
+  district: SandboxDistrict | null;
+  isSelected: boolean;
+  isOwned: boolean;
+  isDeveloped: boolean;
+  hotspotPulse: SharedValue<number>;
+}) {
+  const isCurrent = tile.isCurrentLocation;
+  const visual = tileVisualState(tile, district, isOwned, isDeveloped, isSelected, isCurrent);
+  const showLabel = shouldShowTileLabel(tile, isSelected, isCurrent);
+  const showDemandPulse = shouldPulseDemand(tile, visual.isHighDemand);
+
+  return (
+    <View
+      style={[
+        styles.tile,
+        {
+          left: tile.x * tileSize,
+          top: tile.y * tileSize,
+          width: tileSize,
+          height: tileSize,
+          backgroundColor: visual.backgroundColor,
+          borderColor: visual.borderColor,
+        },
+        tile.kind === 'road' ? styles.tileRoad : null,
+        tile.kind === 'building_slot' ? styles.tileBuildable : null,
+        tile.kind === 'existing_business' ? styles.tileBusiness : null,
+        tile.kind === 'service_building' ? styles.tileService : null,
+        tile.kind === 'expansion_node' ? styles.tileExpansion : null,
+        isSelected ? styles.tileSelected : null,
+        isCurrent ? styles.tileCurrent : null,
+      ]}
+    >
+      {showDemandPulse ? (
+        <SignalPulse color={theme.gameUi.signals.demand} progress={hotspotPulse} />
+      ) : null}
+
+      {tile.kind === 'road' ? (
+        <View
+          style={[
+            styles.roadStripe,
+            tile.roadAxis === 'vertical' ? styles.roadStripeVertical : null,
+            tile.roadAxis === 'intersection' ? styles.roadStripeIntersection : null,
+          ]}
+        />
+      ) : null}
+
+      {tile.kind === 'building_slot' ? <View style={styles.buildSlotInset} /> : null}
+
+      {showLabel ? (
+        <Text style={[styles.tileLabel, { color: visual.labelColor }]}>
+          {tile.shortLabel || tile.label.slice(0, 3).toUpperCase()}
+        </Text>
+      ) : null}
+
+      {isCurrent ? (
+        <View style={styles.currentMarker}>
+          <Text style={styles.currentMarkerText}>YOU</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}, (prev, next) => (
+  prev.tile === next.tile
+  && prev.tileSize === next.tileSize
+  && prev.district === next.district
+  && prev.isSelected === next.isSelected
+  && prev.isOwned === next.isOwned
+  && prev.isDeveloped === next.isDeveloped
+  && prev.hotspotPulse === next.hotspotPulse
+));
 
 export function zoomTierFor(scale: number): 'far' | 'medium' | 'close' {
   if (scale < ZOOM_TIER_MEDIUM) return 'far';
@@ -204,7 +326,7 @@ function clampTranslation(translate: number, viewport: number, content: number, 
   return clamp(translate, minTranslate, maxTranslate);
 }
 
-export default function GameMap({
+function GameMapComponent({
   map,
   selectedTileKey,
   onTileSelect,
@@ -229,6 +351,8 @@ export default function GameMap({
     () => Object.fromEntries(map.districts.map((district) => [district.key, district])),
     [map.districts],
   ) as Record<string, SandboxDistrict>;
+  const ownedTileSet = useMemo(() => new Set(ownedTileKeys), [ownedTileKeys]);
+  const developedTileSet = useMemo(() => new Set(developedTileKeys), [developedTileKeys]);
 
   const selectedTile = selectedTileKey ? map.tileByKey[selectedTileKey] || null : null;
   const currentTile = map.currentLocationTileKey ? map.tileByKey[map.currentLocationTileKey] || null : null;
@@ -383,127 +507,26 @@ export default function GameMap({
               mapAnimatedStyle,
             ]}
           >
-            {map.districts.map((district) => {
-              const palette = districtPalette(district);
-              return (
-                <View
-                  key={district.key}
-                  style={[
-                    styles.districtBlock,
-                    {
-                      left: district.x * map.tileSize,
-                      top: district.y * map.tileSize,
-                      width: district.width * map.tileSize,
-                      height: district.height * map.tileSize,
-                      backgroundColor: district.fill,
-                      borderColor: alpha(district.accent, 0.92),
-                    },
-                  ]}
-                >
-                  <View
-                    style={[
-                      styles.districtBadge,
-                      {
-                        borderColor: alpha(district.accent, 0.84),
-                        backgroundColor: palette.badgeBackground,
-                      },
-                    ]}
-                  >
-                    <Text style={[styles.districtTitle, { color: palette.label }]}>{district.label}</Text>
-                    <Text style={[styles.districtSubtitle, { color: alpha(palette.label, 0.72) }]}>{district.subtitle}</Text>
-                  </View>
-                </View>
-              );
-            })}
+            {map.districts.map((district) => (
+              <DistrictBlock
+                key={district.key}
+                district={district}
+                tileSize={map.tileSize}
+              />
+            ))}
 
-            {map.tiles.map((tile) => {
-              const isSelected = tile.key === selectedTileKey;
-              const isCurrent = tile.isCurrentLocation;
-              const isOwned = ownedTileKeys.includes(tile.key);
-              const isDeveloped = developedTileKeys.includes(tile.key);
-              const showLabel = tile.kind !== 'empty_lot' && tile.kind !== 'road';
-              const district = tile.districtKey ? districtByKey[tile.districtKey] || null : null;
-              const visual = tileVisualState(tile, district, isOwned, isDeveloped, isSelected, isCurrent);
-
-              return (
-                <View
-                  key={tile.key}
-                  style={[
-                    styles.tile,
-                    {
-                      left: tile.x * map.tileSize,
-                      top: tile.y * map.tileSize,
-                      width: map.tileSize,
-                      height: map.tileSize,
-                      backgroundColor: visual.backgroundColor,
-                      borderColor: visual.borderColor,
-                    },
-                    tile.kind === 'road' ? styles.tileRoad : null,
-                    tile.kind === 'building_slot' ? styles.tileBuildable : null,
-                    tile.kind === 'existing_business' ? styles.tileBusiness : null,
-                    tile.kind === 'service_building' ? styles.tileService : null,
-                    tile.kind === 'expansion_node' ? styles.tileExpansion : null,
-                    isSelected ? styles.tileSelected : null,
-                    isCurrent ? styles.tileCurrent : null,
-                  ]}
-                >
-                  {visual.isLowActivity ? (
-                    <View style={styles.lowActivityOverlay} pointerEvents="none" />
-                  ) : null}
-
-                  {visual.isHighDemand ? (
-                    <SignalPulse color={theme.gameUi.signals.demand} progress={hotspotPulse} />
-                  ) : null}
-
-                  {visual.isHighProfit && !visual.isHighDemand ? (
-                    <View
-                      pointerEvents="none"
-                      style={[
-                        styles.profitHalo,
-                        {
-                          backgroundColor: alpha(theme.gameUi.signals.profit, 0.18),
-                          borderColor: alpha(theme.gameUi.signals.profit, 0.6),
-                        },
-                      ]}
-                    />
-                  ) : null}
-
-                  {tile.kind === 'road' ? (
-                    <View
-                      style={[
-                        styles.roadStripe,
-                        tile.roadAxis === 'vertical' ? styles.roadStripeVertical : null,
-                        tile.roadAxis === 'intersection' ? styles.roadStripeIntersection : null,
-                      ]}
-                    />
-                  ) : null}
-
-                  {tile.kind === 'building_slot' ? <View style={styles.buildSlotInset} /> : null}
-
-                  <View
-                    style={[
-                      styles.tileSignal,
-                      {
-                        backgroundColor: visual.signalColor,
-                        shadowColor: visual.signalColor,
-                      },
-                    ]}
-                  />
-
-                  {showLabel ? (
-                    <Text style={[styles.tileLabel, { color: visual.labelColor }]}>
-                      {tile.shortLabel || tile.label.slice(0, 3).toUpperCase()}
-                    </Text>
-                  ) : null}
-
-                  {isCurrent ? (
-                    <View style={styles.currentMarker}>
-                      <Text style={styles.currentMarkerText}>YOU</Text>
-                    </View>
-                  ) : null}
-                </View>
-              );
-            })}
+            {map.tiles.map((tile) => (
+              <TileCell
+                key={tile.key}
+                tile={tile}
+                tileSize={map.tileSize}
+                district={tile.districtKey ? districtByKey[tile.districtKey] || null : null}
+                isSelected={tile.key === selectedTileKey}
+                isOwned={ownedTileSet.has(tile.key)}
+                isDeveloped={developedTileSet.has(tile.key)}
+                hotspotPulse={hotspotPulse}
+              />
+            ))}
           </Animated.View>
         </View>
       </GestureDetector>
@@ -539,7 +562,7 @@ const styles = StyleSheet.create({
     width: 180,
     height: 180,
     borderRadius: 999,
-    backgroundColor: alpha(theme.gameUi.primary, 0.12),
+    backgroundColor: alpha(theme.gameUi.primary, 0.1),
   },
   atmosphereOrbSecondary: {
     position: 'absolute',
@@ -548,7 +571,7 @@ const styles = StyleSheet.create({
     width: 220,
     height: 220,
     borderRadius: 999,
-    backgroundColor: alpha(theme.gameUi.signals.demand, 0.08),
+    backgroundColor: alpha(theme.gameUi.signals.demand, 0.06),
   },
   viewport: {
     flex: 1,
@@ -563,10 +586,6 @@ const styles = StyleSheet.create({
   districtBlock: {
     position: 'absolute',
     borderWidth: 2,
-    shadowColor: theme.gameUi.primary,
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
   },
   districtBadge: {
     margin: 8,
@@ -612,17 +631,9 @@ const styles = StyleSheet.create({
   },
   tileSelected: {
     borderWidth: 2,
-    shadowColor: theme.gameUi.primary,
-    shadowOpacity: 0.26,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 0 },
   },
   tileCurrent: {
     borderWidth: 2,
-  },
-  lowActivityOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: theme.gameUi.lowActivityOverlay,
   },
   signalPulse: {
     position: 'absolute',
@@ -630,27 +641,6 @@ const styles = StyleSheet.create({
     height: '72%',
     borderRadius: 999,
     borderWidth: 1,
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 0 },
-  },
-  profitHalo: {
-    position: 'absolute',
-    width: '64%',
-    height: '64%',
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  tileSignal: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
-    width: 7,
-    height: 7,
-    borderRadius: 999,
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 0 },
   },
   tileLabel: {
     ...theme.typography.caption,
@@ -680,9 +670,9 @@ const styles = StyleSheet.create({
     width: '60%',
     height: '60%',
     borderWidth: 1,
-    borderColor: alpha(theme.gameUi.icons.openSlot, 0.46),
+    borderColor: alpha(theme.gameUi.icons.openSlot, 0.42),
     borderRadius: 4,
-    backgroundColor: alpha(theme.gameUi.card, 0.24),
+    backgroundColor: alpha(theme.gameUi.card, 0.18),
   },
   currentMarker: {
     position: 'absolute',
@@ -745,3 +735,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.7,
   },
 });
+
+const GameMap = memo(GameMapComponent);
+
+export default GameMap;
