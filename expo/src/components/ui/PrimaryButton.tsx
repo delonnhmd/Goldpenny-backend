@@ -40,15 +40,15 @@ const styles = StyleSheet.create({
   button: {
     minHeight: 52,
     borderRadius: theme.radius.lg,
-    backgroundColor: theme.color.accent,
+    backgroundColor: '#0f3c52',
     borderWidth: 1,
-    borderColor: '#1e40af',
+    borderColor: '#22d3ee',
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     gap: theme.spacing.xs,
     paddingHorizontal: theme.spacing.lg,
-    ...theme.shadow.sm,
+    ...theme.shadow.md,
   },
   disabled: {
     opacity: 0.5,
@@ -63,9 +63,10 @@ const styles = StyleSheet.create({
     elevation: 0,
   },
   text: {
-    color: '#ffffff',
+    color: '#ecfeff',
     ...theme.typography.label,
     fontWeight: '800',
+    letterSpacing: 0.3,
     textAlign: 'center',
   },
 });

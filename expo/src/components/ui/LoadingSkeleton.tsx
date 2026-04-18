@@ -49,6 +49,6 @@ const styles = StyleSheet.create({
   line: {
     height: 12,
     borderRadius: theme.radius.sm,
-    backgroundColor: '#dbe3ee',
+    backgroundColor: 'rgba(148, 163, 184, 0.18)',
   },
 });

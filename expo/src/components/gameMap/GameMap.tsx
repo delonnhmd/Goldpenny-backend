@@ -204,21 +204,6 @@ export default function GameMap({
     ],
   }));
 
-  const [currentZoomTier, setCurrentZoomTier] = useState<'far' | 'medium' | 'close'>('far');
-  useAnimatedReaction(
-    () => scale.value,
-    (current) => {
-      const tier = current < ZOOM_TIER_MEDIUM ? 'far' : current < ZOOM_TIER_CLOSE ? 'medium' : 'close';
-      runOnJS(setCurrentZoomTier)(tier);
-    },
-    [scale],
-  );
-  const zoomHint = currentZoomTier === 'far'
-    ? 'District overview. Zoom in to pick a lot.'
-    : currentZoomTier === 'medium'
-      ? 'Building / lot tier. Tap a tile to see options.'
-      : 'Tile precision. Pick an exact frontage slot.';
-
   return (
     <View style={styles.mapFrame} onLayout={handleLayout}>
       <GestureDetector gesture={gesture}>
@@ -312,13 +297,6 @@ export default function GameMap({
         </View>
       </GestureDetector>
 
-      <View style={styles.overlayTop}>
-        <View style={styles.overlayBadge}>
-          <Text style={styles.overlayEyebrow}>Map Mode · {currentZoomTier.toUpperCase()}</Text>
-          <Text style={styles.overlayText}>{zoomHint}</Text>
-        </View>
-      </View>
-
       <View style={styles.controls}>
         <Pressable style={styles.controlButton} onPress={() => adjustZoom(0.2)}>
           <Text style={styles.controlLabel}>+</Text>
@@ -337,16 +315,8 @@ export default function GameMap({
 const styles = StyleSheet.create({
   mapFrame: {
     flex: 1,
-    borderRadius: 26,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(103, 232, 249, 0.18)',
     backgroundColor: '#08111f',
-    shadowColor: '#020617',
-    shadowOpacity: 0.34,
-    shadowRadius: 22,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 10,
   },
   viewport: {
     flex: 1,
@@ -486,43 +456,18 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     letterSpacing: 0.5,
   },
-  overlayTop: {
-    position: 'absolute',
-    left: 12,
-    top: 12,
-  },
-  overlayBadge: {
-    maxWidth: 230,
-    borderRadius: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: 'rgba(6, 12, 24, 0.86)',
-    borderWidth: 1,
-    borderColor: 'rgba(103, 232, 249, 0.18)',
-  },
-  overlayEyebrow: {
-    ...theme.typography.caption,
-    color: '#67e8f9',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-  },
-  overlayText: {
-    marginTop: 2,
-    ...theme.typography.bodySm,
-    color: '#e2e8f0',
-  },
   controls: {
     position: 'absolute',
-    right: 12,
-    top: 12,
-    gap: 8,
+    right: 10,
+    top: 10,
+    gap: 6,
     alignItems: 'flex-end',
   },
   controlButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: 'rgba(8, 15, 30, 0.92)',
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: 'rgba(8, 15, 30, 0.72)',
     alignItems: 'center',
     justifyContent: 'center',
     ...theme.shadow.md,
@@ -530,11 +475,11 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(148, 163, 184, 0.16)',
   },
   controlButtonWide: {
-    minWidth: 70,
-    height: 38,
-    paddingHorizontal: 12,
-    borderRadius: 14,
-    backgroundColor: 'rgba(8, 15, 30, 0.92)',
+    minWidth: 60,
+    height: 34,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    backgroundColor: 'rgba(8, 15, 30, 0.72)',
     alignItems: 'center',
     justifyContent: 'center',
     ...theme.shadow.md,
@@ -542,8 +487,8 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(148, 163, 184, 0.16)',
   },
   controlLabel: {
-    fontSize: 24,
-    lineHeight: 26,
+    fontSize: 22,
+    lineHeight: 24,
     fontWeight: '700',
     color: '#f8fafc',
   },

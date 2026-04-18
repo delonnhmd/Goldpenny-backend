@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { router, usePathname } from 'expo-router';
-import { LayoutChangeEvent, RefreshControl, ScrollView, StyleSheet } from 'react-native';
+import { LayoutChangeEvent, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { PlayerStatusBar } from '@/components/gameMap';
 import { OnboardingStepOverlay } from '@/components/onboarding';
 import AppShell from '@/components/layout/AppShell';
 import ContentStack from '@/components/layout/ContentStack';
 import PageContainer from '@/components/layout/PageContainer';
+import FadeInView from '@/components/motion/FadeInView';
 import ErrorStateView from '@/components/ui/ErrorStateView';
 import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
 import SectionCard from '@/components/ui/SectionCard';
@@ -43,6 +45,44 @@ const INTERACTION_DIAGNOSTICS_ENABLED =
   __DEV__
   || process.env.EXPO_PUBLIC_INTERACTION_DIAGNOSTICS === 'true'
   || process.env.EXPO_PUBLIC_INTERACTION_DIAGNOSTICS === '1';
+
+const PAGE_IDENTITY: Record<string, { eyebrow: string; mood: string; chips: string[] }> = {
+  brief: {
+    eyebrow: 'Daily intelligence',
+    mood: 'Signals, narrative, and settlement pressure in one premium brief.',
+    chips: ['City signals', 'Narrative', 'Settle day'],
+  },
+  dashboard: {
+    eyebrow: 'Command center',
+    mood: 'Personal cash, pressure, timing, and choices presented like a live game HUD.',
+    chips: ['Cash flow', 'Health', 'Pressure'],
+  },
+  work: {
+    eyebrow: 'Career lane',
+    mood: 'Shifts, wage growth, certifications, and progression should feel like upward momentum.',
+    chips: ['Shift window', 'XP path', 'Income'],
+  },
+  business: {
+    eyebrow: 'Asset lane',
+    mood: 'Your business screen tracks growth, margin, staffing, and execution risk like a management game.',
+    chips: ['Revenue', 'Margin', 'Operations'],
+  },
+  market: {
+    eyebrow: 'Market lane',
+    mood: 'Basket signals and stock exposure feel like readable opportunity, not spreadsheet output.',
+    chips: ['Baskets', 'Volatility', 'Capital'],
+  },
+  life: {
+    eyebrow: 'Routine lane',
+    mood: 'Housing, meals, stress, and emergency cash now read like survival choices inside the city.',
+    chips: ['Meals', 'Housing', 'Recovery'],
+  },
+  summary: {
+    eyebrow: 'Closeout',
+    mood: 'End-of-day outcomes, consequences, and next-day reset should land with clarity.',
+    chips: ['Results', 'Carryover', 'Reset'],
+  },
+};
 
 export default function GameplayLoopScaffold({
   title,
@@ -87,6 +127,12 @@ export default function GameplayLoopScaffold({
     || loop.sourceNotes.some((note) => String(note || '').toLowerCase().startsWith('economy_summary:'));
   const errorText = String(loop.error || '');
   const economyOnlyFailure = errorText.toLowerCase().includes('basket pricing');
+  const stats = loop.dashboard?.stats;
+  const identity = PAGE_IDENTITY[activeNavKey] || {
+    eyebrow: 'Gold Penny',
+    mood: subtitle,
+    chips: ['Gameplay'],
+  };
 
   useEffect(() => {
     ensureRoute(activeNavKey as OnboardingRouteKey);
@@ -284,6 +330,14 @@ export default function GameplayLoopScaffold({
       title={title}
       subtitle={subtitle}
       headerRight={<TextButton label="Account" onPress={() => router.push('/account')} />}
+      topStatusBar={(
+        <PlayerStatusBar
+          cash={Number(stats?.cash_xgp ?? 0)}
+          stress={Number(stats?.stress ?? 0)}
+          health={Number(stats?.health ?? 100)}
+          dayNumber={Number(loop.authoritativeState?.day_number ?? 1)}
+        />
+      )}
       bottomNavItems={bottomNavItems}
       activeBottomNavKey={activeNavKey}
       footer={footer}
@@ -304,6 +358,20 @@ export default function GameplayLoopScaffold({
           )}
         >
           <ContentStack gap={theme.spacing.md} onLayout={handleContentLayout}>
+            <FadeInView style={styles.pageHero}>
+              <View style={styles.pageHeroCard}>
+                <Text style={styles.pageHeroEyebrow}>{identity.eyebrow}</Text>
+                <Text style={styles.pageHeroTitle}>{title}</Text>
+                <Text style={styles.pageHeroBody}>{identity.mood}</Text>
+                <View style={styles.heroChipRow}>
+                  {identity.chips.map((chip) => (
+                    <View key={chip} style={styles.heroChip}>
+                      <Text style={styles.heroChipText}>{chip}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            </FadeInView>
             <PlaytestObserver />
             {onboardingActive ? <OnboardingStepOverlay /> : null}
 
@@ -357,7 +425,9 @@ export default function GameplayLoopScaffold({
                 <LoadingSkeleton lines={4} />
               </SectionCard>
             ) : (
-              children
+              <FadeInView delay={40}>
+                {children}
+              </FadeInView>
             )}
           </ContentStack>
         </ScrollView>
@@ -388,5 +458,53 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingTop: theme.spacing.md,
     paddingBottom: theme.spacing.xxxl,
+  },
+  pageHero: {
+    width: '100%',
+  },
+  pageHeroCard: {
+    borderRadius: theme.radius.xl,
+    paddingHorizontal: theme.spacing.lg,
+    paddingVertical: theme.spacing.lg,
+    backgroundColor: '#0b1627',
+    borderWidth: 1,
+    borderColor: 'rgba(103, 232, 249, 0.18)',
+    gap: theme.spacing.sm,
+    ...theme.shadow.md,
+  },
+  pageHeroEyebrow: {
+    ...theme.typography.caption,
+    color: '#67e8f9',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    fontWeight: '800',
+  },
+  pageHeroTitle: {
+    ...theme.typography.headingLg,
+    color: '#f8fafc',
+    fontWeight: '800',
+  },
+  pageHeroBody: {
+    ...theme.typography.bodySm,
+    color: '#a8b6c9',
+  },
+  heroChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.spacing.sm,
+  },
+  heroChip: {
+    borderRadius: theme.radius.pill,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(148, 163, 184, 0.16)',
+  },
+  heroChipText: {
+    ...theme.typography.caption,
+    color: '#dbeafe',
+    fontWeight: '800',
+    textTransform: 'uppercase',
   },
 });

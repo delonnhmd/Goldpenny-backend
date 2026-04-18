@@ -14,8 +14,8 @@ export default function BottomActionBar({
 const styles = StyleSheet.create({
   bar: {
     borderTopWidth: 1,
-    borderTopColor: '#dbe4ef',
-    backgroundColor: '#fcfdff',
+    borderTopColor: 'rgba(148, 163, 184, 0.14)',
+    backgroundColor: '#091321',
     paddingHorizontal: theme.spacing.lg,
     paddingTop: theme.spacing.md,
     paddingBottom: theme.spacing.md,

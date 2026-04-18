@@ -83,9 +83,9 @@ const styles = StyleSheet.create({
   },
   row: {
     borderWidth: 1,
-    borderColor: theme.color.border,
+    borderColor: 'rgba(148, 163, 184, 0.14)',
     borderRadius: theme.radius.lg,
-    backgroundColor: theme.color.surfaceAlt,
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.sm,
     gap: theme.spacing.xs,

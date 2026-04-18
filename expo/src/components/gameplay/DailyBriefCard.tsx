@@ -57,10 +57,11 @@ export default function DailyBriefCard({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: '#d6e1f2',
+    borderColor: 'rgba(103, 232, 249, 0.18)',
     borderRadius: theme.radius.xl,
-    backgroundColor: '#fdfefe',
+    backgroundColor: '#0b1627',
     padding: theme.spacing.lg,
+    ...theme.shadow.md,
   },
   heroBlock: {
     gap: theme.spacing.xs,
@@ -69,7 +70,7 @@ const styles = StyleSheet.create({
     ...theme.typography.caption,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
-    color: '#1d4ed8',
+    color: '#67e8f9',
     fontWeight: '800',
   },
   headline: {
@@ -87,7 +88,7 @@ const styles = StyleSheet.create({
     paddingTop: theme.spacing.xs,
   },
   bulletItem: {
-    color: theme.color.textSecondary,
+    color: '#cbd5e1',
     ...theme.typography.bodySm,
     lineHeight: 18,
   },

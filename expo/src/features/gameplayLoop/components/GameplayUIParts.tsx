@@ -18,28 +18,28 @@ interface TonePalette {
 const tonePalette: Record<GameplayTone, TonePalette> = {
   neutral: {
     background: theme.color.surfaceAlt,
-    border: theme.color.border,
+    border: 'rgba(148, 163, 184, 0.16)',
     text: theme.color.textPrimary,
   },
   positive: {
-    background: '#f0fdf4',
-    border: '#86efac',
-    text: '#166534',
+    background: 'rgba(20, 83, 45, 0.38)',
+    border: 'rgba(74, 222, 128, 0.28)',
+    text: '#86efac',
   },
   warning: {
-    background: '#fffbeb',
-    border: '#fcd34d',
-    text: '#92400e',
+    background: 'rgba(120, 53, 15, 0.34)',
+    border: 'rgba(251, 191, 36, 0.28)',
+    text: '#fcd34d',
   },
   danger: {
-    background: '#fef2f2',
-    border: '#fecaca',
-    text: '#b91c1c',
+    background: 'rgba(127, 29, 29, 0.34)',
+    border: 'rgba(248, 113, 113, 0.28)',
+    text: '#fca5a5',
   },
   info: {
-    background: '#eff6ff',
-    border: '#bfdbfe',
-    text: '#1e40af',
+    background: 'rgba(30, 64, 175, 0.28)',
+    border: 'rgba(96, 165, 250, 0.28)',
+    text: '#93c5fd',
   },
 };
 
@@ -262,7 +262,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.7,
     fontWeight: '800',
-    color: theme.color.info,
+    color: '#67e8f9',
   },
   sectionTitle: {
     ...theme.typography.headingMd,
@@ -284,8 +284,8 @@ const styles = StyleSheet.create({
     minWidth: 130,
     borderWidth: 1,
     borderRadius: theme.radius.lg,
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: theme.spacing.sm,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.md,
     gap: theme.spacing.xxs,
   },
   statLabel: {
@@ -295,7 +295,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   statValue: {
-    ...theme.typography.bodyMd,
+    ...theme.typography.headingSm,
     fontWeight: '800',
     color: theme.color.textPrimary,
   },
@@ -325,9 +325,9 @@ const styles = StyleSheet.create({
   },
   metricRows: {
     borderWidth: 1,
-    borderColor: theme.color.border,
+    borderColor: 'rgba(148, 163, 184, 0.14)',
     borderRadius: theme.radius.lg,
-    backgroundColor: theme.color.surface,
+    backgroundColor: 'rgba(8, 15, 30, 0.76)',
     overflow: 'hidden',
   },
   metricRow: {
@@ -335,7 +335,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.xs,
     borderBottomWidth: 1,
-    borderBottomColor: theme.color.border,
+    borderBottomColor: 'rgba(148, 163, 184, 0.12)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -375,26 +375,26 @@ const styles = StyleSheet.create({
   },
   opportunityCallout: {
     borderWidth: 1,
-    borderColor: '#86efac',
+    borderColor: 'rgba(74, 222, 128, 0.3)',
     borderRadius: theme.radius.lg,
-    backgroundColor: '#f0fdf4',
+    backgroundColor: 'rgba(20, 83, 45, 0.34)',
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
     gap: theme.spacing.xxs,
   },
   opportunityTitle: {
     ...theme.typography.label,
-    color: '#166534',
+    color: '#86efac',
     fontWeight: '800',
   },
   opportunityText: {
     ...theme.typography.bodySm,
-    color: '#14532d',
+    color: '#dcfce7',
     fontWeight: '600',
   },
   stickySummary: {
     ...theme.typography.bodySm,
-    color: theme.color.textSecondary,
+    color: '#a8b6c9',
   },
   stickyButtonRow: {
     flexDirection: 'row',

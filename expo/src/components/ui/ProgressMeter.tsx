@@ -62,12 +62,12 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: theme.radius.pill,
     overflow: 'hidden',
-    backgroundColor: '#e2e8f0',
+    backgroundColor: 'rgba(148, 163, 184, 0.18)',
   },
   fill: {
     height: 8,
     borderRadius: theme.radius.pill,
-    backgroundColor: theme.color.accent,
+    backgroundColor: '#22d3ee',
   },
   meta: {
     color: theme.color.textSecondary,

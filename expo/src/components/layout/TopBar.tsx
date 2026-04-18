@@ -26,8 +26,8 @@ export default function TopBar({
 const styles = StyleSheet.create({
   container: {
     borderBottomWidth: 1,
-    borderBottomColor: theme.color.border,
-    backgroundColor: theme.color.surface,
+    borderBottomColor: 'rgba(148, 163, 184, 0.12)',
+    backgroundColor: '#091321',
     paddingHorizontal: theme.spacing.lg,
     paddingVertical: theme.spacing.sm,
     flexDirection: 'row',
@@ -41,11 +41,11 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   title: {
-    color: theme.color.textPrimary,
+    color: '#f8fafc',
     ...theme.typography.headingMd,
   },
   subtitle: {
-    color: theme.color.textSecondary,
+    color: '#94a3b8',
     ...theme.typography.bodySm,
   },
   right: {

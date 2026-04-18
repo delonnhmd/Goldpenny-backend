@@ -82,9 +82,9 @@ const styles = StyleSheet.create({
   },
   column: {
     borderWidth: 1,
-    borderColor: theme.color.border,
+    borderColor: 'rgba(148, 163, 184, 0.14)',
     borderRadius: theme.radius.lg,
-    backgroundColor: theme.color.surfaceAlt,
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.sm,
     gap: theme.spacing.xxs,
@@ -96,14 +96,13 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   winnerTitle: {
-    color: '#166534',
+    color: '#86efac',
   },
   loserTitle: {
-    color: '#b91c1c',
+    color: '#fca5a5',
   },
   itemText: {
     ...theme.typography.bodySm,
     color: theme.color.textSecondary,
   },
 });
-

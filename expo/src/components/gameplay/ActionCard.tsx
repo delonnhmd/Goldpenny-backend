@@ -80,15 +80,15 @@ export default function ActionCard({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: '#dbe4ef',
+    borderColor: 'rgba(148, 163, 184, 0.14)',
     borderRadius: theme.radius.xl,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#0c1729',
     padding: theme.spacing.md,
     gap: theme.spacing.sm,
   },
   cardRecommended: {
-    borderColor: '#bfdbfe',
-    backgroundColor: '#f8fbff',
+    borderColor: 'rgba(34, 211, 238, 0.28)',
+    backgroundColor: 'rgba(8, 47, 73, 0.34)',
   },
   topRow: {
     flexDirection: 'row',
@@ -125,7 +125,7 @@ const styles = StyleSheet.create({
     ...theme.typography.bodySm,
   },
   blocker: {
-    color: '#b91c1c',
+    color: '#fca5a5',
     ...theme.typography.bodySm,
     fontWeight: '700',
   },
@@ -136,7 +136,7 @@ const styles = StyleSheet.create({
   },
   metaChip: {
     borderRadius: theme.radius.md,
-    backgroundColor: '#f8fafc',
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.xs,
     gap: 2,
@@ -154,15 +154,15 @@ const styles = StyleSheet.create({
   },
   calloutBox: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: 'rgba(251, 191, 36, 0.18)',
     borderRadius: theme.radius.lg,
-    backgroundColor: '#f8fafc',
+    backgroundColor: 'rgba(120, 53, 15, 0.2)',
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.sm,
     gap: theme.spacing.xxs,
   },
   calloutLabel: {
-    color: '#92400e',
+    color: '#fcd34d',
     ...theme.typography.caption,
     textTransform: 'uppercase',
     fontWeight: '800',
@@ -176,7 +176,9 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     minHeight: 46,
     borderRadius: theme.radius.lg,
-    backgroundColor: '#1d4ed8',
+    backgroundColor: '#0f3c52',
+    borderWidth: 1,
+    borderColor: '#22d3ee',
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
     justifyContent: 'center',

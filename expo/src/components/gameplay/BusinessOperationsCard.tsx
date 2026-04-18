@@ -180,9 +180,9 @@ export default function BusinessOperationsCard({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: '#dbe4ef',
+    borderColor: 'rgba(148, 163, 184, 0.14)',
     borderRadius: theme.radius.xl,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#0c1729',
     padding: theme.spacing.lg,
     gap: theme.spacing.md,
   },
@@ -210,7 +210,7 @@ const styles = StyleSheet.create({
   },
   modeBadge: {
     borderRadius: theme.radius.pill,
-    backgroundColor: '#f8fafc',
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.xs,
   },
@@ -228,7 +228,7 @@ const styles = StyleSheet.create({
   },
   signalChip: {
     borderRadius: theme.radius.pill,
-    backgroundColor: '#f8fafc',
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.xs,
   },
@@ -239,14 +239,14 @@ const styles = StyleSheet.create({
   },
   outcomeBox: {
     borderWidth: 1,
-    borderColor: '#bfdbfe',
+    borderColor: 'rgba(34, 211, 238, 0.24)',
     borderRadius: theme.radius.xl,
-    backgroundColor: '#f8fbff',
+    backgroundColor: 'rgba(8, 47, 73, 0.3)',
     padding: theme.spacing.md,
     gap: theme.spacing.xs,
   },
   outcomeLabel: {
-    color: '#1d4ed8',
+    color: '#67e8f9',
     ...theme.typography.caption,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
@@ -275,9 +275,9 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 108,
     borderWidth: 1,
-    borderColor: '#dbe4ef',
+    borderColor: 'rgba(148, 163, 184, 0.14)',
     borderRadius: theme.radius.lg,
-    backgroundColor: '#ffffff',
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.sm,
     gap: theme.spacing.xxs,
@@ -312,7 +312,7 @@ const styles = StyleSheet.create({
   },
   calloutBox: {
     borderRadius: theme.radius.lg,
-    backgroundColor: '#f8fafc',
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.sm,
     gap: theme.spacing.xxs,
@@ -324,11 +324,11 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   riskText: {
-    color: '#b91c1c',
+    color: '#fca5a5',
     ...theme.typography.bodySm,
   },
   oppText: {
-    color: '#166534',
+    color: '#86efac',
     ...theme.typography.bodySm,
   },
   inventoryRow: {
@@ -341,17 +341,17 @@ const styles = StyleSheet.create({
     ...theme.typography.caption,
     fontWeight: '700',
     borderRadius: theme.radius.pill,
-    backgroundColor: '#f8fafc',
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.xs,
   },
   inventoryWarning: {
-    color: '#b45309',
+    color: '#fcd34d',
     ...theme.typography.bodySm,
     fontWeight: '600',
   },
   blockerText: {
-    color: '#b45309',
+    color: '#fcd34d',
     ...theme.typography.bodySm,
     fontWeight: '600',
   },

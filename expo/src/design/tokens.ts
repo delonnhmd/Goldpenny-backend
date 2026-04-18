@@ -1,16 +1,16 @@
 export const colorTokens = {
-  background: '#f1f5f9',
-  surface: '#ffffff',
-  surfaceAlt: '#f8fafc',
-  textPrimary: '#0f172a',
-  textSecondary: '#475569',
-  border: '#cbd5e1',
-  positive: '#16a34a',
-  warning: '#ca8a04',
-  danger: '#dc2626',
-  info: '#2563eb',
-  accent: '#1d4ed8',
-  muted: '#94a3b8',
+  background: '#07101d',
+  surface: '#0c1729',
+  surfaceAlt: '#122033',
+  textPrimary: '#f8fafc',
+  textSecondary: '#a8b6c9',
+  border: '#243348',
+  positive: '#4ade80',
+  warning: '#fbbf24',
+  danger: '#f87171',
+  info: '#60a5fa',
+  accent: '#22d3ee',
+  muted: '#7f8ea3',
 } as const;
 
 export const spacing = {
@@ -26,9 +26,9 @@ export const spacing = {
 
 export const radius = {
   sm: 6,
-  md: 10,
-  lg: 12,
-  xl: 16,
+  md: 12,
+  lg: 16,
+  xl: 22,
   pill: 999,
 } as const;
 
@@ -42,31 +42,31 @@ export const shadow = {
   },
   sm: {
     shadowColor: '#020617',
-    shadowOpacity: 0.06,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
   },
   md: {
     shadowColor: '#020617',
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
+    shadowOpacity: 0.24,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 6,
   },
   lg: {
     shadowColor: '#020617',
-    shadowOpacity: 0.14,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 5,
+    shadowOpacity: 0.34,
+    shadowRadius: 22,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 10,
   },
 } as const;
 
 export const typography = {
   display: { fontSize: 28, lineHeight: 34, fontWeight: '800' },
   headingLg: { fontSize: 22, lineHeight: 28, fontWeight: '800' },
-  headingMd: { fontSize: 18, lineHeight: 24, fontWeight: '700' },
+  headingMd: { fontSize: 18, lineHeight: 24, fontWeight: '800' },
   headingSm: { fontSize: 16, lineHeight: 22, fontWeight: '700' },
   bodyLg: { fontSize: 16, lineHeight: 24, fontWeight: '400' },
   bodyMd: { fontSize: 14, lineHeight: 20, fontWeight: '400' },

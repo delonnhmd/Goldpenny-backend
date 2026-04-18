@@ -41,36 +41,36 @@ export default function BottomNav({
 const styles = StyleSheet.create({
   wrap: {
     borderTopWidth: 1,
-    borderTopColor: theme.color.border,
-    backgroundColor: theme.color.surface,
+    borderTopColor: '#1f2937',
+    backgroundColor: '#111827',
     flexDirection: 'row',
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: theme.spacing.xxs,
+    paddingHorizontal: 6,
+    paddingTop: 6,
+    paddingBottom: 8,
     gap: theme.spacing.xs,
   },
   item: {
     flex: 1,
-    minHeight: 36,
-    borderRadius: theme.radius.md,
+    minHeight: 42,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: theme.color.surface,
+    backgroundColor: 'transparent',
     borderWidth: 1,
     borderColor: 'transparent',
   },
   itemActive: {
-    borderColor: '#bfdbfe',
-    backgroundColor: '#eff6ff',
+    backgroundColor: 'rgba(59, 130, 246, 0.18)',
   },
   itemPressed: {
-    opacity: 0.8,
+    opacity: 0.74,
   },
   label: {
-    color: theme.color.textSecondary,
+    color: '#94a3b8',
     ...theme.typography.label,
     textAlign: 'center',
   },
   labelActive: {
-    color: theme.color.info,
+    color: '#60a5fa',
   },
 });

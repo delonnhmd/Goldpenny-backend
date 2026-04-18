@@ -166,7 +166,6 @@ export default function MapDashboardScreen() {
   const loop = useGameplayLoop();
   const onboarding = useOnboarding();
 
-  const [zoomLevel, setZoomLevel] = useState(1);
   const [selectedTileKey, setSelectedTileKey] = useState<string | null>(null);
   const [openingBusinessType, setOpeningBusinessType] = useState<string | null>(null);
   const [shiftFocusKey, setShiftFocusKey] = useState<(typeof SHIFT_FOCUS_OPTIONS)[number]['key']>('quality');
@@ -880,79 +879,15 @@ export default function MapDashboardScreen() {
           dayNumber={dayNumber}
         />
 
-        <View style={styles.headerStrip}>
-          <View style={styles.headerCard}>
-            <Text style={styles.headerEyebrow}>Houston Sandbox</Text>
-            <Text style={styles.headerTitle}>Map-first economy layer</Text>
-            <Text style={styles.headerBody}>
-              Core work, food, rideshare, leisure, and business actions now live on the map itself.
-            </Text>
-          </View>
-          <View style={styles.metricRail}>
-            <View style={styles.metricChip}>
-              <Text style={styles.metricLabel}>Current</Text>
-              <Text style={styles.metricValue}>{currentLocationLabel}</Text>
-            </View>
-            <View style={styles.metricChip}>
-              <Text style={styles.metricLabel}>Selected</Text>
-              <Text style={styles.metricValue}>
-                {selectedTile ? `${selectedTile.x},${selectedTile.y}` : '--'}
-              </Text>
-            </View>
-            <View style={styles.metricChip}>
-              <Text style={styles.metricLabel}>Zoom</Text>
-              <Text style={styles.metricValue}>{Math.round(zoomLevel * 100)}%</Text>
-            </View>
-          </View>
-        </View>
-
         <View style={styles.mapStage}>
           <View style={styles.mapArea}>
             <GameMap
               map={sandboxMap}
               selectedTileKey={selectedTileKey}
               onTileSelect={handleTileSelect}
-              onZoomChange={setZoomLevel}
               ownedTileKeys={ownedTileKeys}
               developedTileKeys={developedTileKeys}
             />
-
-            <View pointerEvents="none" style={styles.mapInfoDock}>
-              <View style={styles.mapHeroCard}>
-                <Text style={styles.mapHeroEyebrow}>Houston Sandbox</Text>
-                <Text style={styles.mapHeroTitle}>{currentLocationLabel}</Text>
-                <Text style={styles.mapHeroBody}>
-                  {detailSheetOpen
-                    ? 'Slot detail is open. Close it to return to full map browsing.'
-                    : 'Tap any slot to inspect land, service buildings, work nodes, meals, or business frontage.'}
-                </Text>
-              </View>
-              <View style={styles.mapMetricRail}>
-                <View style={styles.mapMetricChip}>
-                  <Text style={styles.mapMetricLabel}>Current</Text>
-                  <Text style={styles.mapMetricValue}>{currentLocationLabel}</Text>
-                </View>
-                <View style={styles.mapMetricChip}>
-                  <Text style={styles.mapMetricLabel}>Selected</Text>
-                  <Text style={styles.mapMetricValue}>
-                    {selectedTile ? `${selectedTile.x},${selectedTile.y}` : 'Browse'}
-                  </Text>
-                </View>
-                <View style={styles.mapMetricChip}>
-                  <Text style={styles.mapMetricLabel}>Zoom</Text>
-                  <Text style={styles.mapMetricValue}>{Math.round(zoomLevel * 100)}%</Text>
-                </View>
-              </View>
-            </View>
-
-            {!detailSheetOpen ? (
-              <View pointerEvents="none" style={styles.mapBrowseHint}>
-                <Text style={styles.mapBrowseHintTitle}>Browse Mode</Text>
-                <Text style={styles.mapBrowseHintBody}>
-                  Pan the city, zoom for frontage detail, then tap a slot to open its detail sheet.
-                </Text>
-              </View>
-            ) : null}
 
             <MapDetailSheet
               visible={detailSheetOpen}
@@ -1252,153 +1187,15 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0f172a',
   },
-  headerStrip: {
-    paddingHorizontal: 12,
-    paddingTop: 6,
-    paddingBottom: 4,
-    gap: 8,
-  },
-  headerCard: {
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: '#0b1220',
-    borderWidth: 1,
-    borderColor: '#172033',
-  },
-  headerEyebrow: {
-    ...theme.typography.caption,
-    color: '#67e8f9',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-  },
-  headerTitle: {
-    marginTop: 2,
-    ...theme.typography.bodyMd,
-    color: '#f8fafc',
-    fontWeight: '800',
-  },
-  headerBody: {
-    marginTop: 2,
-    ...theme.typography.caption,
-    color: '#94a3b8',
-  },
-  metricRail: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  metricChip: {
-    flex: 1,
-    borderRadius: 14,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    backgroundColor: '#0b1220',
-    borderWidth: 1,
-    borderColor: '#172033',
-  },
-  metricLabel: {
-    ...theme.typography.caption,
-    color: '#94a3b8',
-    textTransform: 'uppercase',
-    letterSpacing: 0.7,
-  },
-  metricValue: {
-    marginTop: 3,
-    ...theme.typography.bodySm,
-    color: '#f8fafc',
-    fontWeight: '700',
-  },
   mapStage: {
     flex: 1,
   },
   mapArea: {
     flex: 1,
-    marginHorizontal: 12,
-    marginTop: 8,
-    marginBottom: 10,
+    marginTop: 4,
+    marginBottom: 0,
     position: 'relative',
     overflow: 'hidden',
-  },
-  mapInfoDock: {
-    position: 'absolute',
-    left: 14,
-    right: 84,
-    top: 86,
-    gap: 10,
-  },
-  mapHeroCard: {
-    alignSelf: 'flex-start',
-    maxWidth: 280,
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    backgroundColor: 'rgba(7, 13, 26, 0.86)',
-    borderWidth: 1,
-    borderColor: 'rgba(103, 232, 249, 0.14)',
-  },
-  mapHeroEyebrow: {
-    ...theme.typography.caption,
-    color: '#67e8f9',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-  },
-  mapHeroTitle: {
-    marginTop: 3,
-    ...theme.typography.headingSm,
-    color: '#f8fafc',
-  },
-  mapHeroBody: {
-    marginTop: 4,
-    ...theme.typography.bodySm,
-    color: '#cbd5e1',
-  },
-  mapMetricRail: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  mapMetricChip: {
-    flex: 1,
-    borderRadius: 16,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
-    backgroundColor: 'rgba(7, 13, 26, 0.82)',
-    borderWidth: 1,
-    borderColor: 'rgba(148, 163, 184, 0.14)',
-  },
-  mapMetricLabel: {
-    ...theme.typography.caption,
-    color: '#94a3b8',
-    textTransform: 'uppercase',
-    letterSpacing: 0.7,
-  },
-  mapMetricValue: {
-    marginTop: 3,
-    ...theme.typography.bodySm,
-    color: '#f8fafc',
-    fontWeight: '700',
-  },
-  mapBrowseHint: {
-    position: 'absolute',
-    left: 14,
-    right: 14,
-    bottom: 14,
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    backgroundColor: 'rgba(7, 13, 26, 0.9)',
-    borderWidth: 1,
-    borderColor: 'rgba(148, 163, 184, 0.14)',
-  },
-  mapBrowseHintTitle: {
-    ...theme.typography.caption,
-    color: '#67e8f9',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-  },
-  mapBrowseHintBody: {
-    marginTop: 4,
-    ...theme.typography.bodySm,
-    color: '#cbd5e1',
   },
   selectionPanel: {
     gap: 12,

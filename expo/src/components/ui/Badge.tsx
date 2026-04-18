@@ -6,12 +6,12 @@ import { theme } from '@/design/theme';
 export type BadgeTone = 'info' | 'success' | 'warning' | 'danger' | 'locked' | 'neutral';
 
 const toneStyles = StyleSheet.create({
-  info: { borderColor: '#bfdbfe', backgroundColor: '#eff6ff', color: '#1d4ed8' },
-  success: { borderColor: '#bbf7d0', backgroundColor: '#f0fdf4', color: '#15803d' },
-  warning: { borderColor: '#fde68a', backgroundColor: '#fffbeb', color: '#a16207' },
-  danger: { borderColor: '#fecaca', backgroundColor: '#fef2f2', color: '#b91c1c' },
-  locked: { borderColor: '#e2e8f0', backgroundColor: '#f8fafc', color: '#475569' },
-  neutral: { borderColor: '#cbd5e1', backgroundColor: '#f8fafc', color: '#334155' },
+  info: { borderColor: 'rgba(96, 165, 250, 0.34)', backgroundColor: 'rgba(30, 64, 175, 0.2)', color: '#93c5fd' },
+  success: { borderColor: 'rgba(74, 222, 128, 0.34)', backgroundColor: 'rgba(20, 83, 45, 0.32)', color: '#86efac' },
+  warning: { borderColor: 'rgba(251, 191, 36, 0.34)', backgroundColor: 'rgba(120, 53, 15, 0.28)', color: '#fcd34d' },
+  danger: { borderColor: 'rgba(248, 113, 113, 0.34)', backgroundColor: 'rgba(127, 29, 29, 0.3)', color: '#fca5a5' },
+  locked: { borderColor: 'rgba(148, 163, 184, 0.18)', backgroundColor: 'rgba(15, 23, 42, 0.9)', color: '#94a3b8' },
+  neutral: { borderColor: 'rgba(148, 163, 184, 0.18)', backgroundColor: 'rgba(15, 23, 42, 0.9)', color: '#cbd5e1' },
 });
 
 export default function Badge({

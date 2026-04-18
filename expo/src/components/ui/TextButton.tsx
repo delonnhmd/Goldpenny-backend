@@ -37,12 +37,12 @@ const styles = StyleSheet.create({
     opacity: 0.45,
   },
   pressed: {
-    backgroundColor: '#eff6ff',
+    backgroundColor: 'rgba(30, 41, 59, 0.92)',
     transform: [{ scale: 0.97 }],
     opacity: 0.9,
   },
   text: {
-    color: theme.color.info,
+    color: '#7dd3fc',
     ...theme.typography.label,
   },
 });

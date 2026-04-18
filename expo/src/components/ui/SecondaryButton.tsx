@@ -30,7 +30,7 @@ export default function SecondaryButton({
         pressed && !blocked ? styles.pressed : null,
       ]}
     >
-      {loading ? <ActivityIndicator size="small" color={theme.color.textPrimary} /> : null}
+      {loading ? <ActivityIndicator size="small" color="#cbd5e1" /> : null}
       <Text style={styles.text}>{label}</Text>
     </Pressable>
   );
@@ -40,9 +40,9 @@ const styles = StyleSheet.create({
   button: {
     minHeight: 48,
     borderWidth: 1,
-    borderColor: '#d5deea',
+    borderColor: 'rgba(148, 163, 184, 0.24)',
     borderRadius: theme.radius.lg,
-    backgroundColor: '#ffffff',
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: theme.spacing.lg,
@@ -54,12 +54,12 @@ const styles = StyleSheet.create({
     opacity: 0.78,
   },
   pressed: {
-    backgroundColor: '#f8fafc',
+    backgroundColor: 'rgba(30, 41, 59, 0.95)',
     transform: [{ scale: 0.96 }],
     opacity: 0.9,
   },
   text: {
-    color: theme.color.textPrimary,
+    color: '#e2e8f0',
     ...theme.typography.label,
     fontWeight: '700',
     textAlign: 'center',

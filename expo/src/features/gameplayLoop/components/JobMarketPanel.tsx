@@ -287,8 +287,8 @@ export default function JobMarketPanel({
 const styles = StyleSheet.create({
   progressCard: {
     borderWidth: 1,
-    borderColor: '#bfdbfe',
-    backgroundColor: '#eff6ff',
+    borderColor: 'rgba(34, 211, 238, 0.24)',
+    backgroundColor: 'rgba(8, 47, 73, 0.3)',
     borderRadius: theme.radius.lg,
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.sm,
@@ -296,36 +296,36 @@ const styles = StyleSheet.create({
   },
   progressTitle: {
     ...theme.typography.bodyMd,
-    color: '#1e3a8a',
+    color: '#e0f2fe',
     fontWeight: '800',
   },
   progressSubtitle: {
     ...theme.typography.bodySm,
-    color: '#1e40af',
+    color: '#93c5fd',
     fontWeight: '700',
   },
   progressMeta: {
     ...theme.typography.caption,
-    color: '#1e40af',
+    color: '#93c5fd',
   },
   progressMetaStrong: {
     ...theme.typography.bodySm,
-    color: '#1e3a8a',
+    color: '#e0f2fe',
     fontWeight: '700',
   },
   progressHint: {
     ...theme.typography.caption,
-    color: '#1e40af',
+    color: '#93c5fd',
   },
   progressTrack: {
     height: 7,
     borderRadius: theme.radius.pill,
-    backgroundColor: '#dbeafe',
+    backgroundColor: 'rgba(148, 163, 184, 0.18)',
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#2563eb',
+    backgroundColor: '#22d3ee',
     borderRadius: theme.radius.pill,
   },
   careerListWrap: {
@@ -364,7 +364,7 @@ const styles = StyleSheet.create({
   },
   careerTrackRequirement: {
     ...theme.typography.caption,
-    color: '#92400e',
+    color: '#fcd34d',
     fontWeight: '700',
   },
   careerTrackMeta: {
@@ -378,12 +378,12 @@ const styles = StyleSheet.create({
   trackRowProgress: {
     height: 6,
     borderRadius: theme.radius.pill,
-    backgroundColor: '#e5e7eb',
+    backgroundColor: 'rgba(148, 163, 184, 0.18)',
     overflow: 'hidden',
   },
   trackRowProgressFill: {
     height: '100%',
-    backgroundColor: '#2563eb',
+    backgroundColor: '#22d3ee',
     borderRadius: theme.radius.pill,
   },
   list: {
@@ -399,8 +399,8 @@ const styles = StyleSheet.create({
     gap: theme.spacing.xxs,
   },
   jobCardCurrent: {
-    borderColor: '#86efac',
-    backgroundColor: '#f0fdf4',
+    borderColor: 'rgba(74, 222, 128, 0.28)',
+    backgroundColor: 'rgba(20, 83, 45, 0.3)',
   },
   jobHeader: {
     flexDirection: 'row',
@@ -426,7 +426,7 @@ const styles = StyleSheet.create({
   },
   lockedHint: {
     ...theme.typography.caption,
-    color: '#92400e',
+    color: '#fcd34d',
     fontWeight: '700',
   },
   trainingWrap: {
@@ -447,12 +447,12 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 8,
     borderRadius: theme.radius.pill,
-    backgroundColor: '#dbeafe',
+    backgroundColor: 'rgba(148, 163, 184, 0.18)',
     overflow: 'hidden',
   },
   trainingFill: {
     height: '100%',
-    backgroundColor: '#2563eb',
+    backgroundColor: '#22d3ee',
     borderRadius: theme.radius.pill,
   },
   trainingPct: {

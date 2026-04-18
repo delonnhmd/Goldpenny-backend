@@ -8,24 +8,24 @@ export type SurfaceCardVariant = 'default' | 'highlighted' | 'warning' | 'muted'
 function variantStyle(variant: SurfaceCardVariant): ViewStyle {
   if (variant === 'highlighted') {
     return {
-      borderColor: '#c7d2fe',
-      backgroundColor: '#f8faff',
+      borderColor: 'rgba(34, 211, 238, 0.3)',
+      backgroundColor: 'rgba(8, 47, 73, 0.35)',
     };
   }
   if (variant === 'warning') {
     return {
-      borderColor: '#fcd34d',
-      backgroundColor: '#fffbeb',
+      borderColor: 'rgba(251, 191, 36, 0.34)',
+      backgroundColor: 'rgba(69, 39, 3, 0.5)',
     };
   }
   if (variant === 'muted') {
     return {
-      borderColor: '#dbe4ef',
-      backgroundColor: '#f8fafc',
+      borderColor: 'rgba(148, 163, 184, 0.16)',
+      backgroundColor: 'rgba(9, 17, 31, 0.92)',
     };
   }
   return {
-    borderColor: theme.color.border,
+    borderColor: 'rgba(148, 163, 184, 0.14)',
     backgroundColor: theme.color.surface,
   };
 }
@@ -59,7 +59,7 @@ const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
     borderRadius: theme.radius.xl,
-    ...theme.shadow.sm,
+    ...theme.shadow.md,
   },
   padded: {
     padding: theme.spacing.lg,
