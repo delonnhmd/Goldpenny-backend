@@ -1,32 +1,32 @@
 import React from 'react';
 import { StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
 
-import { theme } from '@/design/theme';
+import { alpha, theme } from '@/design/theme';
 
 export type SurfaceCardVariant = 'default' | 'highlighted' | 'warning' | 'muted';
 
 function variantStyle(variant: SurfaceCardVariant): ViewStyle {
   if (variant === 'highlighted') {
     return {
-      borderColor: 'rgba(34, 211, 238, 0.3)',
-      backgroundColor: 'rgba(8, 47, 73, 0.35)',
+      borderColor: alpha(theme.gameUi.primary, 0.26),
+      backgroundColor: alpha(theme.gameUi.primary, 0.08),
     };
   }
   if (variant === 'warning') {
     return {
-      borderColor: 'rgba(251, 191, 36, 0.34)',
-      backgroundColor: 'rgba(69, 39, 3, 0.5)',
+      borderColor: alpha(theme.gameUi.warning, 0.34),
+      backgroundColor: alpha(theme.gameUi.warning, 0.1),
     };
   }
   if (variant === 'muted') {
     return {
-      borderColor: 'rgba(148, 163, 184, 0.16)',
-      backgroundColor: 'rgba(9, 17, 31, 0.92)',
+      borderColor: alpha(theme.gameUi.cardBorder, 0.92),
+      backgroundColor: '#F9FAFB',
     };
   }
   return {
-    borderColor: 'rgba(148, 163, 184, 0.14)',
-    backgroundColor: theme.color.surface,
+    borderColor: alpha(theme.gameUi.cardBorder, 0.92),
+    backgroundColor: theme.gameUi.card,
   };
 }
 

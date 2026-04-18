@@ -5,7 +5,7 @@ import BottomActionBar from '@/components/layout/BottomActionBar';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import SecondaryButton from '@/components/ui/SecondaryButton';
 import SurfaceCard from '@/components/ui/SurfaceCard';
-import { theme } from '@/design/theme';
+import { alpha, theme } from '@/design/theme';
 
 export type GameplayTone = 'neutral' | 'positive' | 'warning' | 'danger' | 'info';
 
@@ -17,29 +17,29 @@ interface TonePalette {
 
 const tonePalette: Record<GameplayTone, TonePalette> = {
   neutral: {
-    background: theme.color.surfaceAlt,
-    border: 'rgba(148, 163, 184, 0.16)',
-    text: theme.color.textPrimary,
+    background: '#F9FAFB',
+    border: theme.gameUi.cardBorder,
+    text: theme.gameUi.textPrimary,
   },
   positive: {
-    background: 'rgba(20, 83, 45, 0.38)',
-    border: 'rgba(74, 222, 128, 0.28)',
-    text: '#86efac',
+    background: alpha(theme.gameUi.success, 0.1),
+    border: alpha(theme.gameUi.success, 0.28),
+    text: theme.gameUi.success,
   },
   warning: {
-    background: 'rgba(120, 53, 15, 0.34)',
-    border: 'rgba(251, 191, 36, 0.28)',
-    text: '#fcd34d',
+    background: alpha(theme.gameUi.warning, 0.1),
+    border: alpha(theme.gameUi.warning, 0.28),
+    text: theme.gameUi.warning,
   },
   danger: {
-    background: 'rgba(127, 29, 29, 0.34)',
-    border: 'rgba(248, 113, 113, 0.28)',
-    text: '#fca5a5',
+    background: alpha(theme.gameUi.danger, 0.1),
+    border: alpha(theme.gameUi.danger, 0.28),
+    text: theme.gameUi.danger,
   },
   info: {
-    background: 'rgba(30, 64, 175, 0.28)',
-    border: 'rgba(96, 165, 250, 0.28)',
-    text: '#93c5fd',
+    background: alpha(theme.gameUi.primary, 0.1),
+    border: alpha(theme.gameUi.primary, 0.28),
+    text: theme.gameUi.primary,
   },
 };
 
@@ -139,7 +139,7 @@ export function GameplayTrendChip({
 export function GameplayCompactMetricRows({
   items,
 }: {
-  items: Array<{ label: string; value: string; tone?: GameplayTone; valueNode?: React.ReactNode }>;
+  items: { label: string; value: string; tone?: GameplayTone; valueNode?: React.ReactNode }[];
 }) {
   return (
     <View style={styles.metricRows}>
@@ -262,16 +262,16 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.7,
     fontWeight: '800',
-    color: '#67e8f9',
+    color: theme.gameUi.primary,
   },
   sectionTitle: {
     ...theme.typography.headingMd,
-    color: theme.color.textPrimary,
+    color: theme.gameUi.textPrimary,
     fontWeight: '800',
   },
   sectionSubtitle: {
     ...theme.typography.bodySm,
-    color: theme.color.textSecondary,
+    color: theme.gameUi.textSecondary,
   },
   summaryCard: {
     gap: theme.spacing.md,
@@ -290,18 +290,18 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     ...theme.typography.caption,
-    color: theme.color.textSecondary,
+    color: theme.gameUi.textSecondary,
     textTransform: 'uppercase',
     fontWeight: '800',
   },
   statValue: {
     ...theme.typography.headingSm,
     fontWeight: '800',
-    color: theme.color.textPrimary,
+    color: theme.gameUi.textPrimary,
   },
   statNote: {
     ...theme.typography.caption,
-    color: theme.color.textSecondary,
+    color: theme.gameUi.textSecondary,
     lineHeight: 15,
   },
   trendChip: {
@@ -314,20 +314,20 @@ const styles = StyleSheet.create({
   },
   trendLabel: {
     ...theme.typography.caption,
-    color: theme.color.textSecondary,
+    color: theme.gameUi.textSecondary,
     textTransform: 'uppercase',
     fontWeight: '700',
   },
   trendValue: {
     ...theme.typography.bodySm,
-    color: theme.color.textPrimary,
+    color: theme.gameUi.textPrimary,
     fontWeight: '700',
   },
   metricRows: {
     borderWidth: 1,
-    borderColor: 'rgba(148, 163, 184, 0.14)',
+    borderColor: theme.gameUi.cardBorder,
     borderRadius: theme.radius.lg,
-    backgroundColor: 'rgba(8, 15, 30, 0.76)',
+    backgroundColor: '#F9FAFB',
     overflow: 'hidden',
   },
   metricRow: {
@@ -335,7 +335,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.xs,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(148, 163, 184, 0.12)',
+    borderBottomColor: theme.gameUi.cardBorder,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -343,12 +343,12 @@ const styles = StyleSheet.create({
   },
   metricLabel: {
     ...theme.typography.bodySm,
-    color: theme.color.textSecondary,
+    color: theme.gameUi.textSecondary,
     flex: 1,
   },
   metricValue: {
     ...theme.typography.bodySm,
-    color: theme.color.textPrimary,
+    color: theme.gameUi.textPrimary,
     fontWeight: '700',
     maxWidth: '60%',
     textAlign: 'right',
@@ -375,26 +375,26 @@ const styles = StyleSheet.create({
   },
   opportunityCallout: {
     borderWidth: 1,
-    borderColor: 'rgba(74, 222, 128, 0.3)',
+    borderColor: alpha(theme.gameUi.success, 0.3),
     borderRadius: theme.radius.lg,
-    backgroundColor: 'rgba(20, 83, 45, 0.34)',
+    backgroundColor: alpha(theme.gameUi.success, 0.1),
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
     gap: theme.spacing.xxs,
   },
   opportunityTitle: {
     ...theme.typography.label,
-    color: '#86efac',
+    color: theme.gameUi.success,
     fontWeight: '800',
   },
   opportunityText: {
     ...theme.typography.bodySm,
-    color: '#dcfce7',
+    color: theme.gameUi.textPrimary,
     fontWeight: '600',
   },
   stickySummary: {
     ...theme.typography.bodySm,
-    color: '#a8b6c9',
+    color: theme.gameUi.textSecondary,
   },
   stickyButtonRow: {
     flexDirection: 'row',

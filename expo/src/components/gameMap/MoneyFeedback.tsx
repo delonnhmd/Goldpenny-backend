@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
 
+import { theme } from '@/design/theme';
 import { formatMoney } from '@/lib/gameplayFormatters';
 
 export interface MoneyFeedbackItem {
@@ -112,9 +113,9 @@ const styles = StyleSheet.create({
     textShadowRadius: 3,
   },
   textGain: {
-    color: '#22C55E',
+    color: theme.gameUi.success,
   },
   textLoss: {
-    color: '#EF4444',
+    color: theme.gameUi.danger,
   },
 });

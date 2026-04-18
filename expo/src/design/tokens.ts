@@ -13,6 +13,68 @@ export const colorTokens = {
   muted: '#7f8ea3',
 } as const;
 
+export const gameUiTokens = {
+  primary: '#3A7DFF',
+  success: '#22C55E',
+  danger: '#EF4444',
+  warning: '#F59E0B',
+  background: '#F5F7FA',
+  card: '#FFFFFF',
+  textPrimary: '#111827',
+  textSecondary: '#6B7280',
+  border: '#D7DEE8',
+  cardBorder: '#E5E7EB',
+  secondaryButton: '#E5E7EB',
+  secondaryButtonBorder: '#D1D5DB',
+  hudGlass: 'rgba(255, 255, 255, 0.88)',
+  hudBorder: 'rgba(255, 255, 255, 0.74)',
+  hudShadow: 'rgba(17, 24, 39, 0.12)',
+  mapBackdrop: '#EEF3FA',
+  mapBackdropDeep: '#E1E9F6',
+  mapGrid: '#E5EBF3',
+  road: '#9CA3AF',
+  roadStripe: 'rgba(255, 255, 255, 0.74)',
+  lowActivityOverlay: 'rgba(107, 114, 128, 0.20)',
+  district: {
+    suburban: {
+      base: '#D1FAE5',
+      accent: '#A7F3D0',
+      label: '#0F766E',
+      badgeBackground: 'rgba(255, 255, 255, 0.72)',
+    },
+    downtown: {
+      base: '#1E3A8A',
+      accent: '#1E40AF',
+      highlight: '#3B82F6',
+      label: '#EFF6FF',
+      badgeBackground: 'rgba(15, 23, 42, 0.26)',
+    },
+    commercial: {
+      base: '#FDE68A',
+      accent: '#FBBF24',
+      label: '#92400E',
+      badgeBackground: 'rgba(255, 251, 235, 0.78)',
+    },
+  },
+  signals: {
+    demand: '#FB923C',
+    profit: '#4ADE80',
+    lowActivity: '#6B7280',
+  },
+  icons: {
+    player: '#3A7DFF',
+    ownedBusiness: '#22C55E',
+    neutral: '#6B7280',
+    openSlot: '#FBBF24',
+    hotspot: '#FB923C',
+  },
+  status: {
+    cash: '#22C55E',
+    stress: '#EF4444',
+    health: '#F59E0B',
+  },
+} as const;
+
 export const spacing = {
   xxs: 2,
   xs: 4,

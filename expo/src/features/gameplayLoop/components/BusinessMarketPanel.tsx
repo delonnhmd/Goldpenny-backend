@@ -3,7 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import SecondaryButton from '@/components/ui/SecondaryButton';
-import { theme } from '@/design/theme';
+import { alpha, theme } from '@/design/theme';
 import { formatMoney } from '@/lib/gameplayFormatters';
 import type { ActiveBusinessProfile, BusinessMarketListing } from '@/types/business';
 
@@ -20,9 +20,9 @@ interface BusinessMarketPanelProps {
 }
 
 function scoreTone(score: number): string {
-  if (score >= 78) return '#22c55e';
-  if (score >= 58) return '#f59e0b';
-  return '#f87171';
+  if (score >= 78) return theme.gameUi.success;
+  if (score >= 58) return theme.gameUi.warning;
+  return theme.gameUi.danger;
 }
 
 export default function BusinessMarketPanel({
@@ -176,30 +176,30 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     ...theme.typography.caption,
-    color: '#67e8f9',
+    color: theme.gameUi.primary,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
   sectionBody: {
     ...theme.typography.bodySm,
-    color: '#cbd5e1',
+    color: theme.gameUi.textSecondary,
   },
   activeCard: {
     borderRadius: 18,
     paddingHorizontal: 14,
     paddingVertical: 14,
-    backgroundColor: '#082f49',
+    backgroundColor: alpha(theme.gameUi.primary, 0.08),
     borderWidth: 1,
-    borderColor: '#0ea5e9',
+    borderColor: alpha(theme.gameUi.primary, 0.24),
     gap: 10,
   },
   activeTitle: {
     ...theme.typography.headingSm,
-    color: '#f8fafc',
+    color: theme.gameUi.textPrimary,
   },
   activeSubtitle: {
     ...theme.typography.bodySm,
-    color: '#bae6fd',
+    color: theme.gameUi.textSecondary,
   },
   metricsRow: {
     flexDirection: 'row',
@@ -212,53 +212,53 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingHorizontal: 10,
     paddingVertical: 10,
-    backgroundColor: 'rgba(15, 23, 42, 0.42)',
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: 'rgba(186, 230, 253, 0.2)',
+    borderColor: theme.gameUi.cardBorder,
     gap: 4,
   },
   metricLabel: {
     ...theme.typography.caption,
-    color: '#bae6fd',
+    color: theme.gameUi.textSecondary,
     textTransform: 'uppercase',
   },
   metricValue: {
     ...theme.typography.bodyMd,
-    color: '#f8fafc',
+    color: theme.gameUi.textPrimary,
     fontWeight: '800',
   },
   metricMeta: {
     ...theme.typography.caption,
-    color: '#cbd5e1',
+    color: theme.gameUi.textSecondary,
   },
   toolTitle: {
     ...theme.typography.caption,
-    color: '#bae6fd',
+    color: theme.gameUi.textSecondary,
     textTransform: 'uppercase',
   },
   toolBody: {
     ...theme.typography.bodySm,
-    color: '#e2e8f0',
+    color: theme.gameUi.textPrimary,
   },
   phaseHint: {
     ...theme.typography.bodySm,
-    color: '#fcd34d',
+    color: theme.gameUi.warning,
     fontWeight: '700',
   },
   listingCard: {
     borderRadius: 18,
     paddingHorizontal: 12,
     paddingVertical: 12,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: theme.gameUi.cardBorder,
     gap: 8,
   },
   listingCardSelected: {
-    borderColor: '#38bdf8',
+    borderColor: theme.gameUi.primary,
   },
   listingCardCompared: {
-    borderColor: '#f59e0b',
+    borderColor: theme.gameUi.warning,
   },
   listingHeader: {
     flexDirection: 'row',
@@ -271,16 +271,16 @@ const styles = StyleSheet.create({
   },
   listingTitle: {
     ...theme.typography.bodyMd,
-    color: '#f8fafc',
+    color: theme.gameUi.textPrimary,
     fontWeight: '700',
   },
   listingMeta: {
     ...theme.typography.bodySm,
-    color: '#cbd5e1',
+    color: theme.gameUi.textSecondary,
   },
   listingPrice: {
     ...theme.typography.bodyMd,
-    color: '#fcd34d',
+    color: theme.gameUi.warning,
     fontWeight: '800',
   },
   metricPills: {
@@ -290,19 +290,21 @@ const styles = StyleSheet.create({
   },
   metricPill: {
     ...theme.typography.caption,
-    color: '#cbd5e1',
-    backgroundColor: '#111827',
+    color: theme.gameUi.textPrimary,
+    backgroundColor: '#F9FAFB',
     borderRadius: 999,
+    borderWidth: 1,
+    borderColor: theme.gameUi.cardBorder,
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
   listingDetail: {
     ...theme.typography.bodySm,
-    color: '#cbd5e1',
+    color: theme.gameUi.textSecondary,
   },
   lockText: {
     ...theme.typography.caption,
-    color: '#fbbf24',
+    color: theme.gameUi.warning,
   },
   buttonRow: {
     gap: 8,
@@ -311,9 +313,9 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     paddingHorizontal: 12,
     paddingVertical: 12,
-    backgroundColor: '#111827',
+    backgroundColor: '#F9FAFB',
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: theme.gameUi.cardBorder,
     gap: 8,
   },
   compareRow: {
@@ -321,11 +323,11 @@ const styles = StyleSheet.create({
   },
   compareName: {
     ...theme.typography.bodySm,
-    color: '#f8fafc',
+    color: theme.gameUi.textPrimary,
     fontWeight: '700',
   },
   compareMeta: {
     ...theme.typography.caption,
-    color: '#cbd5e1',
+    color: theme.gameUi.textSecondary,
   },
 });

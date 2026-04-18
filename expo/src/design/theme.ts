@@ -1,7 +1,8 @@
-import { animation, colorTokens, iconSize, radius, shadow, spacing, typography, zIndex } from './tokens';
+import { animation, colorTokens, gameUiTokens, iconSize, radius, shadow, spacing, typography, zIndex } from './tokens';
 
 export const theme = {
   color: colorTokens,
+  gameUi: gameUiTokens,
   spacing,
   radius,
   shadow,

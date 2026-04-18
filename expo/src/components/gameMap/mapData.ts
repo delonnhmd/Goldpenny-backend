@@ -1,5 +1,6 @@
 import type { TravelOptionSnapshot } from '@/types/gameplay';
 import type { BusinessLandZoneType, BusinessLotSize } from '@/types/business';
+import { theme } from '@/design/theme';
 
 export interface MapNode {
   key: string;
@@ -44,6 +45,7 @@ export interface SandboxDistrict {
   key: string;
   label: string;
   subtitle: string;
+  tone: 'suburban' | 'downtown' | 'commercial';
   x: number;
   y: number;
   width: number;
@@ -115,67 +117,73 @@ const DISTRICTS: SandboxDistrict[] = [
     key: 'heights',
     label: 'Heights',
     subtitle: 'Starter homes + daily needs',
+    tone: 'suburban',
     x: 1,
     y: 1,
     width: 8,
     height: 7,
-    fill: '#12293a',
-    accent: '#68d391',
+    fill: theme.gameUi.district.suburban.base,
+    accent: theme.gameUi.district.suburban.accent,
   },
   {
     key: 'midtown',
     label: 'Midtown',
     subtitle: 'Service traffic + fast turnover',
+    tone: 'downtown',
     x: 11,
     y: 1,
     width: 8,
     height: 7,
-    fill: '#13273c',
-    accent: '#67e8f9',
+    fill: theme.gameUi.district.downtown.base,
+    accent: theme.gameUi.district.downtown.highlight,
   },
   {
     key: 'exchange',
     label: 'Exchange',
     subtitle: 'Commercial demand belt',
+    tone: 'commercial',
     x: 21,
     y: 1,
     width: 8,
     height: 7,
-    fill: '#2a2115',
-    accent: '#fbbf24',
+    fill: theme.gameUi.district.commercial.base,
+    accent: theme.gameUi.district.commercial.accent,
   },
   {
     key: 'makers',
     label: 'Makers Row',
     subtitle: 'Small lots + light logistics',
+    tone: 'suburban',
     x: 1,
     y: 14,
     width: 8,
     height: 7,
-    fill: '#11263a',
-    accent: '#7dd3fc',
+    fill: theme.gameUi.district.suburban.base,
+    accent: theme.gameUi.district.suburban.accent,
   },
   {
     key: 'commerce',
     label: 'Commerce',
     subtitle: 'Dense work nodes + offices',
+    tone: 'downtown',
     x: 11,
     y: 14,
     width: 8,
     height: 7,
-    fill: '#1d1f37',
-    accent: '#c084fc',
+    fill: theme.gameUi.district.downtown.accent,
+    accent: theme.gameUi.district.downtown.highlight,
   },
   {
     key: 'harbor',
     label: 'Harbor',
     subtitle: 'Higher-capacity expansion land',
+    tone: 'commercial',
     x: 21,
     y: 14,
     width: 8,
     height: 7,
-    fill: '#10261f',
-    accent: '#5eead4',
+    fill: theme.gameUi.district.commercial.base,
+    accent: theme.gameUi.district.commercial.accent,
   },
 ];
 

@@ -17,7 +17,7 @@ import type {
 import SafeAreaPage from '@/components/layout/SafeAreaPage';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import SecondaryButton from '@/components/ui/SecondaryButton';
-import { theme } from '@/design/theme';
+import { alpha, theme } from '@/design/theme';
 import { useOnboarding } from '@/features/onboarding';
 import type { OnboardingRouteKey } from '@/features/onboarding/context';
 import BusinessMarketPanel from '@/features/gameplayLoop/components/BusinessMarketPanel';
@@ -190,12 +190,6 @@ export default function MapDashboardScreen() {
     || cityMap?.current_location_key
     || 'home',
   );
-  const currentLocationLabel = String(
-    workState?.current_location_label
-    || cityMap?.current_location_label
-    || 'Home',
-  );
-
   const backendShiftActive = Boolean(workState?.main_shift_active_flag || workState?.is_on_shift);
   const dinnerResolvedToday = Boolean(workState?.dinner_resolved_today);
   const daySettled = Boolean(workState?.day_settled);
@@ -1185,7 +1179,7 @@ export default function MapDashboardScreen() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#0f172a',
+    backgroundColor: theme.gameUi.background,
   },
   mapStage: {
     flex: 1,
@@ -1196,6 +1190,9 @@ const styles = StyleSheet.create({
     marginBottom: 0,
     position: 'relative',
     overflow: 'hidden',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    backgroundColor: theme.gameUi.background,
   },
   selectionPanel: {
     gap: 12,
@@ -1214,26 +1211,26 @@ const styles = StyleSheet.create({
   },
   selectionEyebrow: {
     ...theme.typography.caption,
-    color: '#94a3b8',
+    color: theme.gameUi.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
   selectionTitle: {
     marginTop: 3,
     ...theme.typography.headingSm,
-    color: '#f8fafc',
+    color: theme.gameUi.textPrimary,
   },
   kindBadge: {
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#F9FAFB',
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: theme.gameUi.cardBorder,
   },
   kindBadgeText: {
     ...theme.typography.caption,
-    color: '#cbd5e1',
+    color: theme.gameUi.textSecondary,
   },
   selectionBadgeRow: {
     flexDirection: 'row',
@@ -1244,17 +1241,17 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    backgroundColor: '#F9FAFB',
     borderWidth: 1,
-    borderColor: 'rgba(148, 163, 184, 0.16)',
+    borderColor: theme.gameUi.cardBorder,
   },
   detailBadgePrimary: {
-    borderColor: 'rgba(103, 232, 249, 0.28)',
-    backgroundColor: 'rgba(8, 47, 73, 0.36)',
+    borderColor: alpha(theme.gameUi.primary, 0.24),
+    backgroundColor: alpha(theme.gameUi.primary, 0.08),
   },
   detailBadgeText: {
     ...theme.typography.caption,
-    color: '#dbeafe',
+    color: theme.gameUi.textPrimary,
     fontWeight: '700',
   },
   selectionStatsRow: {
@@ -1266,25 +1263,25 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 10,
     paddingVertical: 9,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#F9FAFB',
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: theme.gameUi.cardBorder,
   },
   selectionStatLabel: {
     ...theme.typography.caption,
-    color: '#94a3b8',
+    color: theme.gameUi.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
   selectionStatValue: {
     marginTop: 3,
     ...theme.typography.bodySm,
-    color: '#f8fafc',
+    color: theme.gameUi.textPrimary,
     fontWeight: '700',
   },
   selectionDescription: {
     ...theme.typography.bodySm,
-    color: '#cbd5e1',
+    color: theme.gameUi.textSecondary,
   },
   landMetricsBox: {
     gap: 8,
@@ -1300,20 +1297,20 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingHorizontal: 10,
     paddingVertical: 10,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#F9FAFB',
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: theme.gameUi.cardBorder,
     gap: 4,
   },
   landMetricLabel: {
     ...theme.typography.caption,
-    color: '#94a3b8',
+    color: theme.gameUi.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
   landMetricValue: {
     ...theme.typography.bodySm,
-    color: '#f8fafc',
+    color: theme.gameUi.textPrimary,
     fontWeight: '700',
   },
   travelRow: {
@@ -1327,14 +1324,14 @@ const styles = StyleSheet.create({
   },
   travelMetaLine: {
     ...theme.typography.bodySm,
-    color: '#e2e8f0',
+    color: theme.gameUi.textSecondary,
   },
   actionSection: {
     gap: 10,
   },
   actionSectionTitle: {
     ...theme.typography.caption,
-    color: '#67e8f9',
+    color: theme.gameUi.primary,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
@@ -1342,9 +1339,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 12,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: theme.gameUi.cardBorder,
     gap: 10,
   },
   actionCopy: {
@@ -1352,12 +1349,12 @@ const styles = StyleSheet.create({
   },
   actionTitle: {
     ...theme.typography.bodyMd,
-    color: '#f8fafc',
+    color: theme.gameUi.textPrimary,
     fontWeight: '700',
   },
   actionDetail: {
     ...theme.typography.bodySm,
-    color: '#cbd5e1',
+    color: theme.gameUi.textSecondary,
   },
   actionButtonWrap: {
     width: '100%',
@@ -1367,13 +1364,13 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 12,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: theme.gameUi.cardBorder,
   },
   landOwnedText: {
     ...theme.typography.bodySm,
-    color: '#4ade80',
+    color: theme.gameUi.success,
     fontWeight: '700',
   },
   shiftTaskPanel: {
@@ -1386,48 +1383,48 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 12,
-    backgroundColor: '#0f172a',
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: '#1f2937',
+    borderColor: theme.gameUi.cardBorder,
     gap: 4,
   },
   shiftFocusCardActive: {
-    borderColor: '#38bdf8',
-    backgroundColor: 'rgba(14, 165, 233, 0.12)',
+    borderColor: alpha(theme.gameUi.primary, 0.3),
+    backgroundColor: alpha(theme.gameUi.primary, 0.08),
   },
   shiftFocusCardPressed: {
     opacity: 0.8,
   },
   shiftFocusTitle: {
     ...theme.typography.bodyMd,
-    color: '#f8fafc',
+    color: theme.gameUi.textPrimary,
     fontWeight: '700',
   },
   shiftFocusTitleActive: {
-    color: '#67e8f9',
+    color: theme.gameUi.primary,
   },
   shiftFocusDetail: {
     ...theme.typography.bodySm,
-    color: '#cbd5e1',
+    color: theme.gameUi.textSecondary,
   },
   shiftFocusBonus: {
     ...theme.typography.caption,
-    color: '#67e8f9',
+    color: theme.gameUi.primary,
     fontWeight: '700',
   },
   hintText: {
     ...theme.typography.caption,
-    color: '#cbd5e1',
+    color: theme.gameUi.textSecondary,
   },
   guardText: {
     ...theme.typography.caption,
-    color: '#fbbf24',
+    color: theme.gameUi.warning,
   },
   bottomNav: {
     flexDirection: 'row',
-    backgroundColor: '#111827',
+    backgroundColor: theme.gameUi.card,
     borderTopWidth: 1,
-    borderTopColor: '#1f2937',
+    borderTopColor: theme.gameUi.cardBorder,
     paddingHorizontal: 6,
     paddingTop: 6,
     paddingBottom: 8,
@@ -1443,7 +1440,7 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   tabActive: {
-    backgroundColor: 'rgba(59, 130, 246, 0.18)',
+    backgroundColor: alpha(theme.gameUi.primary, 0.12),
   },
   tabPressed: {
     opacity: 0.7,
@@ -1458,9 +1455,9 @@ const styles = StyleSheet.create({
   tabLabel: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#94a3b8',
+    color: theme.gameUi.textSecondary,
   },
   tabLabelActive: {
-    color: '#60a5fa',
+    color: theme.gameUi.primary,
   },
 });

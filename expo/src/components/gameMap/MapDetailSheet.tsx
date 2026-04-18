@@ -10,7 +10,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 
-import { theme } from '@/design/theme';
+import { alpha, theme } from '@/design/theme';
 
 interface MapDetailSheetProps {
   visible: boolean;
@@ -155,12 +155,12 @@ const styles = StyleSheet.create({
     bottom: 0,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    backgroundColor: 'rgba(8, 15, 30, 0.98)',
+    backgroundColor: 'rgba(255, 255, 255, 0.98)',
     borderWidth: 1,
     borderBottomWidth: 0,
-    borderColor: 'rgba(103, 232, 249, 0.24)',
-    shadowColor: '#020617',
-    shadowOpacity: 0.45,
+    borderColor: alpha(theme.gameUi.primary, 0.18),
+    shadowColor: '#111827',
+    shadowOpacity: 0.16,
     shadowRadius: 24,
     shadowOffset: { width: 0, height: -10 },
     elevation: 24,
@@ -171,16 +171,16 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    backgroundColor: 'rgba(8, 15, 30, 0.98)',
+    backgroundColor: 'rgba(255, 255, 255, 0.98)',
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(148, 163, 184, 0.12)',
+    borderBottomColor: alpha(theme.gameUi.cardBorder, 0.92),
   },
   handle: {
     alignSelf: 'center',
     width: 52,
     height: 5,
     borderRadius: 999,
-    backgroundColor: 'rgba(148, 163, 184, 0.45)',
+    backgroundColor: alpha(theme.gameUi.textSecondary, 0.32),
     marginBottom: 12,
   },
   headerRow: {
@@ -194,32 +194,32 @@ const styles = StyleSheet.create({
   },
   headerEyebrow: {
     ...theme.typography.caption,
-    color: '#67e8f9',
+    color: theme.gameUi.primary,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
   headerTitle: {
     ...theme.typography.headingSm,
-    color: '#f8fafc',
+    color: theme.gameUi.textPrimary,
   },
   headerSubtitle: {
     ...theme.typography.bodySm,
-    color: '#94a3b8',
+    color: theme.gameUi.textSecondary,
   },
   closeButton: {
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    backgroundColor: theme.gameUi.secondaryButton,
     borderWidth: 1,
-    borderColor: 'rgba(148, 163, 184, 0.2)',
+    borderColor: theme.gameUi.secondaryButtonBorder,
   },
   closeButtonPressed: {
     opacity: 0.74,
   },
   closeButtonText: {
     ...theme.typography.caption,
-    color: '#e2e8f0',
+    color: theme.gameUi.textPrimary,
     fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 0.7,

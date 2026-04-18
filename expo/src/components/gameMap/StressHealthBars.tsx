@@ -1,6 +1,8 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import { theme } from '@/design/theme';
+
 interface StressHealthBarsProps {
   stress: number;
   health: number;
@@ -125,7 +127,7 @@ const styles = StyleSheet.create({
   barLabel: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#475569',
+    color: theme.gameUi.textSecondary,
   },
   barValue: {
     fontSize: 10,
@@ -134,7 +136,7 @@ const styles = StyleSheet.create({
   track: {
     height: 8,
     borderRadius: 999,
-    backgroundColor: '#e2e8f0',
+    backgroundColor: '#E5E7EB',
     overflow: 'hidden',
   },
   fill: {
@@ -159,7 +161,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 5,
     borderRadius: 999,
-    backgroundColor: '#e2e8f0',
+    backgroundColor: '#E5E7EB',
     overflow: 'hidden',
   },
   compactFill: {

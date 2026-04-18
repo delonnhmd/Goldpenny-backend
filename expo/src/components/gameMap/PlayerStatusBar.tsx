@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
 
-import { theme } from '@/design/theme';
+import { alpha, theme } from '@/design/theme';
 import { formatMoney } from '@/lib/gameplayFormatters';
 
 interface PlayerStatusBarProps {
@@ -101,7 +101,9 @@ const styles = StyleSheet.create({
     marginHorizontal: 12,
     marginTop: 4,
     borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+    backgroundColor: theme.gameUi.hudGlass,
+    borderWidth: 1,
+    borderColor: theme.gameUi.hudBorder,
     gap: 6,
     ...theme.shadow.sm,
   },
@@ -111,7 +113,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   cashItem: {
-    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+    backgroundColor: alpha(theme.gameUi.success, 0.12),
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 12,
@@ -122,18 +124,18 @@ const styles = StyleSheet.create({
   cashValue: {
     fontSize: 14,
     fontWeight: '800',
-    color: '#16a34a',
+    color: theme.gameUi.status.cash,
   },
   dayValue: {
     fontSize: 11,
     fontWeight: '700',
-    color: theme.color.textPrimary,
+    color: theme.gameUi.textPrimary,
   },
   miniBarTrack: {
     width: 40,
     height: 6,
     borderRadius: 999,
-    backgroundColor: '#e2e8f0',
+    backgroundColor: '#E5E7EB',
     overflow: 'hidden',
   },
   miniBarFill: {

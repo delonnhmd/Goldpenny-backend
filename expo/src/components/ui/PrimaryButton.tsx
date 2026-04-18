@@ -1,7 +1,7 @@
 import React from 'react';
 import { ActivityIndicator, Pressable, StyleProp, StyleSheet, Text, ViewStyle } from 'react-native';
 
-import { theme } from '@/design/theme';
+import { alpha, theme } from '@/design/theme';
 
 export default function PrimaryButton({
   label,
@@ -9,14 +9,19 @@ export default function PrimaryButton({
   disabled,
   loading,
   style,
+  tone = 'primary',
 }: {
   label: string;
   onPress?: () => void;
   disabled?: boolean;
   loading?: boolean;
   style?: StyleProp<ViewStyle>;
+  tone?: 'primary' | 'danger';
 }) {
   const blocked = Boolean(disabled || loading || !onPress);
+  const palette = tone === 'danger'
+    ? styles.danger
+    : styles.primary;
 
   return (
     <Pressable
@@ -24,6 +29,7 @@ export default function PrimaryButton({
       disabled={blocked}
       style={({ pressed }) => [
         styles.button,
+        palette,
         style,
         blocked ? styles.disabled : null,
         loading ? styles.loading : null,
@@ -40,15 +46,22 @@ const styles = StyleSheet.create({
   button: {
     minHeight: 52,
     borderRadius: theme.radius.lg,
-    backgroundColor: '#0f3c52',
-    borderWidth: 1,
-    borderColor: '#22d3ee',
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     gap: theme.spacing.xs,
     paddingHorizontal: theme.spacing.lg,
     ...theme.shadow.md,
+  },
+  primary: {
+    backgroundColor: theme.gameUi.primary,
+    borderWidth: 1,
+    borderColor: alpha(theme.gameUi.primary, 0.92),
+  },
+  danger: {
+    backgroundColor: theme.gameUi.danger,
+    borderWidth: 1,
+    borderColor: alpha(theme.gameUi.danger, 0.92),
   },
   disabled: {
     opacity: 0.5,
@@ -63,7 +76,7 @@ const styles = StyleSheet.create({
     elevation: 0,
   },
   text: {
-    color: '#ecfeff',
+    color: theme.gameUi.card,
     ...theme.typography.label,
     fontWeight: '800',
     letterSpacing: 0.3,
