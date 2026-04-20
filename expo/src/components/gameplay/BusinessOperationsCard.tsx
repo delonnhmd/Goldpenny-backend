@@ -6,7 +6,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import PrimaryButton from '@/components/ui/PrimaryButton';
-import { theme } from '@/design/theme';
+import { alpha, theme } from '@/design/theme';
 import { costPressureTone, marginTone } from '@/lib/economyPresentationFormatters';
 import { BusinessMarginItem } from '@/types/economyPresentation';
 import { BusinessPlanItem } from '@/types/strategicPlanning';
@@ -104,13 +104,13 @@ export default function BusinessOperationsCard({
       <View style={styles.metricRow}>
         <View style={styles.metricCard}>
           <Text style={styles.metricLabel}>Last result</Text>
-          <Text style={[styles.metricValue, latestProfit != null ? { color: latestProfit >= 0 ? '#166534' : '#b91c1c' } : null]}>
+          <Text style={[styles.metricValue, latestProfit != null ? { color: latestProfit >= 0 ? theme.ui.positive : theme.ui.danger } : null]}>
             {latestProfit != null ? `${latestProfit >= 0 ? '+' : ''}${latestProfit.toFixed(1)} XGP` : 'No run yet'}
           </Text>
         </View>
         <View style={styles.metricCard}>
           <Text style={styles.metricLabel}>7d trend</Text>
-          <Text style={[styles.metricValue, trailingProfit != null ? { color: trailingProfit >= 0 ? '#166534' : '#b91c1c' } : null]}>
+          <Text style={[styles.metricValue, trailingProfit != null ? { color: trailingProfit >= 0 ? theme.ui.positive : theme.ui.danger } : null]}>
             {trailingProfit != null ? `${trailingProfit >= 0 ? '+' : ''}${trailingProfit.toFixed(1)} XGP` : 'No trend yet'}
           </Text>
         </View>
@@ -180,9 +180,9 @@ export default function BusinessOperationsCard({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: 'rgba(148, 163, 184, 0.14)',
+    borderColor: alpha(theme.ui.border, 0.64),
     borderRadius: theme.radius.xl,
-    backgroundColor: '#0c1729',
+    backgroundColor: theme.ui.bg.card,
     padding: theme.spacing.lg,
     gap: theme.spacing.md,
   },
@@ -197,7 +197,7 @@ const styles = StyleSheet.create({
     gap: theme.spacing.xxs,
   },
   kicker: {
-    color: theme.color.info,
+    color: theme.ui.text.onDarkMuted,
     ...theme.typography.caption,
     textTransform: 'uppercase',
     letterSpacing: 0.7,
@@ -210,7 +210,7 @@ const styles = StyleSheet.create({
   },
   modeBadge: {
     borderRadius: theme.radius.pill,
-    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    backgroundColor: theme.ui.bg.cardRaised,
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.xs,
   },
@@ -228,7 +228,7 @@ const styles = StyleSheet.create({
   },
   signalChip: {
     borderRadius: theme.radius.pill,
-    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    backgroundColor: theme.ui.bg.cardRaised,
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.xs,
   },
@@ -239,14 +239,14 @@ const styles = StyleSheet.create({
   },
   outcomeBox: {
     borderWidth: 1,
-    borderColor: 'rgba(34, 211, 238, 0.24)',
+    borderColor: alpha(theme.ui.border, 0.64),
     borderRadius: theme.radius.xl,
-    backgroundColor: 'rgba(8, 47, 73, 0.3)',
+    backgroundColor: theme.ui.bg.cardRaised,
     padding: theme.spacing.md,
     gap: theme.spacing.xs,
   },
   outcomeLabel: {
-    color: '#67e8f9',
+    color: theme.ui.text.onDark,
     ...theme.typography.caption,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
@@ -275,9 +275,9 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 108,
     borderWidth: 1,
-    borderColor: 'rgba(148, 163, 184, 0.14)',
+    borderColor: alpha(theme.ui.border, 0.64),
     borderRadius: theme.radius.lg,
-    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    backgroundColor: theme.ui.bg.cardRaised,
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.sm,
     gap: theme.spacing.xxs,
@@ -312,7 +312,7 @@ const styles = StyleSheet.create({
   },
   calloutBox: {
     borderRadius: theme.radius.lg,
-    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    backgroundColor: theme.ui.bg.cardRaised,
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.sm,
     gap: theme.spacing.xxs,
@@ -324,11 +324,11 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   riskText: {
-    color: '#fca5a5',
+    color: theme.ui.text.onDarkMuted,
     ...theme.typography.bodySm,
   },
   oppText: {
-    color: '#86efac',
+    color: theme.ui.text.onDarkMuted,
     ...theme.typography.bodySm,
   },
   inventoryRow: {
@@ -341,17 +341,17 @@ const styles = StyleSheet.create({
     ...theme.typography.caption,
     fontWeight: '700',
     borderRadius: theme.radius.pill,
-    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    backgroundColor: theme.ui.bg.cardRaised,
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.xs,
   },
   inventoryWarning: {
-    color: '#fcd34d',
+    color: theme.ui.text.onDarkMuted,
     ...theme.typography.bodySm,
     fontWeight: '600',
   },
   blockerText: {
-    color: '#fcd34d',
+    color: theme.ui.text.onDarkMuted,
     ...theme.typography.bodySm,
     fontWeight: '600',
   },

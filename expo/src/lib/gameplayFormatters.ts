@@ -11,6 +11,7 @@ import {
   normalizeMoneyValue,
   normalizePercentageStat,
 } from '@/lib/economySafety';
+import { uiTokens } from '@/theme/tokens';
 
 export function formatMoney(value: number | null | undefined, digits = 2): string {
   const safe = normalizeMoneyValue(value, { fallback: 0, allowNegative: true });
@@ -40,44 +41,44 @@ export function formatProgress(current: number | null | undefined, target: numbe
 export function severityColor(level: SeverityLevel | null | undefined): string {
   switch (level) {
     case 'critical':
-      return '#b91c1c';
+      return uiTokens.danger;
     case 'high':
-      return '#dc2626';
+      return uiTokens.danger;
     case 'medium':
-      return '#b45309';
+      return uiTokens.warning;
     case 'low':
-      return '#2563eb';
+      return uiTokens.action;
     case 'info':
     default:
-      return '#475569';
+      return uiTokens.text.onDarkMuted;
   }
 }
 
 export function actionStatusColor(status: ActionRecommendationState): string {
   switch (status) {
     case 'recommended':
-      return '#166534';
+      return uiTokens.positive;
     case 'available':
-      return '#1d4ed8';
+      return uiTokens.action;
     case 'blocked':
     default:
-      return '#b91c1c';
+      return uiTokens.danger;
   }
 }
 
 export function progressStatusColor(status: string | null | undefined): string {
   const normalized = String(status || '').toLowerCase();
-  if (normalized === 'completed') return '#166534';
-  if (normalized === 'in_progress') return '#1d4ed8';
-  if (normalized === 'failed') return '#b91c1c';
-  return '#475569';
+  if (normalized === 'completed') return uiTokens.positive;
+  if (normalized === 'in_progress') return uiTokens.action;
+  if (normalized === 'failed') return uiTokens.danger;
+  return uiTokens.text.onDarkMuted;
 }
 
 export function urgencyColor(urgency: string | null | undefined): string {
   const normalized = String(urgency || '').toLowerCase();
-  if (normalized === 'high') return '#b91c1c';
-  if (normalized === 'medium') return '#b45309';
-  return '#2563eb';
+  if (normalized === 'high') return uiTokens.danger;
+  if (normalized === 'medium') return uiTokens.warning;
+  return uiTokens.action;
 }
 
 export function confidenceLabel(level: ConfidenceLevel | null | undefined): string {
@@ -109,24 +110,24 @@ export function trendLabel(direction: TrendDirection): string {
 
 export function stressTone(stress: number | null | undefined): string {
   const value = normalizePercentageStat(stress, 0);
-  if (value >= 80) return '#b91c1c';
-  if (value >= 65) return '#dc2626';
-  if (value >= 45) return '#b45309';
-  return '#166534';
+  if (value >= 80) return uiTokens.danger;
+  if (value >= 65) return uiTokens.danger;
+  if (value >= 45) return uiTokens.warning;
+  return uiTokens.positive;
 }
 
 export function healthTone(health: number | null | undefined): string {
   const value = normalizePercentageStat(health, 100);
-  if (value <= 30) return '#b91c1c';
-  if (value <= 45) return '#dc2626';
-  if (value <= 65) return '#b45309';
-  return '#166534';
+  if (value <= 30) return uiTokens.danger;
+  if (value <= 45) return uiTokens.danger;
+  if (value <= 65) return uiTokens.warning;
+  return uiTokens.positive;
 }
 
 export function creditTone(score: number | null | undefined): string {
   const value = normalizeCreditScore(score, 650);
-  if (value < 580) return '#b91c1c';
-  if (value < 670) return '#b45309';
-  if (value < 740) return '#2563eb';
-  return '#166534';
+  if (value < 580) return uiTokens.danger;
+  if (value < 670) return uiTokens.warning;
+  if (value < 740) return uiTokens.action;
+  return uiTokens.positive;
 }

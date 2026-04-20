@@ -21,8 +21,8 @@ interface MapDetailSheetProps {
   children: React.ReactNode;
 }
 
-const CLOSE_DISTANCE = 120;
-const CLOSE_VELOCITY = 0.9;
+const CLOSE_DISTANCE = 72;
+const CLOSE_VELOCITY = 0.45;
 
 export default function MapDetailSheet({
   visible,
@@ -111,6 +111,7 @@ export default function MapDetailSheet({
         }
         translateY.setValue(gesture.dy);
       },
+      onPanResponderTerminationRequest: () => true,
       onPanResponderRelease: handleDismissRelease,
       onPanResponderTerminate: springBack,
     }),
@@ -132,6 +133,7 @@ export default function MapDetailSheet({
         }
         translateY.setValue(gesture.dy);
       },
+      onPanResponderTerminationRequest: () => true,
       onPanResponderRelease: handleDismissRelease,
       onPanResponderTerminate: springBack,
     }),
@@ -190,11 +192,11 @@ const styles = StyleSheet.create({
     bottom: 0,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    backgroundColor: 'rgba(255, 255, 255, 0.98)',
+    backgroundColor: theme.ui.bg.sheet,
     borderWidth: 1,
     borderBottomWidth: 0,
-    borderColor: alpha(theme.gameUi.primary, 0.18),
-    shadowColor: '#111827',
+    borderColor: theme.ui.border,
+    shadowColor: theme.ui.border,
     shadowOpacity: 0.16,
     shadowRadius: 24,
     shadowOffset: { width: 0, height: -10 },
@@ -207,16 +209,16 @@ const styles = StyleSheet.create({
     minHeight: 88,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    backgroundColor: 'rgba(255, 255, 255, 0.98)',
+    backgroundColor: theme.ui.bg.sheet,
     borderBottomWidth: 1,
-    borderBottomColor: alpha(theme.gameUi.cardBorder, 0.92),
+    borderBottomColor: theme.ui.border,
   },
   handle: {
     alignSelf: 'center',
     width: 52,
     height: 5,
     borderRadius: 999,
-    backgroundColor: alpha(theme.gameUi.textSecondary, 0.32),
+    backgroundColor: alpha(theme.ui.text.onLightMuted, 0.32),
     marginBottom: 12,
   },
   headerRow: {
@@ -230,17 +232,17 @@ const styles = StyleSheet.create({
   },
   headerEyebrow: {
     ...theme.typography.caption,
-    color: theme.gameUi.primary,
+    color: theme.ui.text.onLightMuted,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
   headerTitle: {
     ...theme.typography.headingSm,
-    color: theme.gameUi.textPrimary,
+    color: theme.ui.text.onLight,
   },
   headerSubtitle: {
     ...theme.typography.bodySm,
-    color: theme.gameUi.textSecondary,
+    color: theme.ui.text.onLightMuted,
   },
   scrollShell: {
     flex: 1,

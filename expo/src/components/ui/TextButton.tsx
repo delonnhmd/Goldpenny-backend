@@ -1,7 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text } from 'react-native';
 
-import { theme } from '@/design/theme';
+import { alpha, theme } from '@/design/theme';
 
 export default function TextButton({
   label,
@@ -37,12 +37,12 @@ const styles = StyleSheet.create({
     opacity: 0.45,
   },
   pressed: {
-    backgroundColor: 'rgba(30, 41, 59, 0.92)',
+    backgroundColor: alpha(theme.ui.bg.cardRaised, 0.92),
     transform: [{ scale: 0.97 }],
     opacity: 0.9,
   },
   text: {
-    color: '#7dd3fc',
+    color: theme.ui.action,
     ...theme.typography.label,
   },
 });

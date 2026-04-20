@@ -198,22 +198,22 @@ const styles = StyleSheet.create({
     gap: theme.spacing.xxs,
   },
   metaTitle: {
-    color: theme.color.info,
+    color: theme.color.textPrimary,
     ...theme.typography.label,
   },
   metaText: {
-    color: '#1e3a8a',
+    color: theme.color.textSecondary,
     ...theme.typography.bodySm,
   },
   warningBlock: {
     gap: theme.spacing.xxs,
   },
   warningTitle: {
-    color: '#92400e',
+    color: theme.color.textPrimary,
     ...theme.typography.label,
   },
   warningText: {
-    color: '#78350f',
+    color: theme.color.textSecondary,
     ...theme.typography.bodySm,
   },
   loadingBlock: {

@@ -1,33 +1,15 @@
 import React from 'react';
-import { StyleProp, StyleSheet, View, ViewStyle } from 'react-native';
+import { StyleProp, ViewStyle } from 'react-native';
 
-import { alpha, theme } from '@/design/theme';
+import Card, { CardVariant } from './Card';
 
 export type SurfaceCardVariant = 'default' | 'highlighted' | 'warning' | 'muted';
 
-function variantStyle(variant: SurfaceCardVariant): ViewStyle {
-  if (variant === 'highlighted') {
-    return {
-      borderColor: alpha(theme.gameUi.primary, 0.26),
-      backgroundColor: alpha(theme.gameUi.primary, 0.08),
-    };
-  }
-  if (variant === 'warning') {
-    return {
-      borderColor: alpha(theme.gameUi.warning, 0.34),
-      backgroundColor: alpha(theme.gameUi.warning, 0.1),
-    };
-  }
-  if (variant === 'muted') {
-    return {
-      borderColor: alpha(theme.gameUi.cardBorder, 0.92),
-      backgroundColor: '#F9FAFB',
-    };
-  }
-  return {
-    borderColor: alpha(theme.gameUi.cardBorder, 0.92),
-    backgroundColor: theme.gameUi.card,
-  };
+function mapVariant(variant: SurfaceCardVariant): CardVariant {
+  if (variant === 'highlighted') return 'info';
+  if (variant === 'warning') return 'warning';
+  if (variant === 'muted') return 'default';
+  return 'default';
 }
 
 export default function SurfaceCard({
@@ -42,26 +24,8 @@ export default function SurfaceCard({
   padded?: boolean;
 }) {
   return (
-    <View
-      style={[
-        styles.card,
-        variantStyle(variant),
-        padded ? styles.padded : null,
-        style,
-      ]}
-    >
+    <Card variant={mapVariant(variant)} padded={padded} style={style}>
       {children}
-    </View>
+    </Card>
   );
 }
-
-const styles = StyleSheet.create({
-  card: {
-    borderWidth: 1,
-    borderRadius: theme.radius.xl,
-    ...theme.shadow.md,
-  },
-  padded: {
-    padding: theme.spacing.lg,
-  },
-});

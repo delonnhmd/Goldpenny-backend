@@ -1,19 +1,12 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, {
-  runOnJS,
-  useAnimatedReaction,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withTiming,
-} from 'react-native-reanimated';
-import type { SharedValue } from 'react-native-reanimated';
+import Animated, { runOnJS, useAnimatedReaction, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Svg, { Path, Rect } from 'react-native-svg';
 
 import { alpha, theme } from '@/design/theme';
 
-import type { SandboxCityMap, SandboxDistrict, SandboxMapTile } from './mapData';
+import type { SandboxCityMap, SandboxMapTile, SandboxRoadSegment, SandboxZoneWash } from './mapData';
 
 interface GameMapProps {
   map: SandboxCityMap;
@@ -24,291 +17,15 @@ interface GameMapProps {
   developedTileKeys?: string[];
 }
 
-const MIN_SCALE = 0.9;
-const MAX_SCALE = 2.8;
-const CAMERA_PADDING = 16;
-// Step 96N - zoom tiers drive interaction density.
-// far (< 1.15): district overview
-// medium (1.15-2.0): building / lot selection
-// close (> 2.0): tile-slot precision
-const ZOOM_TIER_MEDIUM = 1.15;
-const ZOOM_TIER_CLOSE = 2.0;
+type MapZoomTier = 'z1' | 'z2' | 'z3' | 'z4';
 
-function districtPalette(district: SandboxDistrict | null | undefined) {
-  if (district?.tone === 'downtown') return theme.gameUi.district.downtown;
-  if (district?.tone === 'commercial') return theme.gameUi.district.commercial;
-  return theme.gameUi.district.suburban;
-}
-
-function shouldShowTileLabel(tile: SandboxMapTile, isSelected: boolean, isCurrent: boolean): boolean {
-  if (isSelected || isCurrent) return true;
-  return tile.kind === 'service_building' || tile.kind === 'existing_business';
-}
-
-function shouldPulseDemand(tile: SandboxMapTile, isHighDemand: boolean): boolean {
-  if (!isHighDemand) return false;
-  return tile.kind === 'service_building'
-    || tile.kind === 'existing_business'
-    || Boolean(tile.nodeKey);
-}
-
-function tileVisualState(
-  tile: SandboxMapTile,
-  district: SandboxDistrict | null | undefined,
-  isOwned: boolean,
-  isDeveloped: boolean,
-  isSelected: boolean,
-  isCurrent: boolean,
-) {
-  const palette = districtPalette(district);
-  const opportunityTier = String(tile.opportunityTier || '').toLowerCase();
-  const trafficScore = Number(tile.landProfile?.trafficScore || 0);
-  const landValue = Number(tile.landProfile?.valueXgp || 0);
-  const isHighDemand = (
-    opportunityTier === 'high'
-    || tile.actionTags.includes('rideshare')
-    || tile.actionTags.includes('work_shift')
-    || (Boolean(tile.nodeKey) && trafficScore >= 78)
-  );
-  const isHighProfit = (
-    isOwned
-    || isDeveloped
-    || tile.kind === 'existing_business'
-    || (tile.kind === 'building_slot' && landValue >= 520)
-  );
-  const isLowActivity = (
-    tile.kind === 'expansion_node'
-    || opportunityTier === 'low'
-    || (tile.kind === 'empty_lot' && trafficScore > 0 && trafficScore < 48)
-  );
-
-  let backgroundColor: string = alpha(palette.accent, district?.tone === 'downtown' ? 0.24 : 0.16);
-  let borderColor: string = alpha(palette.accent, district?.tone === 'downtown' ? 0.58 : 0.42);
-  let labelColor: string = district?.tone === 'downtown' ? palette.label : theme.gameUi.textPrimary;
-
-  switch (tile.kind) {
-    case 'road':
-      backgroundColor = theme.gameUi.road;
-      borderColor = alpha(theme.gameUi.road, 0.94);
-      labelColor = theme.gameUi.card;
-      break;
-    case 'building_slot':
-      backgroundColor = alpha(theme.gameUi.icons.openSlot, 0.18);
-      borderColor = alpha(theme.gameUi.icons.openSlot, 0.7);
-      break;
-    case 'existing_business':
-      backgroundColor = alpha(theme.gameUi.icons.neutral, 0.16);
-      borderColor = alpha(theme.gameUi.icons.neutral, 0.66);
-      break;
-    case 'service_building':
-      backgroundColor = alpha(theme.gameUi.primary, district?.tone === 'downtown' ? 0.3 : 0.14);
-      borderColor = alpha(theme.gameUi.primary, 0.76);
-      labelColor = district?.tone === 'downtown' ? theme.gameUi.card : theme.gameUi.textPrimary;
-      break;
-    case 'expansion_node':
-      backgroundColor = alpha(theme.gameUi.signals.lowActivity, 0.14);
-      borderColor = alpha(theme.gameUi.signals.lowActivity, 0.36);
-      labelColor = theme.gameUi.textSecondary;
-      break;
-    default:
-      break;
-  }
-
-  if (isLowActivity) {
-    backgroundColor = alpha(theme.gameUi.signals.lowActivity, tile.kind === 'expansion_node' ? 0.14 : 0.08);
-    borderColor = alpha(theme.gameUi.signals.lowActivity, 0.28);
-    labelColor = theme.gameUi.textSecondary;
-  }
-
-  if (isHighProfit) {
-    backgroundColor = alpha(theme.gameUi.success, isDeveloped ? 0.28 : 0.18);
-    borderColor = alpha(theme.gameUi.success, 0.8);
-    labelColor = theme.gameUi.textPrimary;
-  }
-
-  if (isOwned) {
-    backgroundColor = alpha(theme.gameUi.success, 0.24);
-    borderColor = theme.gameUi.success;
-  }
-
-  if (isHighDemand) {
-    borderColor = alpha(theme.gameUi.signals.demand, 0.84);
-  }
-
-  if (isSelected) {
-    backgroundColor = alpha(theme.gameUi.primary, 0.16);
-    borderColor = theme.gameUi.primary;
-    labelColor = theme.gameUi.textPrimary;
-  }
-
-  if (isCurrent) {
-    borderColor = theme.gameUi.primary;
-    labelColor = theme.gameUi.textPrimary;
-  }
-
-  return {
-    backgroundColor,
-    borderColor,
-    labelColor,
-    isHighDemand,
-    isHighProfit,
-    isLowActivity,
-  };
-}
-
-const SignalPulse = memo(function SignalPulse({
-  color,
-  progress,
-}: {
-  color: string;
-  progress: SharedValue<number>;
-}) {
-  const haloStyle = useAnimatedStyle(() => ({
-    opacity: 0.12 + (progress.value * 0.16),
-    transform: [{ scale: 0.86 + (progress.value * 0.28) }],
-  }));
-
-  return (
-    <Animated.View
-      pointerEvents="none"
-      style={[
-        styles.signalPulse,
-        {
-          backgroundColor: alpha(color, 0.12),
-          borderColor: alpha(color, 0.5),
-        },
-        haloStyle,
-      ]}
-    />
-  );
-});
-
-const DistrictBlock = memo(function DistrictBlock({
-  district,
-  tileSize,
-}: {
-  district: SandboxDistrict;
-  tileSize: number;
-}) {
-  const palette = districtPalette(district);
-
-  return (
-    <View
-      style={[
-        styles.districtBlock,
-        {
-          left: district.x * tileSize,
-          top: district.y * tileSize,
-          width: district.width * tileSize,
-          height: district.height * tileSize,
-          backgroundColor: district.fill,
-          borderColor: alpha(district.accent, 0.88),
-        },
-      ]}
-    >
-      <View
-        style={[
-          styles.districtBadge,
-          {
-            borderColor: alpha(district.accent, 0.72),
-            backgroundColor: palette.badgeBackground,
-          },
-        ]}
-      >
-        <Text style={[styles.districtTitle, { color: palette.label }]}>{district.label}</Text>
-        <Text style={[styles.districtSubtitle, { color: alpha(palette.label, 0.72) }]}>{district.subtitle}</Text>
-      </View>
-    </View>
-  );
-});
-
-const TileCell = memo(function TileCell({
-  tile,
-  tileSize,
-  district,
-  isSelected,
-  isOwned,
-  isDeveloped,
-  hotspotPulse,
-}: {
-  tile: SandboxMapTile;
-  tileSize: number;
-  district: SandboxDistrict | null;
-  isSelected: boolean;
-  isOwned: boolean;
-  isDeveloped: boolean;
-  hotspotPulse: SharedValue<number>;
-}) {
-  const isCurrent = tile.isCurrentLocation;
-  const visual = tileVisualState(tile, district, isOwned, isDeveloped, isSelected, isCurrent);
-  const showLabel = shouldShowTileLabel(tile, isSelected, isCurrent);
-  const showDemandPulse = shouldPulseDemand(tile, visual.isHighDemand);
-
-  return (
-    <View
-      style={[
-        styles.tile,
-        {
-          left: tile.x * tileSize,
-          top: tile.y * tileSize,
-          width: tileSize,
-          height: tileSize,
-          backgroundColor: visual.backgroundColor,
-          borderColor: visual.borderColor,
-        },
-        tile.kind === 'road' ? styles.tileRoad : null,
-        tile.kind === 'building_slot' ? styles.tileBuildable : null,
-        tile.kind === 'existing_business' ? styles.tileBusiness : null,
-        tile.kind === 'service_building' ? styles.tileService : null,
-        tile.kind === 'expansion_node' ? styles.tileExpansion : null,
-        isSelected ? styles.tileSelected : null,
-        isCurrent ? styles.tileCurrent : null,
-      ]}
-    >
-      {showDemandPulse ? (
-        <SignalPulse color={theme.gameUi.signals.demand} progress={hotspotPulse} />
-      ) : null}
-
-      {tile.kind === 'road' ? (
-        <View
-          style={[
-            styles.roadStripe,
-            tile.roadAxis === 'vertical' ? styles.roadStripeVertical : null,
-            tile.roadAxis === 'intersection' ? styles.roadStripeIntersection : null,
-          ]}
-        />
-      ) : null}
-
-      {tile.kind === 'building_slot' ? <View style={styles.buildSlotInset} /> : null}
-
-      {showLabel ? (
-        <Text style={[styles.tileLabel, { color: visual.labelColor }]}>
-          {tile.shortLabel || tile.label.slice(0, 3).toUpperCase()}
-        </Text>
-      ) : null}
-
-      {isCurrent ? (
-        <View style={styles.currentMarker}>
-          <Text style={styles.currentMarkerText}>YOU</Text>
-        </View>
-      ) : null}
-    </View>
-  );
-}, (prev, next) => (
-  prev.tile === next.tile
-  && prev.tileSize === next.tileSize
-  && prev.district === next.district
-  && prev.isSelected === next.isSelected
-  && prev.isOwned === next.isOwned
-  && prev.isDeveloped === next.isDeveloped
-  && prev.hotspotPulse === next.hotspotPulse
-));
-
-export function zoomTierFor(scale: number): 'far' | 'medium' | 'close' {
-  if (scale < ZOOM_TIER_MEDIUM) return 'far';
-  if (scale < ZOOM_TIER_CLOSE) return 'medium';
-  return 'close';
-}
+const MIN_SCALE = 0.38;
+const MAX_SCALE = 3.2;
+const DEFAULT_SCALE = 0.92;
+const CAMERA_PADDING = 18;
+const ZOOM_LEVEL_ONE_MAX = 0.65;
+const ZOOM_LEVEL_TWO_MAX = 1.2;
+const ZOOM_LEVEL_THREE_MAX = 1.95;
 
 function clamp(value: number, min: number, max: number): number {
   'worklet';
@@ -326,6 +43,361 @@ function clampTranslation(translate: number, viewport: number, content: number, 
   return clamp(translate, minTranslate, maxTranslate);
 }
 
+export function zoomTierFor(scale: number): MapZoomTier {
+  if (scale < ZOOM_LEVEL_ONE_MAX) return 'z1';
+  if (scale < ZOOM_LEVEL_TWO_MAX) return 'z2';
+  if (scale < ZOOM_LEVEL_THREE_MAX) return 'z3';
+  return 'z4';
+}
+
+function shouldRenderTile(tile: SandboxMapTile, zoomTier: MapZoomTier): boolean {
+  if (tile.kind === 'road') return false;
+  if (zoomTier === 'z1') return false;
+  if (zoomTier === 'z2') {
+    if (tile.kind === 'service_building' || tile.kind === 'existing_business') return true;
+    if (tile.waterfront && tile.buildable) return true;
+    if (tile.buildable) return (tile.x + tile.y) % 3 === 0;
+    return false;
+  }
+  return true;
+}
+
+function nearestTileForPoint(map: SandboxCityMap, worldX: number, worldY: number): SandboxMapTile | null {
+  const baseX = Math.floor(worldX / map.tileSize);
+  const baseY = Math.floor(worldY / map.tileSize);
+
+  let best: { tile: SandboxMapTile; distance: number } | null = null;
+
+  for (let dy = -2; dy <= 2; dy += 1) {
+    for (let dx = -2; dx <= 2; dx += 1) {
+      const tileX = baseX + dx;
+      const tileY = baseY + dy;
+      if (tileX < 0 || tileY < 0 || tileX >= map.columns || tileY >= map.rows) continue;
+      const tile = map.tileByCoordinate[`${tileX}:${tileY}`];
+      if (!tile || !tile.selectable) continue;
+      const centerX = (tileX * map.tileSize) + (map.tileSize / 2);
+      const centerY = (tileY * map.tileSize) + (map.tileSize / 2);
+      const distance = ((centerX - worldX) ** 2) + ((centerY - worldY) ** 2);
+      if (!best || distance < best.distance) {
+        best = { tile, distance };
+      }
+    }
+  }
+
+  if (best) return best.tile;
+
+  if (baseX < 0 || baseY < 0 || baseX >= map.columns || baseY >= map.rows) return null;
+  return map.tileByCoordinate[`${baseX}:${baseY}`] || null;
+}
+
+function tileVisualState(
+  tile: SandboxMapTile,
+  isSelected: boolean,
+  isOwned: boolean,
+  isDeveloped: boolean,
+) {
+  let backgroundColor: string = theme.ui.bg.cardRaised;
+  let borderColor: string = theme.ui.border;
+  let borderWidth = 1;
+  let labelColor: string = theme.ui.text.onDarkMuted;
+
+  if (tile.buildable) {
+    backgroundColor = alpha(theme.ui.info, tile.kind === 'building_slot' ? 0.16 : 0.1);
+    borderColor = theme.ui.info;
+    labelColor = theme.ui.text.onDark;
+  }
+
+  if (tile.waterfront && tile.buildable) {
+    backgroundColor = alpha(theme.ui.info, 0.2);
+    borderColor = alpha(theme.ui.info, 0.92);
+  }
+
+  if (tile.kind === 'existing_business' || isOwned || isDeveloped) {
+    backgroundColor = alpha(theme.ui.positive, isDeveloped ? 0.28 : 0.2);
+    borderColor = theme.ui.positive;
+    labelColor = theme.ui.text.onDark;
+  }
+
+  if (tile.kind === 'service_building') {
+    backgroundColor = alpha(theme.ui.action, 0.24);
+    borderColor = alpha(theme.ui.action, 0.86);
+    labelColor = theme.ui.text.onDark;
+  }
+
+  if (tile.kind === 'expansion_node') {
+    backgroundColor = alpha(theme.ui.text.onDarkMuted, 0.12);
+    borderColor = alpha(theme.ui.border, 0.82);
+    labelColor = theme.ui.text.onDarkMuted;
+  }
+
+  if (tile.isCurrentLocation) {
+    borderColor = theme.ui.action;
+    borderWidth = 2;
+    labelColor = theme.ui.text.onDark;
+  }
+
+  if (isSelected) {
+    borderColor = theme.ui.action;
+    borderWidth = 2;
+    labelColor = theme.ui.text.onDark;
+  }
+
+  return {
+    backgroundColor,
+    borderColor,
+    borderWidth,
+    labelColor,
+  };
+}
+
+const StaticLayer = memo(function StaticLayer({
+  map,
+  zoomTier,
+}: {
+  map: SandboxCityMap;
+  zoomTier: MapZoomTier;
+}) {
+  const roads = useMemo(
+    () => map.roads.filter((road) => (zoomTier === 'z1' ? road.major : true)),
+    [map.roads, zoomTier],
+  );
+
+  const roadColor = alpha(theme.ui.border, 0.82);
+  const curbColor = alpha(theme.ui.border, 0.98);
+
+  return (
+    <View pointerEvents="none" style={styles.staticLayer}>
+      <Svg width={map.worldWidth} height={map.worldHeight}>
+        <Rect
+          x={0}
+          y={0}
+          width={map.worldWidth}
+          height={map.worldHeight}
+          fill={theme.ui.bg.card}
+        />
+
+        {map.zones.map((zone: SandboxZoneWash) => (
+          <Rect
+            key={zone.key}
+            x={zone.x}
+            y={zone.y}
+            width={zone.width}
+            height={zone.height}
+            fill={zone.fill}
+          />
+        ))}
+
+        {roads.map((road: SandboxRoadSegment) => {
+          const horizontal = road.width >= road.height;
+          return (
+            <React.Fragment key={road.key}>
+              <Rect
+                x={road.x}
+                y={road.y}
+                width={road.width}
+                height={road.height}
+                fill={roadColor}
+                rx={road.major ? 3 : 2}
+              />
+              {zoomTier !== 'z1' ? (
+                <Rect
+                  x={horizontal ? road.x : road.x + (road.width * 0.25)}
+                  y={horizontal ? road.y + (road.height * 0.25) : road.y}
+                  width={horizontal ? road.width : road.width * 0.5}
+                  height={horizontal ? road.height * 0.5 : road.height}
+                  fill={curbColor}
+                  opacity={0.45}
+                />
+              ) : null}
+            </React.Fragment>
+          );
+        })}
+
+        <Path
+          d={map.river.path}
+          stroke={map.river.baseColor}
+          strokeWidth={map.river.strokeWidth}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+        />
+        <Path
+          d={map.river.path}
+          stroke={map.river.highlightColor}
+          strokeWidth={map.river.highlightWidth}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          opacity={0.7}
+          fill="none"
+        />
+      </Svg>
+    </View>
+  );
+});
+
+const TileCell = memo(function TileCell({
+  tile,
+  tileSize,
+  zoomTier,
+  isSelected,
+  isOwned,
+  isDeveloped,
+}: {
+  tile: SandboxMapTile;
+  tileSize: number;
+  zoomTier: MapZoomTier;
+  isSelected: boolean;
+  isOwned: boolean;
+  isDeveloped: boolean;
+}) {
+  const visual = tileVisualState(tile, isSelected, isOwned, isDeveloped);
+  const width = tileSize * tile.visualScaleX;
+  const height = tileSize * tile.visualScaleY;
+  const left = (tile.x * tileSize) + ((tileSize - width) / 2);
+  const top = (tile.y * tileSize) + ((tileSize - height) / 2);
+  const showTag = (
+    tile.isCurrentLocation
+    || isSelected
+    || tile.kind === 'service_building'
+    || tile.kind === 'existing_business'
+    || (zoomTier === 'z4' && tile.kind === 'building_slot')
+  );
+  const showNumericHint = (
+    zoomTier === 'z4'
+    && Boolean(tile.landProfile)
+    && tile.buildable
+    && (isSelected || tile.kind === 'building_slot' || tile.waterfront)
+  );
+
+  return (
+    <View
+      pointerEvents="none"
+      style={[
+        styles.tile,
+        {
+          left,
+          top,
+          width,
+          height,
+          backgroundColor: visual.backgroundColor,
+          borderColor: visual.borderColor,
+          borderWidth: zoomTier === 'z2' ? 0 : visual.borderWidth,
+          borderRadius: tile.zoneTone === 'rural' ? 3 : 2,
+        },
+      ]}
+    >
+      {isSelected ? <View style={styles.selectedGlow} /> : null}
+
+      {showTag ? (
+        <Text numberOfLines={1} style={[styles.tileTag, { color: visual.labelColor }]}>
+          {tile.shortLabel || tile.label.slice(0, 3).toUpperCase()}
+        </Text>
+      ) : null}
+
+      {showNumericHint ? (
+        <Text numberOfLines={1} style={styles.tileHint}>
+          {tile.landProfile ? `${tile.landProfile.trafficScore}` : ''}
+        </Text>
+      ) : null}
+    </View>
+  );
+}, (prev, next) => (
+  prev.tile === next.tile
+  && prev.tileSize === next.tileSize
+  && prev.zoomTier === next.zoomTier
+  && prev.isSelected === next.isSelected
+  && prev.isOwned === next.isOwned
+  && prev.isDeveloped === next.isDeveloped
+));
+
+const TileLayer = memo(function TileLayer({
+  map,
+  zoomTier,
+  selectedTileKey,
+  ownedTileSet,
+  developedTileSet,
+}: {
+  map: SandboxCityMap;
+  zoomTier: MapZoomTier;
+  selectedTileKey: string | null;
+  ownedTileSet: Set<string>;
+  developedTileSet: Set<string>;
+}) {
+  const visibleTiles = useMemo(
+    () => map.tiles.filter((tile) => shouldRenderTile(tile, zoomTier)),
+    [map.tiles, zoomTier],
+  );
+
+  if (zoomTier === 'z1') return null;
+
+  return (
+    <View pointerEvents="none" style={styles.tileLayer}>
+      {visibleTiles.map((tile) => (
+        <TileCell
+          key={tile.key}
+          tile={tile}
+          tileSize={map.tileSize}
+          zoomTier={zoomTier}
+          isSelected={selectedTileKey === tile.key}
+          isOwned={ownedTileSet.has(tile.key)}
+          isDeveloped={developedTileSet.has(tile.key)}
+        />
+      ))}
+    </View>
+  );
+});
+
+const LabelLayer = memo(function LabelLayer({
+  map,
+  zoomTier,
+}: {
+  map: SandboxCityMap;
+  zoomTier: MapZoomTier;
+}) {
+  if (zoomTier === 'z1') return null;
+
+  const showNodeLabels = zoomTier === 'z4';
+
+  return (
+    <View pointerEvents="none" style={styles.labelLayer}>
+      {map.zones.map((zone) => (
+        <Text
+          key={`zone_${zone.key}`}
+          style={[
+            styles.zoneLabel,
+            {
+              left: zone.labelX,
+              top: zone.labelY,
+              color: zone.labelColor,
+            },
+          ]}
+        >
+          {zone.label}
+        </Text>
+      ))}
+
+      {showNodeLabels
+        ? map.tiles
+          .filter((tile) => tile.kind === 'service_building' || tile.kind === 'existing_business' || tile.isCurrentLocation)
+          .map((tile) => (
+            <Text
+              key={`node_${tile.key}`}
+              style={[
+                styles.nodeLabel,
+                {
+                  left: (tile.x * map.tileSize) + 1,
+                  top: (tile.y * map.tileSize) - 10,
+                },
+              ]}
+            >
+              {tile.label}
+            </Text>
+          ))
+        : null}
+    </View>
+  );
+});
+
 function GameMapComponent({
   map,
   selectedTileKey,
@@ -335,31 +407,51 @@ function GameMapComponent({
   developedTileKeys = [],
 }: GameMapProps) {
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
+  const [zoomTier, setZoomTier] = useState<MapZoomTier>(zoomTierFor(DEFAULT_SCALE));
   const initializedRef = useRef(false);
+  const rafRef = useRef<number | null>(null);
+  const pendingZoomRef = useRef<{ scale: number; tier: MapZoomTier } | null>(null);
 
-  const scale = useSharedValue(1);
+  const scale = useSharedValue(DEFAULT_SCALE);
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
-  const startScale = useSharedValue(1);
+  const startScale = useSharedValue(DEFAULT_SCALE);
   const startTranslateX = useSharedValue(0);
   const startTranslateY = useSharedValue(0);
   const viewportWidth = useSharedValue(0);
   const viewportHeight = useSharedValue(0);
-  const hotspotPulse = useSharedValue(0);
 
-  const districtByKey = useMemo(
-    () => Object.fromEntries(map.districts.map((district) => [district.key, district])),
-    [map.districts],
-  ) as Record<string, SandboxDistrict>;
   const ownedTileSet = useMemo(() => new Set(ownedTileKeys), [ownedTileKeys]);
   const developedTileSet = useMemo(() => new Set(developedTileKeys), [developedTileKeys]);
 
   const selectedTile = selectedTileKey ? map.tileByKey[selectedTileKey] || null : null;
   const currentTile = map.currentLocationTileKey ? map.tileByKey[map.currentLocationTileKey] || null : null;
 
-  useEffect(() => {
-    hotspotPulse.value = withRepeat(withTiming(1, { duration: 1400 }), -1, true);
-  }, [hotspotPulse]);
+  const flushZoomSignal = useCallback(() => {
+    rafRef.current = null;
+    const pending = pendingZoomRef.current;
+    if (!pending) return;
+    pendingZoomRef.current = null;
+    setZoomTier((current) => (current === pending.tier ? current : pending.tier));
+    if (onZoomChange) {
+      onZoomChange(Number(pending.scale.toFixed(2)));
+    }
+  }, [onZoomChange]);
+
+  const queueZoomSignal = useCallback((nextScale: number) => {
+    pendingZoomRef.current = {
+      scale: nextScale,
+      tier: zoomTierFor(nextScale),
+    };
+    if (rafRef.current != null) return;
+    rafRef.current = requestAnimationFrame(flushZoomSignal);
+  }, [flushZoomSignal]);
+
+  useEffect(() => () => {
+    if (rafRef.current != null) {
+      cancelAnimationFrame(rafRef.current);
+    }
+  }, []);
 
   const centerOnTile = useCallback((tile: SandboxMapTile | null, nextScale = scale.value) => {
     if (!tile || viewport.width <= 0 || viewport.height <= 0) return;
@@ -395,12 +487,10 @@ function GameMapComponent({
     );
   }, [map.worldHeight, map.worldWidth, scale, translateX, translateY, viewport.height, viewport.width]);
 
-  const handleTapCoordinate = useCallback((tileX: number, tileY: number) => {
-    const tile = map.tileByCoordinate[`${tileX}:${tileY}`];
-    if (tile) {
-      onTileSelect(tile);
-    }
-  }, [map.tileByCoordinate, onTileSelect]);
+  const handleTap = useCallback((worldX: number, worldY: number) => {
+    const tile = nearestTileForPoint(map, worldX, worldY);
+    if (tile) onTileSelect(tile);
+  }, [map, onTileSelect]);
 
   const panGesture = useMemo(() => Gesture.Pan()
     .onStart(() => {
@@ -441,15 +531,13 @@ function GameMapComponent({
     }), [map.worldHeight, map.worldWidth, scale, startScale, startTranslateX, startTranslateY, translateX, translateY, viewportHeight, viewportWidth]);
 
   const tapGesture = useMemo(() => Gesture.Tap()
-    .maxDistance(10)
+    .maxDistance(12)
     .onEnd((event) => {
       const worldX = (event.x - translateX.value) / scale.value;
       const worldY = (event.y - translateY.value) / scale.value;
-      const tileX = Math.floor(worldX / map.tileSize);
-      const tileY = Math.floor(worldY / map.tileSize);
-      if (tileX < 0 || tileY < 0 || tileX >= map.columns || tileY >= map.rows) return;
-      runOnJS(handleTapCoordinate)(tileX, tileY);
-    }), [handleTapCoordinate, map.columns, map.rows, map.tileSize, scale, translateX, translateY]);
+      if (worldX < 0 || worldY < 0 || worldX > map.worldWidth || worldY > map.worldHeight) return;
+      runOnJS(handleTap)(worldX, worldY);
+    }), [handleTap, map.worldHeight, map.worldWidth, scale, translateX, translateY]);
 
   const gesture = useMemo(
     () => Gesture.Simultaneous(panGesture, pinchGesture, tapGesture),
@@ -457,18 +545,18 @@ function GameMapComponent({
   );
 
   useAnimatedReaction(
-    () => Number(scale.value.toFixed(2)),
+    () => scale.value,
     (current, previous) => {
-      if (current === previous || !onZoomChange) return;
-      runOnJS(onZoomChange)(current);
+      if (previous !== null && Math.abs(current - previous) < 0.01) return;
+      runOnJS(queueZoomSignal)(current);
     },
-    [onZoomChange, scale],
+    [scale, queueZoomSignal],
   );
 
   useEffect(() => {
     if (!viewport.width || !viewport.height || initializedRef.current) return;
     initializedRef.current = true;
-    centerOnTile(currentTile || selectedTile);
+    centerOnTile(currentTile || selectedTile, DEFAULT_SCALE);
   }, [centerOnTile, currentTile, selectedTile, viewport.height, viewport.width]);
 
   const handleLayout = (event: LayoutChangeEvent) => {
@@ -490,11 +578,6 @@ function GameMapComponent({
 
   return (
     <View style={styles.mapFrame} onLayout={handleLayout}>
-      <View pointerEvents="none" style={styles.atmosphereLayer}>
-        <View style={styles.atmosphereOrbPrimary} />
-        <View style={styles.atmosphereOrbSecondary} />
-      </View>
-
       <GestureDetector gesture={gesture}>
         <View style={styles.viewport}>
           <Animated.View
@@ -507,38 +590,27 @@ function GameMapComponent({
               mapAnimatedStyle,
             ]}
           >
-            {map.districts.map((district) => (
-              <DistrictBlock
-                key={district.key}
-                district={district}
-                tileSize={map.tileSize}
-              />
-            ))}
-
-            {map.tiles.map((tile) => (
-              <TileCell
-                key={tile.key}
-                tile={tile}
-                tileSize={map.tileSize}
-                district={tile.districtKey ? districtByKey[tile.districtKey] || null : null}
-                isSelected={tile.key === selectedTileKey}
-                isOwned={ownedTileSet.has(tile.key)}
-                isDeveloped={developedTileSet.has(tile.key)}
-                hotspotPulse={hotspotPulse}
-              />
-            ))}
+            <StaticLayer map={map} zoomTier={zoomTier} />
+            <TileLayer
+              map={map}
+              zoomTier={zoomTier}
+              selectedTileKey={selectedTileKey}
+              ownedTileSet={ownedTileSet}
+              developedTileSet={developedTileSet}
+            />
+            <LabelLayer map={map} zoomTier={zoomTier} />
           </Animated.View>
         </View>
       </GestureDetector>
 
       <View style={styles.controls}>
-        <Pressable style={styles.controlButton} onPress={() => adjustZoom(0.2)}>
+        <Pressable style={styles.controlButton} onPress={() => adjustZoom(0.22)}>
           <Text style={styles.controlLabel}>+</Text>
         </Pressable>
-        <Pressable style={styles.controlButton} onPress={() => adjustZoom(-0.2)}>
+        <Pressable style={styles.controlButton} onPress={() => adjustZoom(-0.22)}>
           <Text style={styles.controlLabel}>-</Text>
         </Pressable>
-        <Pressable style={styles.controlButtonWide} onPress={() => centerOnTile(currentTile || selectedTile, 1)}>
+        <Pressable style={styles.controlButtonWide} onPress={() => centerOnTile(currentTile || selectedTile, DEFAULT_SCALE)}>
           <Text style={styles.controlLabelWide}>Center</Text>
         </Pressable>
       </View>
@@ -550,146 +622,76 @@ const styles = StyleSheet.create({
   mapFrame: {
     flex: 1,
     overflow: 'hidden',
-    backgroundColor: theme.gameUi.mapBackdrop,
-  },
-  atmosphereLayer: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  atmosphereOrbPrimary: {
-    position: 'absolute',
-    top: -36,
-    left: -24,
-    width: 180,
-    height: 180,
-    borderRadius: 999,
-    backgroundColor: alpha(theme.gameUi.primary, 0.1),
-  },
-  atmosphereOrbSecondary: {
-    position: 'absolute',
-    right: -42,
-    bottom: 76,
-    width: 220,
-    height: 220,
-    borderRadius: 999,
-    backgroundColor: alpha(theme.gameUi.signals.demand, 0.06),
+    backgroundColor: theme.ui.bg.card,
   },
   viewport: {
     flex: 1,
-    backgroundColor: theme.gameUi.mapBackdrop,
+    backgroundColor: theme.ui.bg.card,
   },
   world: {
     position: 'absolute',
     left: 0,
     top: 0,
-    backgroundColor: theme.gameUi.mapBackdropDeep,
+    backgroundColor: theme.ui.bg.card,
   },
-  districtBlock: {
-    position: 'absolute',
-    borderWidth: 2,
+  staticLayer: {
+    ...StyleSheet.absoluteFillObject,
   },
-  districtBadge: {
-    margin: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRadius: 10,
-    borderWidth: 1,
-    alignSelf: 'flex-start',
+  tileLayer: {
+    ...StyleSheet.absoluteFillObject,
   },
-  districtTitle: {
-    ...theme.typography.caption,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.7,
-  },
-  districtSubtitle: {
-    marginTop: 1,
-    ...theme.typography.caption,
-    fontSize: 9,
-    lineHeight: 11,
+  labelLayer: {
+    ...StyleSheet.absoluteFillObject,
   },
   tile: {
     position: 'absolute',
-    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
+    overflow: 'visible',
   },
-  tileRoad: {
-    borderWidth: 0,
-  },
-  tileBuildable: {
-    borderWidth: 1.5,
-  },
-  tileBusiness: {
-    borderWidth: 1.5,
-  },
-  tileService: {
-    borderWidth: 1.5,
-  },
-  tileExpansion: {
-    borderStyle: 'dashed',
-  },
-  tileSelected: {
-    borderWidth: 2,
-  },
-  tileCurrent: {
-    borderWidth: 2,
-  },
-  signalPulse: {
-    position: 'absolute',
-    width: '72%',
-    height: '72%',
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  tileLabel: {
-    ...theme.typography.caption,
-    fontSize: 8,
-    lineHeight: 9,
-    fontWeight: '800',
-    letterSpacing: 0.4,
-    textAlign: 'center',
-  },
-  roadStripe: {
-    position: 'absolute',
-    width: '70%',
-    height: 2,
-    backgroundColor: theme.gameUi.roadStripe,
-    borderRadius: 999,
-  },
-  roadStripeVertical: {
-    width: 2,
-    height: '70%',
-  },
-  roadStripeIntersection: {
-    width: '70%',
-    height: 2,
-    borderRadius: 999,
-  },
-  buildSlotInset: {
-    width: '60%',
-    height: '60%',
-    borderWidth: 1,
-    borderColor: alpha(theme.gameUi.icons.openSlot, 0.42),
+  selectedGlow: {
+    ...StyleSheet.absoluteFillObject,
     borderRadius: 4,
-    backgroundColor: alpha(theme.gameUi.card, 0.18),
+    borderWidth: 1,
+    borderColor: alpha(theme.ui.action, 0.52),
+    shadowColor: theme.ui.action,
+    shadowOpacity: 0.34,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 5,
   },
-  currentMarker: {
-    position: 'absolute',
-    bottom: 2,
-    left: 2,
-    right: 2,
-    paddingVertical: 1,
-    borderRadius: 999,
-    backgroundColor: alpha(theme.gameUi.primary, 0.94),
+  tileTag: {
+    ...theme.typography.caption,
+    fontSize: 7,
+    lineHeight: 8,
+    letterSpacing: 0.4,
+    fontWeight: '800',
+    textTransform: 'uppercase',
   },
-  currentMarkerText: {
-    color: theme.gameUi.card,
+  tileHint: {
+    marginTop: 1,
+    ...theme.typography.caption,
     fontSize: 6,
     lineHeight: 7,
-    fontWeight: '900',
-    textAlign: 'center',
-    letterSpacing: 0.5,
+    color: theme.ui.text.onDarkMuted,
+    fontWeight: '700',
+  },
+  zoneLabel: {
+    position: 'absolute',
+    ...theme.typography.caption,
+    fontSize: 10,
+    lineHeight: 12,
+    fontWeight: '800',
+    letterSpacing: 1.5,
+    textTransform: 'uppercase',
+  },
+  nodeLabel: {
+    position: 'absolute',
+    ...theme.typography.caption,
+    fontSize: 7,
+    lineHeight: 8,
+    color: theme.ui.text.onDarkMuted,
+    letterSpacing: 0.4,
   },
   controls: {
     position: 'absolute',
@@ -702,35 +704,35 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 14,
-    backgroundColor: theme.gameUi.hudGlass,
+    backgroundColor: alpha(theme.ui.bg.card, 0.94),
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: theme.gameUi.hudBorder,
+    borderColor: alpha(theme.ui.border, 0.92),
     ...theme.shadow.md,
   },
   controlButtonWide: {
-    minWidth: 68,
+    minWidth: 72,
     height: 36,
     paddingHorizontal: 12,
     borderRadius: 14,
-    backgroundColor: theme.gameUi.hudGlass,
+    backgroundColor: alpha(theme.ui.bg.card, 0.94),
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: theme.gameUi.hudBorder,
+    borderColor: alpha(theme.ui.border, 0.92),
     ...theme.shadow.md,
   },
   controlLabel: {
     fontSize: 22,
     lineHeight: 24,
     fontWeight: '700',
-    color: theme.gameUi.textPrimary,
+    color: theme.ui.text.onDark,
   },
   controlLabelWide: {
     ...theme.typography.caption,
     fontWeight: '800',
-    color: theme.gameUi.textPrimary,
+    color: theme.ui.text.onDark,
     textTransform: 'uppercase',
     letterSpacing: 0.7,
   },

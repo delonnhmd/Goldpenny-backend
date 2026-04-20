@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { theme } from '@/design/theme';
+import { alpha, theme } from '@/design/theme';
 import {
   formatIndexLevel,
   trendLabelText,
@@ -83,9 +83,9 @@ const styles = StyleSheet.create({
   },
   row: {
     borderWidth: 1,
-    borderColor: 'rgba(148, 163, 184, 0.14)',
+    borderColor: alpha(theme.ui.border, 0.64),
     borderRadius: theme.radius.lg,
-    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    backgroundColor: theme.ui.bg.cardRaised,
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.sm,
     gap: theme.spacing.xs,

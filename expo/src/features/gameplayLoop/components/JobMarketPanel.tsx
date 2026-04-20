@@ -1,6 +1,8 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import Card from '@/components/ui/Card';
+import Chip from '@/components/ui/Chip';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import SecondaryButton from '@/components/ui/SecondaryButton';
 import { theme } from '@/design/theme';
@@ -17,6 +19,10 @@ interface JobMarketPanelProps {
   onSwitchJob: (job: JobMarketJobSnapshot) => void;
   onStartTraining: (job: JobMarketJobSnapshot) => void;
   interactionDisabledReason?: string | null;
+}
+
+function salaryLabel(value: number): string {
+  return `${Math.round(Math.max(0, Number(value || 0)))} XGP / month`;
 }
 
 export default function JobMarketPanel({
@@ -83,12 +89,16 @@ export default function JobMarketPanel({
       ) : null}
 
       {currentJobProgress ? (
-        <View style={styles.progressCard}>
-          <Text style={styles.progressTitle}>Current Job Progress</Text>
+        <Card variant="info" style={styles.progressCard}>
+          <View style={styles.progressTitleRow}>
+            <Text style={styles.progressTitle}>Current Job Progress</Text>
+            <Chip
+              label={`Level ${Math.max(1, Number(currentJobProgress.job_level || 1))}`}
+              variant="active"
+            />
+          </View>
           <Text style={styles.progressSubtitle}>
-            {currentJobName} · Level {Math.max(1, Number(currentJobProgress.job_level || 1))}
-            {' · '}
-            {currentJobProgress.promotion_tier || 'Junior'}
+            {currentJobName} | {currentJobProgress.promotion_tier || 'Junior'}
           </Text>
           <Text style={styles.progressMeta}>
             XP: {Math.round(currentJobXp)} / {Math.round(currentJobXpToNext)}
@@ -105,7 +115,7 @@ export default function JobMarketPanel({
           <Text style={styles.progressHint}>
             {currentJobProgress.salary_preview_note || 'Estimated only - live payroll remains unchanged.'}
           </Text>
-        </View>
+        </Card>
       ) : null}
 
       {Array.isArray(jobMarket.career_progression) && jobMarket.career_progression.length > 0 ? (
@@ -120,12 +130,17 @@ export default function JobMarketPanel({
             const locked = Boolean(track.locked);
             const hasProgress = Boolean(track.has_progression);
             return (
-              <View key={`career_track_${track.job_key}`} style={styles.careerTrackRow}>
+              <Card
+                key={`career_track_${track.job_key}`}
+                variant={locked ? 'warning' : 'default'}
+                style={styles.careerTrackRow}
+              >
                 <View style={styles.careerTrackHead}>
                   <Text style={styles.careerTrackJob}>{track.display_name || track.job_key}</Text>
-                  <Text style={styles.careerTrackStatus}>
-                    {locked ? 'Locked' : `Level ${Math.max(1, Number(track.job_level || 1))} · ${track.promotion_tier || 'Junior'}`}
-                  </Text>
+                  <Chip
+                    label={locked ? 'Locked' : `Level ${Math.max(1, Number(track.job_level || 1))}`}
+                    variant={locked ? 'warning' : 'neutral'}
+                  />
                 </View>
                 {locked ? (
                   <Text style={styles.careerTrackRequirement}>
@@ -135,7 +150,7 @@ export default function JobMarketPanel({
                 {hasProgress ? (
                   <>
                     <Text style={styles.careerTrackMeta}>
-                      XP {Math.round(trackXp)} / {Math.round(trackXpToNext)} · Shifts {Math.max(0, Number(track.shifts_completed || 0))}
+                      XP {Math.round(trackXp)} / {Math.round(trackXpToNext)} | Shifts {Math.max(0, Number(track.shifts_completed || 0))}
                     </Text>
                     <View style={styles.trackRowProgress}>
                       <View style={[styles.trackRowProgressFill, { width: `${trackPct}%` }]} />
@@ -146,7 +161,7 @@ export default function JobMarketPanel({
                     No progression yet.
                   </Text>
                 )}
-              </View>
+              </Card>
             );
           })}
         </View>
@@ -173,27 +188,36 @@ export default function JobMarketPanel({
           const prerequisiteLine = Array.isArray(job.prerequisite_job_labels) && job.prerequisite_job_labels.length > 0
             ? job.prerequisite_job_labels.join(' / ')
             : 'Any starter lane';
+          const cardVariant = isCurrent ? 'positive' : isLocked ? 'warning' : 'default';
 
           return (
-            <View key={job.job_key} style={[styles.jobCard, isCurrent ? styles.jobCardCurrent : null]}>
+            <Card key={job.job_key} variant={cardVariant} style={styles.jobCard}>
               <View style={styles.jobHeader}>
                 <Text style={styles.jobName}>{job.display_name}</Text>
-                <Text style={styles.jobStatus}>
-                  {isCurrent ? 'Current Job' : isLocked ? 'Locked' : 'Available'}
-                </Text>
+                {isCurrent ? <Chip label="Current" variant="positive" /> : null}
+                {!isCurrent && isLocked ? (
+                  <View style={styles.lockedStateWrap}>
+                    <Text style={styles.lockIcon}>{'\u{1F512}'}</Text>
+                    <Chip label="Locked" variant="warning" />
+                  </View>
+                ) : null}
               </View>
-              <Text style={styles.jobMeta}>Salary: {Math.round(salary)} XGP / month</Text>
-              <Text style={styles.jobMeta}>Stress: {job.stress_level || 'Moderate'}</Text>
-              <Text style={styles.jobMeta}>
+              <Text style={[styles.jobMeta, isLocked ? styles.jobMetaLocked : null]}>
+                Salary: {salaryLabel(salary)}
+              </Text>
+              <Text style={[styles.jobMeta, isLocked ? styles.jobMetaLocked : null]}>
+                Stress: {job.stress_level || 'Moderate'}
+              </Text>
+              <Text style={[styles.jobMeta, isLocked ? styles.jobMetaLocked : null]}>
                 Requirement: {job.requires_certification ? `Requires ${job.certification_name || 'Certification'}` : 'No certification needed'}
               </Text>
-              <Text style={styles.jobMeta}>
+              <Text style={[styles.jobMeta, isLocked ? styles.jobMetaLocked : null]}>
                 Level requirement: {Math.max(1, Number(job.level_requirement || 1))}
               </Text>
-              <Text style={styles.jobMeta}>
+              <Text style={[styles.jobMeta, isLocked ? styles.jobMetaLocked : null]}>
                 Experience requirement: {Math.max(0, Number(job.experience_requirement_shifts || 0))} total shifts
               </Text>
-              <Text style={styles.jobMeta}>
+              <Text style={[styles.jobMeta, isLocked ? styles.jobMetaLocked : null]}>
                 Path: {job.path_hint || prerequisiteLine}
               </Text>
               {isLocked && job.requirement_label ? (
@@ -201,19 +225,19 @@ export default function JobMarketPanel({
               ) : null}
               {progression ? (
                 <View style={styles.jobProgressWrap}>
-                  <Text style={styles.jobProgressLabel}>
-                    Level {Math.max(1, Number(progression.job_level || 1))} · {progression.promotion_tier || 'Junior'}
+                  <Text style={[styles.jobProgressLabel, isLocked ? styles.jobMetaLocked : null]}>
+                    Level {Math.max(1, Number(progression.job_level || 1))} | {progression.promotion_tier || 'Junior'}
                   </Text>
-                  <Text style={styles.jobProgressMeta}>
-                    XP {Math.round(progressXp)} / {Math.round(progressXpToNext)} · Shifts {Math.max(0, Number(progression.shifts_completed || 0))}
+                  <Text style={[styles.jobProgressMeta, isLocked ? styles.jobMetaLocked : null]}>
+                    XP {Math.round(progressXp)} / {Math.round(progressXpToNext)} | Shifts {Math.max(0, Number(progression.shifts_completed || 0))}
                   </Text>
                   <View style={styles.trackRowProgress}>
                     <View style={[styles.trackRowProgressFill, { width: `${progressPct}%` }]} />
                   </View>
-                  <Text style={styles.jobProgressMeta}>
+                  <Text style={[styles.jobProgressMeta, isLocked ? styles.jobMetaLocked : null]}>
                     Estimated current: {formatMoney(currentSalaryEstimate)} / month
                   </Text>
-                  <Text style={styles.jobProgressMeta}>
+                  <Text style={[styles.jobProgressMeta, isLocked ? styles.jobMetaLocked : null]}>
                     Next level (+{Math.round(nextPct)}%): {formatMoney(nextSalaryEstimate)} / month
                   </Text>
                 </View>
@@ -243,7 +267,7 @@ export default function JobMarketPanel({
                     </Text>
                   </View>
                   <Text style={styles.trainingMeta}>
-                    {Math.max(0, Number(job.training_days_completed || 0))} / {Math.max(0, Number(job.training_days_required || 0))} days completed · {Math.max(0, Number(job.training_days_remaining ?? (Number(job.training_days_required || 0) - Number(job.training_days_completed || 0))))} days remaining
+                    {Math.max(0, Number(job.training_days_completed || 0))} / {Math.max(0, Number(job.training_days_required || 0))} days completed | {Math.max(0, Number(job.training_days_remaining ?? (Number(job.training_days_required || 0) - Number(job.training_days_completed || 0))))} days remaining
                   </Text>
                   <Text style={styles.trainingHint}>Use Skill Training to advance progress.</Text>
                 </View>
@@ -276,7 +300,7 @@ export default function JobMarketPanel({
                   style={styles.button}
                 />
               )}
-            </View>
+            </Card>
           );
         })}
       </View>
@@ -286,46 +310,48 @@ export default function JobMarketPanel({
 
 const styles = StyleSheet.create({
   progressCard: {
-    borderWidth: 1,
-    borderColor: 'rgba(34, 211, 238, 0.24)',
-    backgroundColor: 'rgba(8, 47, 73, 0.3)',
-    borderRadius: theme.radius.lg,
+    gap: theme.spacing.xs,
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.sm,
-    gap: theme.spacing.xxs,
+  },
+  progressTitleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
   },
   progressTitle: {
     ...theme.typography.bodyMd,
-    color: '#e0f2fe',
+    color: theme.ui.text.onDark,
     fontWeight: '800',
   },
   progressSubtitle: {
     ...theme.typography.bodySm,
-    color: '#93c5fd',
+    color: theme.ui.text.onDarkMuted,
     fontWeight: '700',
   },
   progressMeta: {
     ...theme.typography.caption,
-    color: '#93c5fd',
+    color: theme.ui.text.onDarkMuted,
   },
   progressMetaStrong: {
     ...theme.typography.bodySm,
-    color: '#e0f2fe',
+    color: theme.ui.text.onDark,
     fontWeight: '700',
   },
   progressHint: {
     ...theme.typography.caption,
-    color: '#93c5fd',
+    color: theme.ui.text.onDarkMuted,
   },
   progressTrack: {
     height: 7,
     borderRadius: theme.radius.pill,
-    backgroundColor: 'rgba(148, 163, 184, 0.18)',
+    backgroundColor: theme.ui.bg.cardRaised,
     overflow: 'hidden',
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#22d3ee',
+    backgroundColor: theme.ui.action,
     borderRadius: theme.radius.pill,
   },
   careerListWrap: {
@@ -333,17 +359,13 @@ const styles = StyleSheet.create({
   },
   careerListTitle: {
     ...theme.typography.bodyMd,
-    color: theme.color.textPrimary,
+    color: theme.ui.text.onDark,
     fontWeight: '800',
   },
   careerTrackRow: {
-    borderWidth: 1,
-    borderColor: theme.color.border,
-    borderRadius: theme.radius.md,
-    backgroundColor: theme.color.surfaceAlt,
+    gap: theme.spacing.xs,
     paddingHorizontal: theme.spacing.sm,
-    paddingVertical: theme.spacing.xs,
-    gap: theme.spacing.xxs,
+    paddingVertical: theme.spacing.sm,
   },
   careerTrackHead: {
     flexDirection: 'row',
@@ -353,54 +375,41 @@ const styles = StyleSheet.create({
   },
   careerTrackJob: {
     ...theme.typography.bodySm,
-    color: theme.color.textPrimary,
+    color: theme.ui.text.onDark,
     fontWeight: '700',
     flex: 1,
   },
-  careerTrackStatus: {
-    ...theme.typography.caption,
-    color: theme.color.textSecondary,
-    fontWeight: '700',
-  },
   careerTrackRequirement: {
     ...theme.typography.caption,
-    color: '#fcd34d',
+    color: theme.ui.text.onDarkMuted,
     fontWeight: '700',
   },
   careerTrackMeta: {
     ...theme.typography.caption,
-    color: theme.color.textSecondary,
+    color: theme.ui.text.onDarkMuted,
   },
   careerTrackMetaMuted: {
     ...theme.typography.caption,
-    color: theme.color.muted,
+    color: theme.ui.text.onDarkMuted,
   },
   trackRowProgress: {
     height: 6,
     borderRadius: theme.radius.pill,
-    backgroundColor: 'rgba(148, 163, 184, 0.18)',
+    backgroundColor: theme.ui.bg.cardRaised,
     overflow: 'hidden',
   },
   trackRowProgressFill: {
     height: '100%',
-    backgroundColor: '#22d3ee',
+    backgroundColor: theme.ui.action,
     borderRadius: theme.radius.pill,
   },
   list: {
     gap: theme.spacing.sm,
   },
   jobCard: {
-    borderWidth: 1,
-    borderColor: theme.color.border,
-    borderRadius: theme.radius.lg,
-    backgroundColor: theme.color.surfaceAlt,
+    gap: theme.spacing.xxs,
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.sm,
-    gap: theme.spacing.xxs,
-  },
-  jobCardCurrent: {
-    borderColor: 'rgba(74, 222, 128, 0.28)',
-    backgroundColor: 'rgba(20, 83, 45, 0.3)',
   },
   jobHeader: {
     flexDirection: 'row',
@@ -408,25 +417,31 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: theme.spacing.sm,
   },
+  lockedStateWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+  },
+  lockIcon: {
+    fontSize: 14,
+    color: theme.ui.warning,
+  },
   jobName: {
     ...theme.typography.bodyMd,
-    color: theme.color.textPrimary,
+    color: theme.ui.text.onDark,
     fontWeight: '800',
     flex: 1,
   },
-  jobStatus: {
-    ...theme.typography.caption,
-    color: theme.color.textSecondary,
-    textTransform: 'uppercase',
-    fontWeight: '700',
-  },
   jobMeta: {
     ...theme.typography.bodySm,
-    color: theme.color.textSecondary,
+    color: theme.ui.text.onDarkMuted,
+  },
+  jobMetaLocked: {
+    color: theme.ui.text.onDarkMuted,
   },
   lockedHint: {
     ...theme.typography.caption,
-    color: '#fcd34d',
+    color: theme.ui.text.onDarkMuted,
     fontWeight: '700',
   },
   trainingWrap: {
@@ -435,7 +450,7 @@ const styles = StyleSheet.create({
   },
   trainingTitle: {
     ...theme.typography.caption,
-    color: theme.color.info,
+    color: theme.ui.text.onDark,
     fontWeight: '800',
   },
   trainingProgressRow: {
@@ -447,29 +462,29 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 8,
     borderRadius: theme.radius.pill,
-    backgroundColor: 'rgba(148, 163, 184, 0.18)',
+    backgroundColor: theme.ui.bg.cardRaised,
     overflow: 'hidden',
   },
   trainingFill: {
     height: '100%',
-    backgroundColor: '#22d3ee',
+    backgroundColor: theme.ui.info,
     borderRadius: theme.radius.pill,
   },
   trainingPct: {
     ...theme.typography.caption,
-    color: theme.color.info,
+    color: theme.ui.text.onDark,
     fontWeight: '700',
     minWidth: 32,
     textAlign: 'right',
   },
   trainingMeta: {
     ...theme.typography.caption,
-    color: theme.color.info,
+    color: theme.ui.text.onDarkMuted,
     fontWeight: '700',
   },
   trainingHint: {
     ...theme.typography.caption,
-    color: theme.color.textSecondary,
+    color: theme.ui.text.onDarkMuted,
   },
   jobProgressWrap: {
     marginTop: theme.spacing.xxs,
@@ -477,12 +492,12 @@ const styles = StyleSheet.create({
   },
   jobProgressLabel: {
     ...theme.typography.caption,
-    color: theme.color.textPrimary,
+    color: theme.ui.text.onDark,
     fontWeight: '700',
   },
   jobProgressMeta: {
     ...theme.typography.caption,
-    color: theme.color.textSecondary,
+    color: theme.ui.text.onDarkMuted,
   },
   button: {
     marginTop: theme.spacing.xs,

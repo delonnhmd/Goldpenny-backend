@@ -12,15 +12,15 @@ interface StressHealthBarsProps {
 }
 
 function stressColor(pct: number): string {
-  if (pct <= 0.4) return '#22C55E';
-  if (pct <= 0.7) return '#EAB308';
-  return '#EF4444';
+  if (pct <= 0.4) return theme.ui.positive;
+  if (pct <= 0.7) return theme.ui.warning;
+  return theme.ui.danger;
 }
 
 function healthColor(pct: number): string {
-  if (pct >= 0.6) return '#22C55E';
-  if (pct >= 0.3) return '#F97316';
-  return '#EF4444';
+  if (pct >= 0.6) return theme.ui.positive;
+  if (pct >= 0.3) return theme.ui.warning;
+  return theme.ui.danger;
 }
 
 function stressEmoji(pct: number): string {
@@ -136,7 +136,7 @@ const styles = StyleSheet.create({
   track: {
     height: 8,
     borderRadius: 999,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: theme.ui.bg.cardRaised,
     overflow: 'hidden',
   },
   fill: {
@@ -161,7 +161,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 5,
     borderRadius: 999,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: theme.ui.bg.cardRaised,
     overflow: 'hidden',
   },
   compactFill: {

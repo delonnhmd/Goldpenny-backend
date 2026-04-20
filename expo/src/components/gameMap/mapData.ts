@@ -1,6 +1,6 @@
 import type { TravelOptionSnapshot } from '@/types/gameplay';
 import type { BusinessLandZoneType, BusinessLotSize } from '@/types/business';
-import { theme } from '@/design/theme';
+import { alpha, theme } from '@/design/theme';
 
 export interface MapNode {
   key: string;
@@ -32,6 +32,7 @@ export type MapTileActionTag =
   | 'business_inventory';
 
 export type RoadAxis = 'horizontal' | 'vertical' | 'intersection' | null;
+export type MapZoneTone = 'rural' | 'downtown';
 
 export interface SandboxLandProfile {
   zoneType: BusinessLandZoneType;
@@ -45,13 +46,38 @@ export interface SandboxDistrict {
   key: string;
   label: string;
   subtitle: string;
-  tone: 'suburban' | 'downtown' | 'commercial';
+  tone: MapZoneTone;
+}
+
+export interface SandboxZoneWash {
+  key: MapZoneTone;
+  label: 'RURAL' | 'DOWNTOWN';
+  tone: MapZoneTone;
   x: number;
   y: number;
   width: number;
   height: number;
   fill: string;
-  accent: string;
+  labelX: number;
+  labelY: number;
+  labelColor: string;
+}
+
+export interface SandboxRoadSegment {
+  key: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  major: boolean;
+}
+
+export interface SandboxRiverGeometry {
+  path: string;
+  baseColor: string;
+  highlightColor: string;
+  strokeWidth: number;
+  highlightWidth: number;
 }
 
 export interface SandboxMapTile {
@@ -64,6 +90,7 @@ export interface SandboxMapTile {
   description: string;
   districtKey?: string | null;
   districtLabel?: string | null;
+  zoneTone?: MapZoneTone | null;
   buildable: boolean;
   selectable: boolean;
   nodeKey?: string | null;
@@ -74,6 +101,9 @@ export interface SandboxMapTile {
   travelOption?: TravelOptionSnapshot | null;
   actionTags: MapTileActionTag[];
   landProfile?: SandboxLandProfile | null;
+  waterfront: boolean;
+  visualScaleX: number;
+  visualScaleY: number;
 }
 
 export interface SandboxCityMap {
@@ -83,6 +113,9 @@ export interface SandboxCityMap {
   worldWidth: number;
   worldHeight: number;
   districts: SandboxDistrict[];
+  zones: SandboxZoneWash[];
+  roads: SandboxRoadSegment[];
+  river: SandboxRiverGeometry;
   tiles: SandboxMapTile[];
   tileByKey: Record<string, SandboxMapTile>;
   tileByCoordinate: Record<string, SandboxMapTile>;
@@ -106,91 +139,119 @@ interface TileSeed {
   actionTags?: MapTileActionTag[];
 }
 
-export const MAP_COLUMNS = 30;
-export const MAP_ROWS = 22;
-// Step 96N — bumped from 28 to 32 for better mobile touch targets while still
-// fine-grained enough for lot-slot precision at close zoom.
-export const MAP_TILE_SIZE = 32;
+interface RoadSeed {
+  key: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  major: boolean;
+}
+
+interface Point {
+  x: number;
+  y: number;
+}
+
+interface RiverSegment {
+  start: Point;
+  c1: Point;
+  c2: Point;
+  end: Point;
+}
+
+export const MAP_COLUMNS = 56;
+export const MAP_ROWS = 40;
+export const MAP_TILE_SIZE = 16;
+
+const RIVER_WATERFRONT_DISTANCE_PX = MAP_TILE_SIZE * 1.42;
 
 const DISTRICTS: SandboxDistrict[] = [
   {
     key: 'heights',
     label: 'Heights',
-    subtitle: 'Starter homes + daily needs',
-    tone: 'suburban',
-    x: 1,
-    y: 1,
-    width: 8,
-    height: 7,
-    fill: theme.gameUi.district.suburban.base,
-    accent: theme.gameUi.district.suburban.accent,
-  },
-  {
-    key: 'midtown',
-    label: 'Midtown',
-    subtitle: 'Service traffic + fast turnover',
-    tone: 'downtown',
-    x: 11,
-    y: 1,
-    width: 8,
-    height: 7,
-    fill: theme.gameUi.district.downtown.base,
-    accent: theme.gameUi.district.downtown.highlight,
-  },
-  {
-    key: 'exchange',
-    label: 'Exchange',
-    subtitle: 'Commercial demand belt',
-    tone: 'commercial',
-    x: 21,
-    y: 1,
-    width: 8,
-    height: 7,
-    fill: theme.gameUi.district.commercial.base,
-    accent: theme.gameUi.district.commercial.accent,
+    subtitle: 'Rural homes + local services',
+    tone: 'rural',
   },
   {
     key: 'makers',
     label: 'Makers Row',
-    subtitle: 'Small lots + light logistics',
-    tone: 'suburban',
-    x: 1,
-    y: 14,
-    width: 8,
-    height: 7,
-    fill: theme.gameUi.district.suburban.base,
-    accent: theme.gameUi.district.suburban.accent,
+    subtitle: 'Light production + flexible lots',
+    tone: 'rural',
+  },
+  {
+    key: 'exchange',
+    label: 'Exchange',
+    subtitle: 'River-adjacent trading lots',
+    tone: 'rural',
+  },
+  {
+    key: 'midtown',
+    label: 'Midtown',
+    subtitle: 'Dense service economy core',
+    tone: 'downtown',
   },
   {
     key: 'commerce',
     label: 'Commerce',
-    subtitle: 'Dense work nodes + offices',
+    subtitle: 'High-opportunity business belt',
     tone: 'downtown',
-    x: 11,
-    y: 14,
-    width: 8,
-    height: 7,
-    fill: theme.gameUi.district.downtown.accent,
-    accent: theme.gameUi.district.downtown.highlight,
   },
   {
     key: 'harbor',
     label: 'Harbor',
-    subtitle: 'Higher-capacity expansion land',
-    tone: 'commercial',
-    x: 21,
-    y: 14,
-    width: 8,
-    height: 7,
-    fill: theme.gameUi.district.commercial.base,
-    accent: theme.gameUi.district.commercial.accent,
+    subtitle: 'Late-game heavy expansion',
+    tone: 'downtown',
+  },
+];
+
+const DISTRICT_BY_KEY = Object.fromEntries(
+  DISTRICTS.map((district) => [district.key, district]),
+) as Record<string, SandboxDistrict>;
+
+const ROAD_SEEDS: RoadSeed[] = [
+  { key: 'h_1_w', x: 0, y: 6, width: 25, height: 1, major: true },
+  { key: 'h_1_e', x: 30, y: 6, width: 26, height: 1, major: true },
+  { key: 'h_2_w', x: 2, y: 12, width: 20, height: 1, major: false },
+  { key: 'h_2_e', x: 26, y: 12, width: 30, height: 1, major: true },
+  { key: 'h_3_w', x: 5, y: 19, width: 17, height: 1, major: false },
+  { key: 'h_3_e', x: 24, y: 19, width: 32, height: 2, major: true },
+  { key: 'h_4_w', x: 0, y: 27, width: 18, height: 1, major: false },
+  { key: 'h_4_e', x: 22, y: 27, width: 34, height: 1, major: true },
+  { key: 'h_5_w', x: 3, y: 34, width: 19, height: 1, major: false },
+  { key: 'h_5_e', x: 27, y: 34, width: 29, height: 1, major: true },
+  { key: 'v_1_n', x: 8, y: 0, width: 1, height: 16, major: false },
+  { key: 'v_1_s', x: 8, y: 20, width: 1, height: 20, major: false },
+  { key: 'v_2_n', x: 16, y: 4, width: 1, height: 14, major: false },
+  { key: 'v_2_s', x: 16, y: 22, width: 1, height: 18, major: false },
+  { key: 'v_3_n', x: 24, y: 0, width: 2, height: 12, major: true },
+  { key: 'v_3_s', x: 24, y: 16, width: 2, height: 24, major: true },
+  { key: 'v_4_n', x: 33, y: 3, width: 1, height: 13, major: false },
+  { key: 'v_4_s', x: 33, y: 20, width: 1, height: 18, major: false },
+  { key: 'v_5_n', x: 41, y: 0, width: 2, height: 18, major: true },
+  { key: 'v_5_s', x: 41, y: 22, width: 2, height: 18, major: true },
+  { key: 'v_6', x: 49, y: 6, width: 1, height: 34, major: false },
+];
+
+const RIVER_SEGMENTS: RiverSegment[] = [
+  {
+    start: { x: 40, y: -2 },
+    c1: { x: 45, y: 4 },
+    c2: { x: 34, y: 11 },
+    end: { x: 29, y: 16 },
+  },
+  {
+    start: { x: 29, y: 16 },
+    c1: { x: 24, y: 22 },
+    c2: { x: 20, y: 31 },
+    end: { x: 14, y: 42 },
   },
 ];
 
 const STATIC_SPECIAL_TILES: TileSeed[] = [
   {
-    x: 23,
-    y: 16,
+    x: 44,
+    y: 25,
     kind: 'service_building',
     label: 'Food Truck Court',
     shortLabel: 'DIN',
@@ -198,8 +259,8 @@ const STATIC_SPECIAL_TILES: TileSeed[] = [
     actionTags: ['meal_dinner'],
   },
   {
-    x: 14,
-    y: 16,
+    x: 22,
+    y: 23,
     kind: 'service_building',
     label: 'Pocket Park',
     shortLabel: 'REST',
@@ -207,24 +268,24 @@ const STATIC_SPECIAL_TILES: TileSeed[] = [
     actionTags: ['recovery'],
   },
   {
-    x: 27,
-    y: 2,
+    x: 52,
+    y: 5,
     kind: 'expansion_node',
     label: 'North Expansion',
     shortLabel: 'EXP',
     description: 'Future district unlock node for larger projects.',
   },
   {
-    x: 2,
-    y: 19,
+    x: 3,
+    y: 35,
     kind: 'expansion_node',
     label: 'West Expansion',
     shortLabel: 'EXP',
     description: 'Reserved edge tile for future neighborhood growth.',
   },
   {
-    x: 27,
-    y: 19,
+    x: 53,
+    y: 36,
     kind: 'expansion_node',
     label: 'South Expansion',
     shortLabel: 'EXP',
@@ -233,29 +294,32 @@ const STATIC_SPECIAL_TILES: TileSeed[] = [
 ];
 
 const FIXED_NODE_ANCHORS: Record<string, { x: number; y: number }> = {
-  home: { x: 4, y: 17 },
-  grocery: { x: 6, y: 3 },
-  rideshare_hotspot_suburban: { x: 7, y: 18 },
-  job_center: { x: 15, y: 4 },
-  work: { x: 16, y: 17 },
-  rideshare_hotspot_downtown: { x: 13, y: 4 },
-  business_spot: { x: 25, y: 17 },
-  bank: { x: 22, y: 4 },
-  stock_center: { x: 26, y: 3 },
-  certification_school: { x: 17, y: 3 },
-  housing: { x: 3, y: 15 },
-  clinic: { x: 7, y: 15 },
-  gas_station: { x: 5, y: 20 },
-  car_sale: { x: 24, y: 2 },
+  home: { x: 10, y: 30 },
+  grocery: { x: 11, y: 8 },
+  rideshare_hotspot_suburban: { x: 18, y: 26 },
+  job_center: { x: 35, y: 10 },
+  work: { x: 39, y: 24 },
+  rideshare_hotspot_downtown: { x: 34, y: 16 },
+  business_spot: { x: 46, y: 28 },
+  bank: { x: 43, y: 10 },
+  stock_center: { x: 49, y: 12 },
+  certification_school: { x: 38, y: 13 },
+  housing: { x: 14, y: 28 },
+  clinic: { x: 22, y: 29 },
+  gas_station: { x: 8, y: 34 },
+  car_sale: { x: 50, y: 15 },
 };
 
 const FLEX_NODE_ANCHORS = [
-  { x: 23, y: 3 },
-  { x: 24, y: 17 },
-  { x: 6, y: 17 },
-  { x: 15, y: 3 },
-  { x: 12, y: 17 },
+  { x: 30, y: 9 },
+  { x: 34, y: 24 },
+  { x: 18, y: 11 },
+  { x: 26, y: 26 },
+  { x: 44, y: 18 },
 ];
+
+const ROAD_TILE_SET = buildRoadTileSet();
+const RIVER_SAMPLE_POINTS = sampleRiverPoints(MAP_TILE_SIZE);
 
 function coordinateKey(x: number, y: number): string {
   return `${x}:${y}`;
@@ -265,38 +329,60 @@ function tileKey(x: number, y: number): string {
   return `tile_${x}_${y}`;
 }
 
+function zoneToneForTile(x: number, y: number): MapZoneTone {
+  const diagonalSplit = (x * 0.42) + 7;
+  return y > diagonalSplit ? 'downtown' : 'rural';
+}
+
+function districtKeyForTile(x: number, y: number, tone: MapZoneTone): string {
+  if (tone === 'rural') {
+    if (y < 12) return 'heights';
+    if (x > 20 && y < 25) return 'exchange';
+    return 'makers';
+  }
+  if (y < 15) return 'midtown';
+  if (x > 40 || y > 31) return 'harbor';
+  return 'commerce';
+}
+
 function findDistrict(x: number, y: number): SandboxDistrict | undefined {
-  return DISTRICTS.find((district) => (
-    x >= district.x
-    && x < district.x + district.width
-    && y >= district.y
-    && y < district.y + district.height
-  ));
+  const tone = zoneToneForTile(x, y);
+  return DISTRICT_BY_KEY[districtKeyForTile(x, y, tone)];
+}
+
+function buildRoadTileSet(): Set<string> {
+  const set = new Set<string>();
+  ROAD_SEEDS.forEach((seed) => {
+    for (let y = seed.y; y < seed.y + seed.height; y += 1) {
+      for (let x = seed.x; x < seed.x + seed.width; x += 1) {
+        if (x < 0 || y < 0 || x >= MAP_COLUMNS || y >= MAP_ROWS) continue;
+        set.add(coordinateKey(x, y));
+      }
+    }
+  });
+  return set;
 }
 
 function isRoadTile(x: number, y: number): boolean {
-  const horizontalBand = (y >= 8 && y <= 9) || (y >= 12 && y <= 13);
-  const verticalBand = (x >= 9 && x <= 10) || (x >= 19 && x <= 20);
-  return horizontalBand || verticalBand;
+  return ROAD_TILE_SET.has(coordinateKey(x, y));
 }
 
 function roadAxisForTile(x: number, y: number): RoadAxis {
-  const horizontalBand = (y >= 8 && y <= 9) || (y >= 12 && y <= 13);
-  const verticalBand = (x >= 9 && x <= 10) || (x >= 19 && x <= 20);
-  if (horizontalBand && verticalBand) return 'intersection';
-  if (horizontalBand) return 'horizontal';
-  if (verticalBand) return 'vertical';
-  return null;
+  if (!isRoadTile(x, y)) return null;
+  const horizontal = isRoadTile(x - 1, y) || isRoadTile(x + 1, y);
+  const vertical = isRoadTile(x, y - 1) || isRoadTile(x, y + 1);
+  if (horizontal && vertical) return 'intersection';
+  if (horizontal) return 'horizontal';
+  if (vertical) return 'vertical';
+  return 'horizontal';
 }
 
-function isFrontageTile(x: number, y: number): boolean {
+function hasRoadFrontage(x: number, y: number): boolean {
   return (
-    y === 7
-    || y === 14
-    || x === 8
-    || x === 11
-    || x === 18
-    || x === 21
+    isRoadTile(x - 1, y)
+    || isRoadTile(x + 1, y)
+    || isRoadTile(x, y - 1)
+    || isRoadTile(x, y + 1)
   );
 }
 
@@ -320,99 +406,119 @@ function zoneTypeForDistrict(districtKey: string | null | undefined): BusinessLa
 }
 
 function sizeForTile(
-  districtKey: string | null | undefined,
+  district: SandboxDistrict | undefined,
   frontage: boolean,
   x: number,
   y: number,
 ): BusinessLotSize {
-  if (frontage && (districtKey === 'exchange' || districtKey === 'harbor')) return 'large';
-  if (frontage && (districtKey === 'midtown' || districtKey === 'commerce')) return 'medium';
+  const seed = (x * 37 + y * 17) % 10;
+  if (district?.tone === 'rural') {
+    if (frontage && seed >= 7) return 'large';
+    if (frontage) return 'medium';
+    return seed % 2 === 0 ? 'medium' : 'small';
+  }
+  if (frontage && seed >= 6) return 'medium';
   if (frontage) return 'small';
-  return (x + y) % 3 === 0 ? 'small' : 'micro';
+  return seed % 3 === 0 ? 'small' : 'micro';
+}
+
+function visualScaleForTile(tone: MapZoneTone, x: number, y: number): { scaleX: number; scaleY: number } {
+  const seed = (x * 19 + y * 13) % 9;
+  if (tone === 'rural') {
+    return {
+      scaleX: 0.9 + ((seed % 4) * 0.04),
+      scaleY: 0.88 + (((seed + 2) % 3) * 0.05),
+    };
+  }
+  return {
+    scaleX: 0.7 + ((seed % 3) * 0.07),
+    scaleY: 0.7 + (((seed + 1) % 3) * 0.07),
+  };
 }
 
 function districtValueBase(districtKey: string | null | undefined): number {
   switch (districtKey) {
     case 'heights':
-      return 180;
-    case 'midtown':
-      return 300;
-    case 'exchange':
-      return 420;
+      return 170;
     case 'makers':
-      return 250;
+      return 210;
+    case 'exchange':
+      return 280;
+    case 'midtown':
+      return 320;
     case 'commerce':
-      return 340;
-    case 'harbor':
       return 360;
+    case 'harbor':
+      return 410;
     default:
-      return 150;
+      return 160;
   }
 }
 
 function districtTrafficBase(districtKey: string | null | undefined): number {
   switch (districtKey) {
     case 'heights':
-      return 42;
-    case 'midtown':
-      return 68;
-    case 'exchange':
-      return 84;
+      return 38;
     case 'makers':
-      return 58;
+      return 50;
+    case 'exchange':
+      return 64;
+    case 'midtown':
+      return 72;
     case 'commerce':
-      return 73;
+      return 79;
     case 'harbor':
-      return 66;
+      return 74;
     default:
-      return 36;
+      return 34;
   }
 }
 
 function districtDevelopmentBase(districtKey: string | null | undefined): number {
   switch (districtKey) {
     case 'heights':
-      return 52;
-    case 'midtown':
-      return 70;
-    case 'exchange':
-      return 82;
+      return 48;
     case 'makers':
-      return 64;
+      return 57;
+    case 'exchange':
+      return 67;
+    case 'midtown':
+      return 73;
     case 'commerce':
-      return 76;
+      return 81;
     case 'harbor':
-      return 88;
+      return 86;
     default:
       return 44;
   }
 }
 
 function createLandProfile(
-  districtKey: string | null | undefined,
+  district: SandboxDistrict | undefined,
   frontage: boolean,
   x: number,
   y: number,
 ): SandboxLandProfile {
+  const districtKey = district?.key;
   const zoneType = zoneTypeForDistrict(districtKey);
-  const size = sizeForTile(districtKey, frontage, x, y);
+  const size = sizeForTile(district, frontage, x, y);
   const sizeMultiplier = size === 'large'
-    ? 1.55
+    ? 1.56
     : size === 'medium'
-      ? 1.28
+      ? 1.29
       : size === 'small'
-        ? 1.08
+        ? 1.06
         : 0.9;
-  const frontageBonus = frontage ? 72 : 18;
-  const adjacencyBonus = ((x + y) % 4) * 9;
+  const frontageBonus = frontage ? 68 : 16;
+  const adjacencyBonus = ((x + y) % 5) * 8;
   const valueXgp = Math.round((districtValueBase(districtKey) * sizeMultiplier) + frontageBonus + adjacencyBonus);
   const trafficScore = Math.min(
     100,
-    Math.round(districtTrafficBase(districtKey) + (frontage ? 16 : 4) + ((x * 3 + y * 5) % 11)),
+    Math.round(districtTrafficBase(districtKey) + (frontage ? 14 : 3) + ((x * 3 + y * 5) % 12)),
   );
   const developmentPotential = Math.min(
     100,
-    Math.round(districtDevelopmentBase(districtKey) + (frontage ? 10 : 0) + ((x * 7 + y * 2) % 9)),
+    Math.round(districtDevelopmentBase(districtKey) + (frontage ? 9 : 1) + ((x * 7 + y * 2) % 9)),
   );
 
   return {
@@ -451,7 +557,7 @@ function labelForNodeType(nodeType: string): {
     return {
       kind: 'service_building',
       shortLabel: 'JOB',
-      description: 'Career hub for reviewing available jobs, locked roles, certifications, and progression requirements.',
+      description: 'Career hub for reviewing available jobs, locked roles, and progression requirements.',
       actionTags: ['job_board'],
     };
   }
@@ -606,6 +712,114 @@ function createSpecialTileMap(
   return tiles;
 }
 
+function cubicBezierPoint(segment: RiverSegment, t: number): Point {
+  const inv = 1 - t;
+  const invSq = inv * inv;
+  const tSq = t * t;
+  const x = (invSq * inv * segment.start.x)
+    + (3 * invSq * t * segment.c1.x)
+    + (3 * inv * tSq * segment.c2.x)
+    + (tSq * t * segment.end.x);
+  const y = (invSq * inv * segment.start.y)
+    + (3 * invSq * t * segment.c1.y)
+    + (3 * inv * tSq * segment.c2.y)
+    + (tSq * t * segment.end.y);
+  return { x, y };
+}
+
+function sampleRiverPoints(tileSize: number): Point[] {
+  const samples: Point[] = [];
+  RIVER_SEGMENTS.forEach((segment, segmentIndex) => {
+    const steps = 28;
+    const startStep = segmentIndex === 0 ? 0 : 1;
+    for (let step = startStep; step <= steps; step += 1) {
+      const point = cubicBezierPoint(segment, step / steps);
+      samples.push({
+        x: point.x * tileSize,
+        y: point.y * tileSize,
+      });
+    }
+  });
+  return samples;
+}
+
+function isWaterfrontTile(x: number, y: number): boolean {
+  const centerX = (x * MAP_TILE_SIZE) + (MAP_TILE_SIZE / 2);
+  const centerY = (y * MAP_TILE_SIZE) + (MAP_TILE_SIZE / 2);
+  const thresholdSq = RIVER_WATERFRONT_DISTANCE_PX * RIVER_WATERFRONT_DISTANCE_PX;
+
+  for (let index = 0; index < RIVER_SAMPLE_POINTS.length; index += 1) {
+    const point = RIVER_SAMPLE_POINTS[index];
+    const dx = point.x - centerX;
+    const dy = point.y - centerY;
+    const distanceSq = (dx * dx) + (dy * dy);
+    if (distanceSq <= thresholdSq) return true;
+  }
+
+  return false;
+}
+
+function buildZoneWashes(tileSize: number): SandboxZoneWash[] {
+  const worldWidth = MAP_COLUMNS * tileSize;
+  const worldHeight = MAP_ROWS * tileSize;
+
+  return [
+    {
+      key: 'rural',
+      label: 'RURAL',
+      tone: 'rural',
+      x: 0,
+      y: 0,
+      width: Math.round(worldWidth * 0.66),
+      height: Math.round(worldHeight * 0.62),
+      fill: alpha(theme.ui.positive, 0.14),
+      labelX: Math.round(tileSize * 4),
+      labelY: Math.round(tileSize * 7),
+      labelColor: theme.ui.positive,
+    },
+    {
+      key: 'downtown',
+      label: 'DOWNTOWN',
+      tone: 'downtown',
+      x: Math.round(worldWidth * 0.33),
+      y: Math.round(worldHeight * 0.28),
+      width: Math.round(worldWidth * 0.67),
+      height: Math.round(worldHeight * 0.72),
+      fill: alpha(theme.ui.action, 0.12),
+      labelX: Math.round(worldWidth * 0.64),
+      labelY: Math.round(worldHeight * 0.73),
+      labelColor: theme.ui.info,
+    },
+  ];
+}
+
+function buildRoadSegments(tileSize: number): SandboxRoadSegment[] {
+  return ROAD_SEEDS.map((seed) => ({
+    key: seed.key,
+    x: seed.x * tileSize,
+    y: seed.y * tileSize,
+    width: seed.width * tileSize,
+    height: seed.height * tileSize,
+    major: seed.major,
+  }));
+}
+
+function buildRiverGeometry(tileSize: number): SandboxRiverGeometry {
+  const first = RIVER_SEGMENTS[0];
+  let path = `M ${first.start.x * tileSize} ${first.start.y * tileSize}`;
+  RIVER_SEGMENTS.forEach((segment) => {
+    path += ` C ${segment.c1.x * tileSize} ${segment.c1.y * tileSize}, ${segment.c2.x * tileSize} ${segment.c2.y * tileSize}, ${segment.end.x * tileSize} ${segment.end.y * tileSize}`;
+  });
+
+  return {
+    path,
+    baseColor: alpha(theme.ui.info, 0.44),
+    highlightColor: alpha(theme.ui.info, 0.74),
+    strokeWidth: tileSize * 1.72,
+    highlightWidth: tileSize * 0.46,
+  };
+}
+
 export function buildSandboxCityMap(options: {
   nodes: MapNode[];
   travelOptions?: TravelOptionSnapshot[];
@@ -626,32 +840,16 @@ export function buildSandboxCityMap(options: {
 
   for (let y = 0; y < MAP_ROWS; y += 1) {
     for (let x = 0; x < MAP_COLUMNS; x += 1) {
+      const coordinate = coordinateKey(x, y);
+      const special = specialTileMap[coordinate];
+      const zoneTone = zoneToneForTile(x, y);
       const district = findDistrict(x, y);
-      const special = specialTileMap[coordinateKey(x, y)];
+      const waterfront = !isRoadTile(x, y) && isWaterfrontTile(x, y);
+      const visualScale = visualScaleForTile(zoneTone, x, y);
+
       let tile: SandboxMapTile;
 
-      if (isRoadTile(x, y)) {
-        tile = {
-          key: tileKey(x, y),
-          x,
-          y,
-          kind: 'road',
-          label: roadAxisForTile(x, y) === 'intersection' ? 'Junction' : 'Road',
-          description: 'Street network for movement, routing, and frontage access.',
-          districtKey: null,
-          districtLabel: null,
-          buildable: false,
-          selectable: true,
-          nodeKey: null,
-          nodeType: null,
-          opportunityTier: null,
-          isCurrentLocation: false,
-          roadAxis: roadAxisForTile(x, y),
-          travelOption: null,
-          actionTags: [],
-          landProfile: null,
-        };
-      } else if (special) {
+      if (special) {
         tile = {
           key: tileKey(x, y),
           x,
@@ -662,6 +860,7 @@ export function buildSandboxCityMap(options: {
           description: special.description,
           districtKey: special.districtKey ?? district?.key ?? null,
           districtLabel: special.districtLabel ?? district?.label ?? null,
+          zoneTone,
           buildable: special.buildable ?? special.kind === 'building_slot',
           selectable: true,
           nodeKey: special.nodeKey ?? null,
@@ -672,10 +871,47 @@ export function buildSandboxCityMap(options: {
           travelOption: special.nodeKey ? travelByDestination[special.nodeKey] ?? null : null,
           actionTags: special.actionTags || [],
           landProfile: null,
+          waterfront,
+          visualScaleX: special.kind === 'service_building' || special.kind === 'existing_business'
+            ? 0.92
+            : visualScale.scaleX,
+          visualScaleY: special.kind === 'service_building' || special.kind === 'existing_business'
+            ? 0.92
+            : visualScale.scaleY,
         };
-      } else if (district) {
-        const frontage = isFrontageTile(x, y);
-        const landProfile = createLandProfile(district.key, frontage, x, y);
+      } else if (isRoadTile(x, y)) {
+        tile = {
+          key: tileKey(x, y),
+          x,
+          y,
+          kind: 'road',
+          label: roadAxisForTile(x, y) === 'intersection' ? 'Junction' : 'Road',
+          description: 'Dark asphalt movement lane connecting district blocks.',
+          districtKey: null,
+          districtLabel: null,
+          zoneTone,
+          buildable: false,
+          selectable: true,
+          nodeKey: null,
+          nodeType: null,
+          opportunityTier: null,
+          isCurrentLocation: false,
+          roadAxis: roadAxisForTile(x, y),
+          travelOption: null,
+          actionTags: [],
+          landProfile: null,
+          waterfront: false,
+          visualScaleX: 1,
+          visualScaleY: 1,
+        };
+      } else {
+        const frontage = hasRoadFrontage(x, y);
+        const landProfile = createLandProfile(district, frontage, x, y);
+        const districtLabel = district?.label || (zoneTone === 'rural' ? 'Rural Edge' : 'Downtown Edge');
+        const districtKey = district?.key || null;
+        const waterfrontNote = waterfront
+          ? ' Waterfront adjacency flagged for future value bonus hooks.'
+          : '';
         tile = {
           key: tileKey(x, y),
           x,
@@ -684,10 +920,11 @@ export function buildSandboxCityMap(options: {
           label: frontage ? 'Buildable Frontage' : 'Open Lot',
           shortLabel: frontage ? 'LOT' : undefined,
           description: frontage
-            ? `${district.label} frontage lot with ${landProfile.trafficScore}/100 traffic and ${landProfile.developmentPotential}/100 development upside.`
-            : `${district.label} infill lot with ${landProfile.valueXgp} XGP land value and ${landProfile.zoneType.replace(/_/g, ' ')} zoning.`,
-          districtKey: district.key,
-          districtLabel: district.label,
+            ? `${districtLabel} frontage lot with ${landProfile.trafficScore}/100 traffic and ${landProfile.developmentPotential}/100 development upside.${waterfrontNote}`
+            : `${districtLabel} infill lot with ${landProfile.valueXgp} XGP land value and ${landProfile.zoneType.replace(/_/g, ' ')} zoning.${waterfrontNote}`,
+          districtKey,
+          districtLabel,
+          zoneTone,
           buildable: true,
           selectable: true,
           nodeKey: null,
@@ -698,34 +935,15 @@ export function buildSandboxCityMap(options: {
           travelOption: null,
           actionTags: [],
           landProfile,
-        };
-      } else {
-        tile = {
-          key: tileKey(x, y),
-          x,
-          y,
-          kind: 'expansion_node',
-          label: 'Expansion Buffer',
-          shortLabel: 'EXP',
-          description: 'Reserved outer-map tile for future district expansion.',
-          districtKey: null,
-          districtLabel: null,
-          buildable: false,
-          selectable: true,
-          nodeKey: null,
-          nodeType: null,
-          opportunityTier: null,
-          isCurrentLocation: false,
-          roadAxis: null,
-          travelOption: null,
-          actionTags: [],
-          landProfile: null,
+          waterfront,
+          visualScaleX: visualScale.scaleX,
+          visualScaleY: visualScale.scaleY,
         };
       }
 
       tiles.push(tile);
       tileByKey[tile.key] = tile;
-      tileByCoordinate[coordinateKey(x, y)] = tile;
+      tileByCoordinate[coordinate] = tile;
       if (tile.nodeKey) {
         tileByNodeKey[tile.nodeKey] = tile;
       }
@@ -741,6 +959,9 @@ export function buildSandboxCityMap(options: {
     worldWidth: MAP_COLUMNS * MAP_TILE_SIZE,
     worldHeight: MAP_ROWS * MAP_TILE_SIZE,
     districts: DISTRICTS,
+    zones: buildZoneWashes(MAP_TILE_SIZE),
+    roads: buildRoadSegments(MAP_TILE_SIZE),
+    river: buildRiverGeometry(MAP_TILE_SIZE),
     tiles,
     tileByKey,
     tileByCoordinate,

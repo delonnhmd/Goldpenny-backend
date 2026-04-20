@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { theme } from '@/design/theme';
+import { alpha, theme } from '@/design/theme';
 import { marketMoodColor, marketMoodLabel } from '@/lib/economyPresentationFormatters';
 import { MarketOverviewResponse } from '@/types/economyPresentation';
 
@@ -82,9 +82,9 @@ const styles = StyleSheet.create({
   },
   column: {
     borderWidth: 1,
-    borderColor: 'rgba(148, 163, 184, 0.14)',
+    borderColor: alpha(theme.ui.border, 0.64),
     borderRadius: theme.radius.lg,
-    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    backgroundColor: theme.ui.bg.cardRaised,
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.sm,
     gap: theme.spacing.xxs,
@@ -96,10 +96,10 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   winnerTitle: {
-    color: '#86efac',
+    color: theme.ui.text.onDark,
   },
   loserTitle: {
-    color: '#fca5a5',
+    color: theme.ui.text.onDark,
   },
   itemText: {
     ...theme.typography.bodySm,
