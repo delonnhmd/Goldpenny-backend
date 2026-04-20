@@ -1,6 +1,6 @@
 import type { TravelOptionSnapshot } from '@/types/gameplay';
 import type { BusinessLandZoneType, BusinessLotSize } from '@/types/business';
-import { theme } from '@/design/theme';
+import { alpha, theme } from '@/design/theme';
 
 export interface MapNode {
   key: string;
@@ -33,6 +33,8 @@ export type MapTileActionTag =
 
 export type RoadAxis = 'horizontal' | 'vertical' | 'intersection' | null;
 
+export type SandboxZoneKey = 'rural' | 'downtown' | 'outer';
+
 export interface SandboxLandProfile {
   zoneType: BusinessLandZoneType;
   size: BusinessLotSize;
@@ -45,13 +47,14 @@ export interface SandboxDistrict {
   key: string;
   label: string;
   subtitle: string;
-  tone: 'suburban' | 'downtown' | 'commercial';
+  tone: SandboxZoneKey;
   x: number;
   y: number;
   width: number;
   height: number;
   fill: string;
   accent: string;
+  labelColor: string;
 }
 
 export interface SandboxMapTile {
@@ -64,8 +67,10 @@ export interface SandboxMapTile {
   description: string;
   districtKey?: string | null;
   districtLabel?: string | null;
+  zoneTone: SandboxZoneKey | 'river';
   buildable: boolean;
   selectable: boolean;
+  waterfront: boolean;
   nodeKey?: string | null;
   nodeType?: string | null;
   opportunityTier?: string | null;
@@ -76,6 +81,12 @@ export interface SandboxMapTile {
   landProfile?: SandboxLandProfile | null;
 }
 
+export interface RiverGeometry {
+  controlPoints: Array<{ x: number; y: number }>;
+  bandPx: number;
+  centerlineSamples: Array<{ x: number; y: number }>;
+}
+
 export interface SandboxCityMap {
   columns: number;
   rows: number;
@@ -83,6 +94,7 @@ export interface SandboxCityMap {
   worldWidth: number;
   worldHeight: number;
   districts: SandboxDistrict[];
+  river: RiverGeometry;
   tiles: SandboxMapTile[];
   tileByKey: Record<string, SandboxMapTile>;
   tileByCoordinate: Record<string, SandboxMapTile>;
@@ -106,91 +118,286 @@ interface TileSeed {
   actionTags?: MapTileActionTag[];
 }
 
-export const MAP_COLUMNS = 30;
-export const MAP_ROWS = 22;
-// Step 96N — bumped from 28 to 32 for better mobile touch targets while still
-// fine-grained enough for lot-slot precision at close zoom.
-export const MAP_TILE_SIZE = 32;
+// Step 97F — denser grid with smaller tiles for sharper zoom range and a
+// real city silhouette instead of a chess board.
+export const MAP_COLUMNS = 60;
+export const MAP_ROWS = 44;
+export const MAP_TILE_SIZE = 16;
+const WORLD_W = MAP_COLUMNS * MAP_TILE_SIZE;
+const WORLD_H = MAP_ROWS * MAP_TILE_SIZE;
+
+// Two-zone layout. Rural sits in the upper-left, downtown in the lower-right.
+// The river cuts diagonally between them.
+const RURAL_BOUNDS = { x: 0, y: 0, width: 30, height: 24 };
+const DOWNTOWN_BOUNDS = { x: 28, y: 20, width: 32, height: 24 };
 
 const DISTRICTS: SandboxDistrict[] = [
   {
-    key: 'heights',
-    label: 'Heights',
-    subtitle: 'Starter homes + daily needs',
-    tone: 'suburban',
-    x: 1,
-    y: 1,
-    width: 8,
-    height: 7,
-    fill: theme.gameUi.district.suburban.base,
-    accent: theme.gameUi.district.suburban.accent,
+    key: 'rural',
+    label: 'RURAL',
+    subtitle: 'Sparse roads · larger blocks',
+    tone: 'rural',
+    x: RURAL_BOUNDS.x,
+    y: RURAL_BOUNDS.y,
+    width: RURAL_BOUNDS.width,
+    height: RURAL_BOUNDS.height,
+    fill: alpha(theme.gameUi.success, 0.1),
+    accent: theme.gameUi.success,
+    labelColor: theme.gameUi.success,
   },
   {
-    key: 'midtown',
-    label: 'Midtown',
-    subtitle: 'Service traffic + fast turnover',
+    key: 'downtown',
+    label: 'DOWNTOWN',
+    subtitle: 'Dense grid · faster traffic',
     tone: 'downtown',
-    x: 11,
-    y: 1,
-    width: 8,
-    height: 7,
-    fill: theme.gameUi.district.downtown.base,
-    accent: theme.gameUi.district.downtown.highlight,
-  },
-  {
-    key: 'exchange',
-    label: 'Exchange',
-    subtitle: 'Commercial demand belt',
-    tone: 'commercial',
-    x: 21,
-    y: 1,
-    width: 8,
-    height: 7,
-    fill: theme.gameUi.district.commercial.base,
-    accent: theme.gameUi.district.commercial.accent,
-  },
-  {
-    key: 'makers',
-    label: 'Makers Row',
-    subtitle: 'Small lots + light logistics',
-    tone: 'suburban',
-    x: 1,
-    y: 14,
-    width: 8,
-    height: 7,
-    fill: theme.gameUi.district.suburban.base,
-    accent: theme.gameUi.district.suburban.accent,
-  },
-  {
-    key: 'commerce',
-    label: 'Commerce',
-    subtitle: 'Dense work nodes + offices',
-    tone: 'downtown',
-    x: 11,
-    y: 14,
-    width: 8,
-    height: 7,
-    fill: theme.gameUi.district.downtown.accent,
-    accent: theme.gameUi.district.downtown.highlight,
-  },
-  {
-    key: 'harbor',
-    label: 'Harbor',
-    subtitle: 'Higher-capacity expansion land',
-    tone: 'commercial',
-    x: 21,
-    y: 14,
-    width: 8,
-    height: 7,
-    fill: theme.gameUi.district.commercial.base,
-    accent: theme.gameUi.district.commercial.accent,
+    x: DOWNTOWN_BOUNDS.x,
+    y: DOWNTOWN_BOUNDS.y,
+    width: DOWNTOWN_BOUNDS.width,
+    height: DOWNTOWN_BOUNDS.height,
+    fill: alpha(theme.gameUi.primary, 0.12),
+    accent: theme.gameUi.primary,
+    labelColor: theme.gameUi.icons.openSlot,
   },
 ];
 
+// River centerline (column,row) anchors. Smooth bezier evaluated by
+// piecewise quadratic interpolation at render time.
+const RIVER_ANCHORS: Array<{ col: number; row: number }> = [
+  { col: 60, row: 9 },
+  { col: 48, row: 14 },
+  { col: 36, row: 21 },
+  { col: 24, row: 26 },
+  { col: 12, row: 30 },
+  { col: 0, row: 35 },
+];
+
+const RIVER_BAND_PX = MAP_TILE_SIZE * 1.6;
+
+function riverRowAtColumn(col: number): number {
+  // Linear interpolation between adjacent anchors gives a smooth-enough
+  // centerline for tile-zone classification. The visual river uses a true
+  // bezier path drawn by GameMap.
+  const last = RIVER_ANCHORS[0];
+  const first = RIVER_ANCHORS[RIVER_ANCHORS.length - 1];
+  if (col >= last.col) return last.row;
+  if (col <= first.col) return first.row;
+  for (let i = RIVER_ANCHORS.length - 1; i > 0; i -= 1) {
+    const a = RIVER_ANCHORS[i];
+    const b = RIVER_ANCHORS[i - 1];
+    const lo = Math.min(a.col, b.col);
+    const hi = Math.max(a.col, b.col);
+    if (col >= lo && col <= hi) {
+      const t = (col - a.col) / (b.col - a.col);
+      return a.row + ((b.row - a.row) * t);
+    }
+  }
+  return last.row;
+}
+
+function riverCenterlineSamples(): Array<{ x: number; y: number }> {
+  const samples: Array<{ x: number; y: number }> = [];
+  const step = 4;
+  for (let col = 0; col <= MAP_COLUMNS; col += step) {
+    samples.push({
+      x: col * MAP_TILE_SIZE,
+      y: riverRowAtColumn(col) * MAP_TILE_SIZE,
+    });
+  }
+  return samples;
+}
+
+function distanceFromRiverRows(x: number, y: number): number {
+  return Math.abs(y - riverRowAtColumn(x + 0.5));
+}
+
+function inRiverBand(x: number, y: number): boolean {
+  // Treat the band as ~1.4 tile rows wide so the SVG ribbon visually covers
+  // the masked cells without leaving a hard chessboard edge.
+  return distanceFromRiverRows(x, y) <= 0.7;
+}
+
+function isWaterfrontAdjacency(x: number, y: number): boolean {
+  if (inRiverBand(x, y)) return false;
+  return distanceFromRiverRows(x, y) <= 1.6;
+}
+
+function inRural(x: number, y: number): boolean {
+  return (
+    x >= RURAL_BOUNDS.x
+    && x < RURAL_BOUNDS.x + RURAL_BOUNDS.width
+    && y >= RURAL_BOUNDS.y
+    && y < RURAL_BOUNDS.y + RURAL_BOUNDS.height
+  );
+}
+
+function inDowntown(x: number, y: number): boolean {
+  return (
+    x >= DOWNTOWN_BOUNDS.x
+    && x < DOWNTOWN_BOUNDS.x + DOWNTOWN_BOUNDS.width
+    && y >= DOWNTOWN_BOUNDS.y
+    && y < DOWNTOWN_BOUNDS.y + DOWNTOWN_BOUNDS.height
+  );
+}
+
+function zoneOf(x: number, y: number): SandboxZoneKey | 'river' {
+  if (inRiverBand(x, y)) return 'river';
+  // River is the boundary; pick the zone that contains the cell, falling
+  // back to the side of the river for outer cells.
+  if (inDowntown(x, y) && !inRural(x, y)) return 'downtown';
+  if (inRural(x, y) && !inDowntown(x, y)) return 'rural';
+  if (inRural(x, y) && inDowntown(x, y)) {
+    // Overlap region — split by river side.
+    return y < riverRowAtColumn(x + 0.5) ? 'rural' : 'downtown';
+  }
+  // Outer fringe: classify by river side so the styling stays coherent.
+  return y < riverRowAtColumn(x + 0.5) ? 'rural' : 'downtown';
+}
+
+// Length-varied road bands. Each entry is a half-open span [start, end) on
+// the cross-axis — the irregular endpoints break the chessboard look and
+// give the grid believable block sizes.
+const RURAL_HORIZONTAL_ROADS: Array<{ row: number; from: number; to: number }> = [
+  { row: 5, from: 0, to: 22 },
+  { row: 12, from: 4, to: 28 },
+  { row: 18, from: 0, to: 24 },
+];
+const RURAL_VERTICAL_ROADS: Array<{ col: number; from: number; to: number }> = [
+  { col: 7, from: 0, to: 22 },
+  { col: 16, from: 0, to: 18 },
+  { col: 24, from: 4, to: 22 },
+];
+
+const DOWNTOWN_HORIZONTAL_ROADS: Array<{ row: number; from: number; to: number }> = [
+  { row: 23, from: 30, to: 60 },
+  { row: 27, from: 28, to: 56 },
+  { row: 31, from: 30, to: 60 },
+  { row: 35, from: 28, to: 58 },
+  { row: 39, from: 32, to: 60 },
+];
+const DOWNTOWN_VERTICAL_ROADS: Array<{ col: number; from: number; to: number }> = [
+  { col: 32, from: 22, to: 44 },
+  { col: 37, from: 20, to: 42 },
+  { col: 41, from: 22, to: 44 },
+  { col: 46, from: 20, to: 44 },
+  { col: 51, from: 22, to: 42 },
+  { col: 56, from: 20, to: 44 },
+];
+
+function roadAxisAt(x: number, y: number): RoadAxis {
+  let horizontal = false;
+  let vertical = false;
+  for (const band of RURAL_HORIZONTAL_ROADS) {
+    if (y === band.row && x >= band.from && x < band.to) horizontal = true;
+  }
+  for (const band of DOWNTOWN_HORIZONTAL_ROADS) {
+    if (y === band.row && x >= band.from && x < band.to) horizontal = true;
+  }
+  for (const band of RURAL_VERTICAL_ROADS) {
+    if (x === band.col && y >= band.from && y < band.to) vertical = true;
+  }
+  for (const band of DOWNTOWN_VERTICAL_ROADS) {
+    if (x === band.col && y >= band.from && y < band.to) vertical = true;
+  }
+  if (horizontal && vertical) return 'intersection';
+  if (horizontal) return 'horizontal';
+  if (vertical) return 'vertical';
+  return null;
+}
+
+function isRoadTile(x: number, y: number): boolean {
+  return roadAxisAt(x, y) !== null;
+}
+
+function isFrontageTile(x: number, y: number): boolean {
+  const axis = roadAxisAt(x, y);
+  if (axis !== null) return false;
+  // A buildable frontage is any cell directly touching a road in any
+  // cardinal direction. Gives downtown more frontage per row, rural fewer.
+  return (
+    isRoadTile(x + 1, y)
+    || isRoadTile(x - 1, y)
+    || isRoadTile(x, y + 1)
+    || isRoadTile(x, y - 1)
+  );
+}
+
+function zoneTypeForZone(zone: SandboxZoneKey | 'river'): BusinessLandZoneType {
+  if (zone === 'downtown') return 'mixed_use';
+  if (zone === 'rural') return 'residential_edge';
+  return 'service_flex';
+}
+
+function sizeForTile(zone: SandboxZoneKey | 'river', frontage: boolean, x: number, y: number): BusinessLotSize {
+  if (zone === 'downtown' && frontage) return ((x + y) % 4 === 0 ? 'medium' : 'small');
+  if (zone === 'downtown') return ((x + y) % 5 === 0 ? 'small' : 'micro');
+  // Rural — bigger varied lots.
+  if (zone === 'rural' && frontage) return ((x * 2 + y) % 3 === 0 ? 'large' : 'medium');
+  if (zone === 'rural') return ((x + y * 3) % 4 === 0 ? 'medium' : 'small');
+  return 'micro';
+}
+
+function zoneValueBase(zone: SandboxZoneKey | 'river'): number {
+  if (zone === 'downtown') return 360;
+  if (zone === 'rural') return 200;
+  return 160;
+}
+
+function zoneTrafficBase(zone: SandboxZoneKey | 'river'): number {
+  if (zone === 'downtown') return 74;
+  if (zone === 'rural') return 44;
+  return 34;
+}
+
+function zoneDevelopmentBase(zone: SandboxZoneKey | 'river'): number {
+  if (zone === 'downtown') return 78;
+  if (zone === 'rural') return 56;
+  return 40;
+}
+
+function createLandProfile(
+  zone: SandboxZoneKey | 'river',
+  frontage: boolean,
+  waterfront: boolean,
+  x: number,
+  y: number,
+): SandboxLandProfile {
+  const zoneType = zoneTypeForZone(zone);
+  const size = sizeForTile(zone, frontage, x, y);
+  const sizeMultiplier = size === 'large'
+    ? 1.55
+    : size === 'medium'
+      ? 1.28
+      : size === 'small'
+        ? 1.08
+        : 0.9;
+  const frontageBonus = frontage ? 64 : 14;
+  const waterfrontBonus = waterfront ? 48 : 0;
+  const adjacencyBonus = ((x + y) % 4) * 8;
+  const valueXgp = Math.round(
+    (zoneValueBase(zone) * sizeMultiplier) + frontageBonus + waterfrontBonus + adjacencyBonus,
+  );
+  const trafficScore = Math.min(
+    100,
+    Math.round(zoneTrafficBase(zone) + (frontage ? 14 : 4) + (waterfront ? 6 : 0) + ((x * 3 + y * 5) % 11)),
+  );
+  const developmentPotential = Math.min(
+    100,
+    Math.round(zoneDevelopmentBase(zone) + (frontage ? 10 : 0) + (waterfront ? 4 : 0) + ((x * 7 + y * 2) % 9)),
+  );
+
+  return {
+    zoneType,
+    size,
+    valueXgp,
+    trafficScore,
+    developmentPotential,
+  };
+}
+
 const STATIC_SPECIAL_TILES: TileSeed[] = [
   {
-    x: 23,
-    y: 16,
+    x: 50,
+    y: 26,
     kind: 'service_building',
     label: 'Food Truck Court',
     shortLabel: 'DIN',
@@ -198,7 +405,7 @@ const STATIC_SPECIAL_TILES: TileSeed[] = [
     actionTags: ['meal_dinner'],
   },
   {
-    x: 14,
+    x: 17,
     y: 16,
     kind: 'service_building',
     label: 'Pocket Park',
@@ -207,54 +414,56 @@ const STATIC_SPECIAL_TILES: TileSeed[] = [
     actionTags: ['recovery'],
   },
   {
-    x: 27,
-    y: 2,
+    x: 56,
+    y: 22,
     kind: 'expansion_node',
-    label: 'North Expansion',
+    label: 'East Expansion',
     shortLabel: 'EXP',
     description: 'Future district unlock node for larger projects.',
   },
   {
-    x: 2,
-    y: 19,
-    kind: 'expansion_node',
-    label: 'West Expansion',
-    shortLabel: 'EXP',
-    description: 'Reserved edge tile for future neighborhood growth.',
-  },
-  {
-    x: 27,
-    y: 19,
+    x: 3,
+    y: 41,
     kind: 'expansion_node',
     label: 'South Expansion',
+    shortLabel: 'EXP',
+    description: 'Reserved waterfront expansion buffer for future neighborhood growth.',
+  },
+  {
+    x: 56,
+    y: 41,
+    kind: 'expansion_node',
+    label: 'Harbor Expansion',
     shortLabel: 'EXP',
     description: 'Future harbor-side buildout anchor.',
   },
 ];
 
+// Anchor coordinates remapped onto the 60x44 grid so each node still lands
+// in its zone of intent.
 const FIXED_NODE_ANCHORS: Record<string, { x: number; y: number }> = {
-  home: { x: 4, y: 17 },
-  grocery: { x: 6, y: 3 },
-  rideshare_hotspot_suburban: { x: 7, y: 18 },
-  job_center: { x: 15, y: 4 },
-  work: { x: 16, y: 17 },
-  rideshare_hotspot_downtown: { x: 13, y: 4 },
-  business_spot: { x: 25, y: 17 },
-  bank: { x: 22, y: 4 },
-  stock_center: { x: 26, y: 3 },
-  certification_school: { x: 17, y: 3 },
-  housing: { x: 3, y: 15 },
-  clinic: { x: 7, y: 15 },
-  gas_station: { x: 5, y: 20 },
-  car_sale: { x: 24, y: 2 },
+  home: { x: 8, y: 14 },
+  grocery: { x: 12, y: 6 },
+  rideshare_hotspot_suburban: { x: 22, y: 7 },
+  job_center: { x: 40, y: 26 },
+  work: { x: 45, y: 36 },
+  rideshare_hotspot_downtown: { x: 48, y: 24 },
+  business_spot: { x: 50, y: 32 },
+  bank: { x: 38, y: 40 },
+  stock_center: { x: 52, y: 28 },
+  certification_school: { x: 44, y: 30 },
+  housing: { x: 5, y: 18 },
+  clinic: { x: 16, y: 10 },
+  gas_station: { x: 10, y: 20 },
+  car_sale: { x: 35, y: 28 },
 };
 
 const FLEX_NODE_ANCHORS = [
-  { x: 23, y: 3 },
-  { x: 24, y: 17 },
-  { x: 6, y: 17 },
-  { x: 15, y: 3 },
-  { x: 12, y: 17 },
+  { x: 24, y: 9 },
+  { x: 50, y: 38 },
+  { x: 14, y: 17 },
+  { x: 42, y: 24 },
+  { x: 30, y: 36 },
 ];
 
 function coordinateKey(x: number, y: number): string {
@@ -265,163 +474,10 @@ function tileKey(x: number, y: number): string {
   return `tile_${x}_${y}`;
 }
 
-function findDistrict(x: number, y: number): SandboxDistrict | undefined {
-  return DISTRICTS.find((district) => (
-    x >= district.x
-    && x < district.x + district.width
-    && y >= district.y
-    && y < district.y + district.height
-  ));
-}
-
-function isRoadTile(x: number, y: number): boolean {
-  const horizontalBand = (y >= 8 && y <= 9) || (y >= 12 && y <= 13);
-  const verticalBand = (x >= 9 && x <= 10) || (x >= 19 && x <= 20);
-  return horizontalBand || verticalBand;
-}
-
-function roadAxisForTile(x: number, y: number): RoadAxis {
-  const horizontalBand = (y >= 8 && y <= 9) || (y >= 12 && y <= 13);
-  const verticalBand = (x >= 9 && x <= 10) || (x >= 19 && x <= 20);
-  if (horizontalBand && verticalBand) return 'intersection';
-  if (horizontalBand) return 'horizontal';
-  if (verticalBand) return 'vertical';
-  return null;
-}
-
-function isFrontageTile(x: number, y: number): boolean {
-  return (
-    y === 7
-    || y === 14
-    || x === 8
-    || x === 11
-    || x === 18
-    || x === 21
-  );
-}
-
-function zoneTypeForDistrict(districtKey: string | null | undefined): BusinessLandZoneType {
-  switch (districtKey) {
-    case 'heights':
-      return 'residential_edge';
-    case 'midtown':
-      return 'mixed_use';
-    case 'exchange':
-      return 'commercial_core';
-    case 'makers':
-      return 'service_flex';
-    case 'commerce':
-      return 'mixed_use';
-    case 'harbor':
-      return 'logistics';
-    default:
-      return 'service_flex';
-  }
-}
-
-function sizeForTile(
-  districtKey: string | null | undefined,
-  frontage: boolean,
-  x: number,
-  y: number,
-): BusinessLotSize {
-  if (frontage && (districtKey === 'exchange' || districtKey === 'harbor')) return 'large';
-  if (frontage && (districtKey === 'midtown' || districtKey === 'commerce')) return 'medium';
-  if (frontage) return 'small';
-  return (x + y) % 3 === 0 ? 'small' : 'micro';
-}
-
-function districtValueBase(districtKey: string | null | undefined): number {
-  switch (districtKey) {
-    case 'heights':
-      return 180;
-    case 'midtown':
-      return 300;
-    case 'exchange':
-      return 420;
-    case 'makers':
-      return 250;
-    case 'commerce':
-      return 340;
-    case 'harbor':
-      return 360;
-    default:
-      return 150;
-  }
-}
-
-function districtTrafficBase(districtKey: string | null | undefined): number {
-  switch (districtKey) {
-    case 'heights':
-      return 42;
-    case 'midtown':
-      return 68;
-    case 'exchange':
-      return 84;
-    case 'makers':
-      return 58;
-    case 'commerce':
-      return 73;
-    case 'harbor':
-      return 66;
-    default:
-      return 36;
-  }
-}
-
-function districtDevelopmentBase(districtKey: string | null | undefined): number {
-  switch (districtKey) {
-    case 'heights':
-      return 52;
-    case 'midtown':
-      return 70;
-    case 'exchange':
-      return 82;
-    case 'makers':
-      return 64;
-    case 'commerce':
-      return 76;
-    case 'harbor':
-      return 88;
-    default:
-      return 44;
-  }
-}
-
-function createLandProfile(
-  districtKey: string | null | undefined,
-  frontage: boolean,
-  x: number,
-  y: number,
-): SandboxLandProfile {
-  const zoneType = zoneTypeForDistrict(districtKey);
-  const size = sizeForTile(districtKey, frontage, x, y);
-  const sizeMultiplier = size === 'large'
-    ? 1.55
-    : size === 'medium'
-      ? 1.28
-      : size === 'small'
-        ? 1.08
-        : 0.9;
-  const frontageBonus = frontage ? 72 : 18;
-  const adjacencyBonus = ((x + y) % 4) * 9;
-  const valueXgp = Math.round((districtValueBase(districtKey) * sizeMultiplier) + frontageBonus + adjacencyBonus);
-  const trafficScore = Math.min(
-    100,
-    Math.round(districtTrafficBase(districtKey) + (frontage ? 16 : 4) + ((x * 3 + y * 5) % 11)),
-  );
-  const developmentPotential = Math.min(
-    100,
-    Math.round(districtDevelopmentBase(districtKey) + (frontage ? 10 : 0) + ((x * 7 + y * 2) % 9)),
-  );
-
-  return {
-    zoneType,
-    size,
-    valueXgp,
-    trafficScore,
-    developmentPotential,
-  };
+function findDistrictForZone(zone: SandboxZoneKey | 'river'): SandboxDistrict | undefined {
+  if (zone === 'rural') return DISTRICTS[0];
+  if (zone === 'downtown') return DISTRICTS[1];
+  return undefined;
 }
 
 function labelForNodeType(nodeType: string): {
@@ -570,7 +626,8 @@ function createSpecialTileMap(
     const anchor = anchors[node.key];
     if (!anchor) return;
     const nodeMeta = labelForNodeType(node.node_type);
-    const district = findDistrict(anchor.x, anchor.y);
+    const zone = zoneOf(anchor.x, anchor.y);
+    const district = findDistrictForZone(zone);
     const travelOption = travelByDestination[node.key];
     tiles[coordinateKey(anchor.x, anchor.y)] = {
       x: anchor.x,
@@ -626,27 +683,56 @@ export function buildSandboxCityMap(options: {
 
   for (let y = 0; y < MAP_ROWS; y += 1) {
     for (let x = 0; x < MAP_COLUMNS; x += 1) {
-      const district = findDistrict(x, y);
+      const zone = zoneOf(x, y);
+      const district = findDistrictForZone(zone);
+      const waterfront = isWaterfrontAdjacency(x, y);
       const special = specialTileMap[coordinateKey(x, y)];
       let tile: SandboxMapTile;
 
-      if (isRoadTile(x, y)) {
+      if (zone === 'river') {
+        tile = {
+          key: tileKey(x, y),
+          x,
+          y,
+          kind: 'expansion_node',
+          label: 'River',
+          shortLabel: '',
+          description: 'River corridor. Adjacent waterfront lots gain demand and value upside.',
+          districtKey: null,
+          districtLabel: null,
+          zoneTone: 'river',
+          buildable: false,
+          selectable: false,
+          waterfront: false,
+          nodeKey: null,
+          nodeType: null,
+          opportunityTier: null,
+          isCurrentLocation: false,
+          roadAxis: null,
+          travelOption: null,
+          actionTags: [],
+          landProfile: null,
+        };
+      } else if (isRoadTile(x, y)) {
+        const axis = roadAxisAt(x, y);
         tile = {
           key: tileKey(x, y),
           x,
           y,
           kind: 'road',
-          label: roadAxisForTile(x, y) === 'intersection' ? 'Junction' : 'Road',
+          label: axis === 'intersection' ? 'Junction' : 'Road',
           description: 'Street network for movement, routing, and frontage access.',
-          districtKey: null,
-          districtLabel: null,
+          districtKey: district?.key || null,
+          districtLabel: district?.label || null,
+          zoneTone: zone,
           buildable: false,
           selectable: true,
+          waterfront,
           nodeKey: null,
           nodeType: null,
           opportunityTier: null,
           isCurrentLocation: false,
-          roadAxis: roadAxisForTile(x, y),
+          roadAxis: axis,
           travelOption: null,
           actionTags: [],
           landProfile: null,
@@ -662,8 +748,10 @@ export function buildSandboxCityMap(options: {
           description: special.description,
           districtKey: special.districtKey ?? district?.key ?? null,
           districtLabel: special.districtLabel ?? district?.label ?? null,
+          zoneTone: zone,
           buildable: special.buildable ?? special.kind === 'building_slot',
           selectable: true,
+          waterfront,
           nodeKey: special.nodeKey ?? null,
           nodeType: special.nodeType ?? null,
           opportunityTier: special.opportunityTier ?? null,
@@ -673,9 +761,9 @@ export function buildSandboxCityMap(options: {
           actionTags: special.actionTags || [],
           landProfile: null,
         };
-      } else if (district) {
+      } else {
         const frontage = isFrontageTile(x, y);
-        const landProfile = createLandProfile(district.key, frontage, x, y);
+        const landProfile = createLandProfile(zone, frontage, waterfront, x, y);
         tile = {
           key: tileKey(x, y),
           x,
@@ -684,12 +772,14 @@ export function buildSandboxCityMap(options: {
           label: frontage ? 'Buildable Frontage' : 'Open Lot',
           shortLabel: frontage ? 'LOT' : undefined,
           description: frontage
-            ? `${district.label} frontage lot with ${landProfile.trafficScore}/100 traffic and ${landProfile.developmentPotential}/100 development upside.`
-            : `${district.label} infill lot with ${landProfile.valueXgp} XGP land value and ${landProfile.zoneType.replace(/_/g, ' ')} zoning.`,
-          districtKey: district.key,
-          districtLabel: district.label,
+            ? `${district?.label || 'Outer'} frontage lot with ${landProfile.trafficScore}/100 traffic and ${landProfile.developmentPotential}/100 development upside.`
+            : `${district?.label || 'Outer'} infill lot with ${landProfile.valueXgp} XGP land value and ${landProfile.zoneType.replace(/_/g, ' ')} zoning.`,
+          districtKey: district?.key || null,
+          districtLabel: district?.label || null,
+          zoneTone: zone,
           buildable: true,
           selectable: true,
+          waterfront,
           nodeKey: null,
           nodeType: null,
           opportunityTier: null,
@@ -698,28 +788,6 @@ export function buildSandboxCityMap(options: {
           travelOption: null,
           actionTags: [],
           landProfile,
-        };
-      } else {
-        tile = {
-          key: tileKey(x, y),
-          x,
-          y,
-          kind: 'expansion_node',
-          label: 'Expansion Buffer',
-          shortLabel: 'EXP',
-          description: 'Reserved outer-map tile for future district expansion.',
-          districtKey: null,
-          districtLabel: null,
-          buildable: false,
-          selectable: true,
-          nodeKey: null,
-          nodeType: null,
-          opportunityTier: null,
-          isCurrentLocation: false,
-          roadAxis: null,
-          travelOption: null,
-          actionTags: [],
-          landProfile: null,
         };
       }
 
@@ -734,13 +802,23 @@ export function buildSandboxCityMap(options: {
 
   const currentLocationTileKey = tileByNodeKey[currentLocationKey]?.key || null;
 
+  const river: RiverGeometry = {
+    controlPoints: RIVER_ANCHORS.map((anchor) => ({
+      x: anchor.col * MAP_TILE_SIZE,
+      y: anchor.row * MAP_TILE_SIZE,
+    })),
+    bandPx: RIVER_BAND_PX,
+    centerlineSamples: riverCenterlineSamples(),
+  };
+
   return {
     columns: MAP_COLUMNS,
     rows: MAP_ROWS,
     tileSize: MAP_TILE_SIZE,
-    worldWidth: MAP_COLUMNS * MAP_TILE_SIZE,
-    worldHeight: MAP_ROWS * MAP_TILE_SIZE,
+    worldWidth: WORLD_W,
+    worldHeight: WORLD_H,
     districts: DISTRICTS,
+    river,
     tiles,
     tileByKey,
     tileByCoordinate,

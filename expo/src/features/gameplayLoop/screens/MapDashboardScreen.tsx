@@ -1159,12 +1159,10 @@ const styles = StyleSheet.create({
   },
   mapArea: {
     flex: 1,
-    marginTop: 4,
+    marginTop: 0,
     marginBottom: 0,
     position: 'relative',
     overflow: 'hidden',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
     backgroundColor: theme.gameUi.background,
   },
   selectionPanel: {
