@@ -21,14 +21,16 @@ import {
 } from '@/lib/playtestAnalytics';
 
 export type OnboardingRouteKey =
+  | 'brief'
+  | 'dashboard'
   | 'map'
   | 'work'
-  | 'portfolio'
+  | 'market'
   | 'business'
   | 'life'
   | 'summary';
 
-type GuidedRouteKey = Exclude<OnboardingRouteKey, 'business' | 'map'>;
+type GuidedRouteKey = Exclude<OnboardingRouteKey, 'business' | 'life' | 'map'>;
 
 type OnboardingStepRequirement = 'manual_continue' | 'first_work_action' | 'settled_summary';
 
@@ -44,22 +46,22 @@ export interface OnboardingStepDefinition {
 
 const ONBOARDING_STEPS: OnboardingStepDefinition[] = [
   {
-    key: 'life_today_brief',
-    route: 'life',
-    title: 'Read Today',
-    body: 'Read the day pulse before you spend, travel, or push for income.',
-    highlightTarget: 'life-today-brief',
+    key: 'brief_daily_economy',
+    route: 'brief',
+    title: 'Read The Daily Economy',
+    body: 'Signals first -> better actions next.',
+    highlightTarget: 'brief-daily-economy',
     requirement: 'manual_continue',
-    continueLabel: 'Next: Work',
+    continueLabel: 'Next: Dashboard',
   },
   {
-    key: 'work_career_overview',
-    route: 'work',
-    title: 'Check Career Overview',
-    body: 'Pay, shift timing, and energy tell you how hard you can push.',
-    highlightTarget: 'work-career-overview',
+    key: 'dashboard_core_stats',
+    route: 'dashboard',
+    title: 'Watch Cash And Stress',
+    body: 'Cash protects you -> stress increases mistakes.',
+    highlightTarget: 'dashboard-core-stats',
     requirement: 'manual_continue',
-    continueLabel: 'Next: Take A Work Action',
+    continueLabel: 'Next: Work',
   },
   {
     key: 'work_first_action',
@@ -70,11 +72,11 @@ const ONBOARDING_STEPS: OnboardingStepDefinition[] = [
     requirement: 'first_work_action',
   },
   {
-    key: 'portfolio_money_overview',
-    route: 'portfolio',
-    title: 'Check Cash And Holdings',
-    body: 'Cash flow, debt, and optional stock exposure now live together.',
-    highlightTarget: 'portfolio-money-overview',
+    key: 'market_price_movement',
+    route: 'market',
+    title: 'Check Price Movement',
+    body: 'Prices up -> your costs and margins move.',
+    highlightTarget: 'market-price-movement',
     requirement: 'manual_continue',
     continueLabel: 'Next: Summary',
   },
@@ -134,9 +136,11 @@ function stepRoutePath(playerId: string, route: OnboardingRouteKey): string {
 }
 
 function navLabel(route: OnboardingRouteKey): string {
+  if (route === 'brief') return 'Brief';
+  if (route === 'dashboard') return 'Dashboard';
   if (route === 'map') return 'Map';
   if (route === 'work') return 'Work';
-  if (route === 'portfolio') return 'Portfolio';
+  if (route === 'market') return 'Market';
   if (route === 'business') return 'Business';
   if (route === 'life') return 'Life';
   return 'Summary';

@@ -1,7 +1,7 @@
+import { Redirect, useLocalSearchParams } from 'expo-router';
 import React from 'react';
 
-import WorkScreen from '@/features/gameplayLoop/screens/WorkScreen';
-
 export default function GameplayLoopWorkRoute() {
-  return <WorkScreen />;
+  const { playerId } = useLocalSearchParams<{ playerId: string }>();
+  return <Redirect href={`/gameplay/loop/${playerId}/dashboard`} />;
 }

@@ -1,7 +1,7 @@
-import { Redirect, useLocalSearchParams } from 'expo-router';
 import React from 'react';
 
+import MarketScreen from '@/features/gameplayLoop/screens/MarketScreen';
+
 export default function GameplayLoopMarketRoute() {
-  const { playerId } = useLocalSearchParams<{ playerId: string }>();
-  return <Redirect href={`/gameplay/loop/${playerId}/portfolio`} />;
+  return <MarketScreen />;
 }

@@ -1,14 +1,15 @@
-import BottomSheet, {
-  BottomSheetBackdrop,
-  BottomSheetScrollView,
-  useBottomSheetSpringConfigs,
-} from '@gorhom/bottom-sheet';
-import type {
-  BottomSheetBackdropProps,
-  BottomSheetHandleProps,
-} from '@gorhom/bottom-sheet';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Animated,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  PanResponder,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 
 import { alpha, theme } from '@/design/theme';
 
@@ -20,31 +21,8 @@ interface MapDetailSheetProps {
   children: React.ReactNode;
 }
 
-const SNAP_POINTS: (string | number)[] = ['25%', '55%', '90%'];
-const PEEK_INDEX = 0;
-const MID_INDEX = 1;
-const EXPANDED_INDEX = 2;
-
-function SheetHandle({
-  title,
-  subtitle,
-}: {
-  title: string;
-  subtitle?: string | null;
-}) {
-  return (
-    <View style={styles.handleShell}>
-      <View style={styles.handle} />
-      <View style={styles.headerRow}>
-        <View style={styles.headerCopy}>
-          <Text style={styles.headerEyebrow}>Slot Detail</Text>
-          <Text style={styles.headerTitle}>{title}</Text>
-          {subtitle ? <Text style={styles.headerSubtitle}>{subtitle}</Text> : null}
-        </View>
-      </View>
-    </View>
-  );
-}
+const CLOSE_DISTANCE = 72;
+const CLOSE_VELOCITY = 0.45;
 
 export default function MapDetailSheet({
   visible,
@@ -53,106 +31,178 @@ export default function MapDetailSheet({
   onClose,
   children,
 }: MapDetailSheetProps) {
-  const sheetRef = useRef<React.ElementRef<typeof BottomSheet>>(null);
-  const [sheetIndex, setSheetIndex] = useState<number>(-1);
+  const { height } = useWindowDimensions();
+  const [mounted, setMounted] = useState(visible);
+  const translateY = useRef(new Animated.Value(420)).current;
+  const scrollOffsetYRef = useRef(0);
 
-  const animationConfigs = useBottomSheetSpringConfigs({
-    damping: 30,
-    stiffness: 300,
-    overshootClamping: false,
-  });
+  const hiddenOffset = useMemo(
+    () => Math.max(height * 0.8, 420),
+    [height],
+  );
+  const maxHeight = useMemo(
+    () => Math.min(Math.max(height * 0.72, 360), 680),
+    [height],
+  );
 
   useEffect(() => {
-    if (!sheetRef.current) return;
     if (visible) {
-      sheetRef.current.snapToIndex(MID_INDEX, animationConfigs);
+      setMounted(true);
+      translateY.setValue(hiddenOffset);
+      Animated.spring(translateY, {
+        toValue: 0,
+        useNativeDriver: true,
+        damping: 24,
+        stiffness: 260,
+        mass: 0.9,
+      }).start();
       return;
     }
-    sheetRef.current.close();
-  }, [animationConfigs, visible]);
 
-  const renderBackdrop = useCallback(
-    (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        appearsOnIndex={PEEK_INDEX}
-        disappearsOnIndex={-1}
-        opacity={1}
-        pressBehavior="close"
-        style={styles.backdrop}
-      />
-    ),
-    [],
-  );
+    if (!mounted) return;
 
-  const renderHandle = useCallback(
-    (_props: BottomSheetHandleProps) => (
-      <SheetHandle title={title} subtitle={subtitle} />
-    ),
-    [subtitle, title],
-  );
+    Animated.timing(translateY, {
+      toValue: hiddenOffset,
+      duration: 180,
+      useNativeDriver: true,
+    }).start(({ finished }) => {
+      if (finished) {
+        setMounted(false);
+      }
+    });
+  }, [hiddenOffset, mounted, translateY, visible]);
+
+  const springBack = () => {
+    Animated.spring(translateY, {
+      toValue: 0,
+      useNativeDriver: true,
+      damping: 24,
+      stiffness: 260,
+      mass: 0.9,
+    }).start();
+  };
+
+  const handleDismissRelease = (_: unknown, gesture: { dy: number; vy: number }) => {
+    if (gesture.dy > CLOSE_DISTANCE || gesture.vy > CLOSE_VELOCITY) {
+      onClose();
+      return;
+    }
+    springBack();
+  };
+
+  const headerPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => visible,
+      onStartShouldSetPanResponderCapture: () => visible,
+      onMoveShouldSetPanResponder: (_, gesture) => (
+        visible
+        && Math.abs(gesture.dy) > 6
+        && Math.abs(gesture.dy) > Math.abs(gesture.dx)
+      ),
+      onMoveShouldSetPanResponderCapture: (_, gesture) => (
+        visible
+        && Math.abs(gesture.dy) > 4
+        && Math.abs(gesture.dy) > Math.abs(gesture.dx)
+      ),
+      onPanResponderMove: (_, gesture) => {
+        if (gesture.dy <= 0) {
+          translateY.setValue(0);
+          return;
+        }
+        translateY.setValue(gesture.dy);
+      },
+      onPanResponderTerminationRequest: () => true,
+      onPanResponderRelease: handleDismissRelease,
+      onPanResponderTerminate: springBack,
+    }),
+  ).current;
+
+  const contentPanResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponderCapture: (_, gesture) => (
+        visible
+        && scrollOffsetYRef.current <= 0
+        && gesture.dy > 8
+        && Math.abs(gesture.dy) > Math.abs(gesture.dx)
+      ),
+      onPanResponderMove: (_, gesture) => {
+        if (scrollOffsetYRef.current > 0) return;
+        if (gesture.dy <= 0) {
+          translateY.setValue(0);
+          return;
+        }
+        translateY.setValue(gesture.dy);
+      },
+      onPanResponderTerminationRequest: () => true,
+      onPanResponderRelease: handleDismissRelease,
+      onPanResponderTerminate: springBack,
+    }),
+  ).current;
+
+  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    scrollOffsetYRef.current = Math.max(0, event.nativeEvent.contentOffset.y || 0);
+  };
+
+  if (!mounted) return null;
 
   return (
-    <View pointerEvents={visible ? 'auto' : 'none'} style={StyleSheet.absoluteFill}>
-      <BottomSheet
-        ref={sheetRef}
-        index={visible ? MID_INDEX : -1}
-        snapPoints={SNAP_POINTS}
-        animateOnMount={false}
-        enableDynamicSizing={false}
-        enablePanDownToClose
-        enableContentPanningGesture={false}
-        enableHandlePanningGesture
-        overDragResistanceFactor={2.4}
-        animationConfigs={animationConfigs}
-        onChange={(index) => setSheetIndex(index)}
-        onClose={onClose}
-        handleComponent={renderHandle}
-        backdropComponent={renderBackdrop}
-        style={styles.sheetShell}
-        backgroundStyle={styles.background}
-        handleIndicatorStyle={styles.hiddenIndicator}
-      >
-        <BottomSheetScrollView
+    <Animated.View
+      style={[
+        styles.sheetShell,
+        {
+          maxHeight,
+          transform: [{ translateY }],
+        },
+      ]}
+    >
+      <View style={styles.handleZone} {...headerPanResponder.panHandlers}>
+        <View style={styles.handle} />
+        <View style={styles.headerRow}>
+          <View style={styles.headerCopy}>
+            <Text style={styles.headerEyebrow}>Slot Detail</Text>
+            <Text style={styles.headerTitle}>{title}</Text>
+            {subtitle ? <Text style={styles.headerSubtitle}>{subtitle}</Text> : null}
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.scrollShell} {...contentPanResponder.panHandlers}>
+        <ScrollView
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
-          overScrollMode="never"
-          bounces={false}
-          scrollEnabled={sheetIndex === EXPANDED_INDEX}
           nestedScrollEnabled
-          keyboardShouldPersistTaps="handled"
+          bounces={false}
+          overScrollMode="never"
+          scrollEventThrottle={16}
+          onScroll={handleScroll}
         >
           {children}
-        </BottomSheetScrollView>
-      </BottomSheet>
-    </View>
+        </ScrollView>
+      </View>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    backgroundColor: alpha(theme.ui.bg.app, 0.24),
-  },
   sheetShell: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    backgroundColor: theme.ui.bg.sheet,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: theme.ui.border,
     shadowColor: theme.ui.border,
     shadowOpacity: 0.16,
     shadowRadius: 24,
     shadowOffset: { width: 0, height: -10 },
     elevation: 24,
   },
-  background: {
-    backgroundColor: theme.ui.bg.sheet,
-    borderWidth: 1,
-    borderBottomWidth: 0,
-    borderColor: theme.ui.border,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-  },
-  hiddenIndicator: {
-    opacity: 0,
-  },
-  handleShell: {
+  handleZone: {
     paddingTop: 10,
     paddingHorizontal: 16,
     paddingBottom: 16,
@@ -165,10 +215,10 @@ const styles = StyleSheet.create({
   },
   handle: {
     alignSelf: 'center',
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: theme.ui.text.onDarkMuted,
+    width: 52,
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: alpha(theme.ui.text.onLightMuted, 0.32),
     marginBottom: 12,
   },
   headerRow: {
@@ -193,6 +243,9 @@ const styles = StyleSheet.create({
   headerSubtitle: {
     ...theme.typography.bodySm,
     color: theme.ui.text.onLightMuted,
+  },
+  scrollShell: {
+    flex: 1,
   },
   scrollView: {
     flex: 1,

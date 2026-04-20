@@ -9,5 +9,5 @@ export default function GameplayLoopIndexRoute() {
     return <Redirect href="/gameplay" />;
   }
 
-  return <Redirect href={`/gameplay/loop/${playerId}/life`} />;
+  return <Redirect href={`/gameplay/loop/${playerId}/brief`} />;
 }

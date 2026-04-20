@@ -75,11 +75,11 @@ export default function SummaryScreen() {
             : summaryMissingAfterSettlement
               ? 'Settlement completed but summary payload is unavailable. You can continue to the next day.'
               : `Session ${loop.dailySession.sessionStatus}. Run settlement to generate today's recap.`}
-          secondaryLabel={guidedSummaryActive ? undefined : hasSummary || summaryMissingAfterSettlement ? 'Open Work' : 'Go To Work'}
+          secondaryLabel={guidedSummaryActive ? undefined : hasSummary || summaryMissingAfterSettlement ? 'Open Dashboard' : 'Go To Work'}
           onSecondaryPress={guidedSummaryActive
             ? undefined
             : () => {
-              onboarding.navigateTo('work');
+              onboarding.navigateTo(hasSummary || summaryMissingAfterSettlement ? 'dashboard' : 'work');
             }}
           primaryLabel={hasSummary || summaryMissingAfterSettlement ? 'Start Next Day' : loop.endingDay ? 'Settling Day...' : 'Run End Of Day Settlement'}
           onPrimaryPress={hasSummary || summaryMissingAfterSettlement

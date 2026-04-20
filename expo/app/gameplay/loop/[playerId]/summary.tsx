@@ -1,7 +1,7 @@
+import { Redirect, useLocalSearchParams } from 'expo-router';
 import React from 'react';
 
-import SummaryScreen from '@/features/gameplayLoop/screens/SummaryScreen';
-
 export default function GameplayLoopSummaryRoute() {
-  return <SummaryScreen />;
+  const { playerId } = useLocalSearchParams<{ playerId: string }>();
+  return <Redirect href={`/gameplay/loop/${playerId}/brief`} />;
 }

@@ -12,7 +12,7 @@ import { usePlaytest } from '@/features/playtest';
  * The timer is flushed automatically when the screen unmounts or the next
  * screen view is tracked.
  *
- * @param screenKey - lowercase screen identifier (life | work | portfolio | map | business | summary)
+ * @param screenKey - lowercase screen identifier (brief | dashboard | work | market | business | summary)
  */
 export function useScreenTimer(screenKey: string): void {
   const { trackScreenView } = usePlaytest();

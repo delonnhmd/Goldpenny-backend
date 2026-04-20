@@ -48,6 +48,16 @@ const INTERACTION_DIAGNOSTICS_ENABLED =
   || process.env.EXPO_PUBLIC_INTERACTION_DIAGNOSTICS === '1';
 
 const PAGE_IDENTITY: Record<string, { eyebrow: string; mood: string; chips: string[] }> = {
+  brief: {
+    eyebrow: 'Daily intelligence',
+    mood: 'Signals, narrative, and settlement pressure in one premium brief.',
+    chips: ['City signals', 'Narrative', 'Settle day'],
+  },
+  dashboard: {
+    eyebrow: 'Command center',
+    mood: 'Personal cash, pressure, timing, and choices presented like a live game HUD.',
+    chips: ['Cash flow', 'Health', 'Pressure'],
+  },
   work: {
     eyebrow: 'Career lane',
     mood: 'Shifts, wage growth, certifications, and progression should feel like upward momentum.',
@@ -58,15 +68,15 @@ const PAGE_IDENTITY: Record<string, { eyebrow: string; mood: string; chips: stri
     mood: 'Your business screen tracks growth, margin, staffing, and execution risk like a management game.',
     chips: ['Revenue', 'Margin', 'Operations'],
   },
-  portfolio: {
-    eyebrow: 'Portfolio lane',
-    mood: 'Cash, debt, net worth, and optional market exposure should read like one clear capital surface.',
-    chips: ['Cash flow', 'Net worth', 'Holdings'],
+  market: {
+    eyebrow: 'Market lane',
+    mood: 'Basket signals and stock exposure feel like readable opportunity, not spreadsheet output.',
+    chips: ['Baskets', 'Volatility', 'Capital'],
   },
   life: {
-    eyebrow: 'Daily life',
-    mood: 'Today\'s brief, survival pressure, housing, and personal recovery should feel like one living routine.',
-    chips: ['Today', 'Routine', 'Recovery'],
+    eyebrow: 'Routine lane',
+    mood: 'Housing, meals, stress, and emergency cash now read like survival choices inside the city.',
+    chips: ['Meals', 'Housing', 'Recovery'],
   },
   summary: {
     eyebrow: 'Closeout',
@@ -264,6 +274,7 @@ export default function GameplayLoopScaffold({
 
   const bottomNavItems = useMemo(
     () => gameplayBottomNavBlueprint
+      .filter((item) => !(onboardingActive && (item.key === 'business' || item.key === 'map')))
       .map((item) => ({
         ...item,
         onPress: () => {
@@ -391,7 +402,7 @@ export default function GameplayLoopScaffold({
                 title={economyOnlyFailure ? 'Economy module temporarily unavailable' : 'Gameplay loop unavailable'}
                 message={
                   economyOnlyFailure
-                    ? 'Portfolio data partially loaded. Work and core actions remain available. Retry when economy data recovers.'
+                    ? 'Dashboard partially loaded. Work and core actions remain available. Retry when economy data recovers.'
                     : loop.error
                 }
                 onRetry={() => {
@@ -403,7 +414,7 @@ export default function GameplayLoopScaffold({
             {!loop.bundle && loop.loading ? (
               <SectionCard
                 title="Loading gameplay loop"
-                summary="Syncing work, economy, portfolio, and business state."
+                summary="Syncing dashboard, economy, market, and business state."
               >
                 <LoadingSkeleton lines={4} />
               </SectionCard>

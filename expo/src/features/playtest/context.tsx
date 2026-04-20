@@ -156,9 +156,9 @@ export function PlaytestProvider({
 
       // Emit event
       const eventMap: Record<string, PlaytestEvent['eventName']> = {
-        life: 'life_viewed',
-        work: 'work_viewed',
-        portfolio: 'portfolio_viewed',
+        brief: 'brief_viewed',
+        dashboard: 'dashboard_viewed',
+        market: 'market_viewed',
         business: 'business_viewed',
         summary: 'summary_viewed',
       };
@@ -169,9 +169,9 @@ export function PlaytestProvider({
 
       // Update funnel
       const funnelMap: Record<string, Parameters<typeof markFunnelCheckpoint>[3]> = {
-        life: 'lifeSeenAt',
-        work: 'workSeenAt',
-        portfolio: 'portfolioSeenAt',
+        brief: 'briefSeenAt',
+        dashboard: 'dashboardSeenAt',
+        market: 'marketSeenAt',
         summary: 'summarySeenAt',
       };
       const checkpoint = funnelMap[screen];
@@ -189,7 +189,7 @@ export function PlaytestProvider({
         string,
         Parameters<typeof updateFrictionSignal>[2]
       > = {
-        portfolio: 'noPortfolioVisit',
+        market: 'noMarketVisit',
         business: 'noBusinessVisit',
         summary: 'exitedBeforeSummary',
       };

@@ -29,5 +29,5 @@ export default function GameplayEntryRoute() {
     return <Redirect href="/auth/create-player" />;
   }
 
-  return <Redirect href={`/gameplay/loop/${auth.session.player_profile.id}/life`} />;
+  return <Redirect href={`/gameplay/loop/${auth.session.player_profile.id}/brief`} />;
 }

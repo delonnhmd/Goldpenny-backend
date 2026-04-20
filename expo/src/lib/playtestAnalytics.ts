@@ -28,10 +28,10 @@ export type PlaytestEventName =
   | 'onboarding_started'
   | 'onboarding_skipped'
   | 'onboarding_completed'
-  | 'life_viewed'
-  | 'work_viewed'
+  | 'brief_viewed'
+  | 'dashboard_viewed'
   | 'work_action_taken'
-  | 'portfolio_viewed'
+  | 'market_viewed'
   | 'business_viewed'
   | 'summary_viewed'
   | 'day_completed'
@@ -67,10 +67,10 @@ export interface Day1FunnelState {
   playerId: string;
   gameDay: number;
   sessionStartedAt: string | null;
-  lifeSeenAt: string | null;
-  workSeenAt: string | null;
+  briefSeenAt: string | null;
+  dashboardSeenAt: string | null;
   firstWorkActionAt: string | null;
-  portfolioSeenAt: string | null;
+  marketSeenAt: string | null;
   summarySeenAt: string | null;
   dayCompletedAt: string | null;
 }
@@ -100,7 +100,7 @@ export interface FrictionSignals {
   playerId: string;
   onboardingSkipped: boolean;
   noWorkActionTaken: boolean;
-  noPortfolioVisit: boolean;
+  noMarketVisit: boolean;
   noBusinessVisit: boolean;
   exitedBeforeSummary: boolean;
   longIdleCount: number;
@@ -248,10 +248,10 @@ const FUNNEL_FALLBACK = (
   playerId,
   gameDay,
   sessionStartedAt: null,
-  lifeSeenAt: null,
-  workSeenAt: null,
+  briefSeenAt: null,
+  dashboardSeenAt: null,
   firstWorkActionAt: null,
-  portfolioSeenAt: null,
+  marketSeenAt: null,
   summarySeenAt: null,
   dayCompletedAt: null,
 });
@@ -414,7 +414,7 @@ const FRICTION_FALLBACK = (
   playerId,
   onboardingSkipped: false,
   noWorkActionTaken: true,
-  noPortfolioVisit: true,
+  noMarketVisit: true,
   noBusinessVisit: true,
   exitedBeforeSummary: true,
   longIdleCount: 0,
@@ -498,10 +498,10 @@ export interface PlaytestReport {
 
 export interface FunnelCompletionRate {
   sessionStarted: boolean;
-  lifeSeen: boolean;
-  workSeen: boolean;
+  briefSeen: boolean;
+  dashboardSeen: boolean;
   firstWorkAction: boolean;
-  portfolioSeen: boolean;
+  marketSeen: boolean;
   summarySeen: boolean;
   dayCompleted: boolean;
   completionLabel: string;
@@ -509,23 +509,23 @@ export interface FunnelCompletionRate {
 
 function buildFunnelCompletionRate(funnel: Day1FunnelState | null): FunnelCompletionRate {
   const sessionStarted = Boolean(funnel?.sessionStartedAt);
-  const lifeSeen = Boolean(funnel?.lifeSeenAt);
-  const workSeen = Boolean(funnel?.workSeenAt);
+  const briefSeen = Boolean(funnel?.briefSeenAt);
+  const dashboardSeen = Boolean(funnel?.dashboardSeenAt);
   const firstWorkAction = Boolean(funnel?.firstWorkActionAt);
-  const portfolioSeen = Boolean(funnel?.portfolioSeenAt);
+  const marketSeen = Boolean(funnel?.marketSeenAt);
   const summarySeen = Boolean(funnel?.summarySeenAt);
   const dayCompleted = Boolean(funnel?.dayCompletedAt);
 
-  const steps = [sessionStarted, lifeSeen, workSeen, firstWorkAction, portfolioSeen, summarySeen, dayCompleted];
+  const steps = [sessionStarted, briefSeen, dashboardSeen, firstWorkAction, marketSeen, summarySeen, dayCompleted];
   const completed = steps.filter(Boolean).length;
   const completionLabel = `${completed}/7 funnel steps reached`;
 
   return {
     sessionStarted,
-    lifeSeen,
-    workSeen,
+    briefSeen,
+    dashboardSeen,
     firstWorkAction,
-    portfolioSeen,
+    marketSeen,
     summarySeen,
     dayCompleted,
     completionLabel,

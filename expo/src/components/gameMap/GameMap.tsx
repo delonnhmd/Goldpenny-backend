@@ -1,17 +1,8 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LayoutChangeEvent, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import Animated, {
-  interpolate,
-  runOnJS,
-  type SharedValue,
-  useAnimatedReaction,
-  useAnimatedStyle,
-  useSharedValue,
-  withSequence,
-  withTiming,
-} from 'react-native-reanimated';
-import Svg, { Circle, Line, Path, Rect } from 'react-native-svg';
+import Animated, { runOnJS, useAnimatedReaction, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Svg, { Path, Rect } from 'react-native-svg';
 
 import { alpha, theme } from '@/design/theme';
 
@@ -29,28 +20,12 @@ interface GameMapProps {
 type MapZoomTier = 'z1' | 'z2' | 'z3' | 'z4';
 
 const MIN_SCALE = 0.38;
-const MAX_SCALE = 4;
+const MAX_SCALE = 3.2;
 const DEFAULT_SCALE = 0.92;
 const CAMERA_PADDING = 18;
 const ZOOM_LEVEL_ONE_MAX = 0.65;
 const ZOOM_LEVEL_TWO_MAX = 1.2;
 const ZOOM_LEVEL_THREE_MAX = 1.95;
-const LOCATE_ME_SCALE = 1.6;
-const PLAYER_MARKER_SIZE = 14;
-const PLAYER_MARKER_PULSE_SIZE = 26;
-
-function LocateMeIcon() {
-  return (
-    <Svg width={18} height={18} viewBox="0 0 24 24">
-      <Line x1={12} y1={2.75} x2={12} y2={5.6} stroke={theme.ui.bg.sheet} strokeWidth={2.2} strokeLinecap="round" />
-      <Line x1={12} y1={18.4} x2={12} y2={21.25} stroke={theme.ui.bg.sheet} strokeWidth={2.2} strokeLinecap="round" />
-      <Line x1={2.75} y1={12} x2={5.6} y2={12} stroke={theme.ui.bg.sheet} strokeWidth={2.2} strokeLinecap="round" />
-      <Line x1={18.4} y1={12} x2={21.25} y2={12} stroke={theme.ui.bg.sheet} strokeWidth={2.2} strokeLinecap="round" />
-      <Circle cx={12} cy={12} r={4.4} stroke={theme.ui.bg.sheet} strokeWidth={2.2} fill="none" />
-      <Circle cx={12} cy={12} r={1.2} fill={theme.ui.bg.sheet} />
-    </Svg>
-  );
-}
 
 function clamp(value: number, min: number, max: number): number {
   'worklet';
@@ -423,55 +398,6 @@ const LabelLayer = memo(function LabelLayer({
   );
 });
 
-const PlayerMarkerLayer = memo(function PlayerMarkerLayer({
-  map,
-  currentTile,
-  pulse,
-}: {
-  map: SandboxCityMap;
-  currentTile: SandboxMapTile | null;
-  pulse: SharedValue<number>;
-}) {
-  const pulseStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(pulse.value, [0, 0.65, 1], [0, 0.28, 0]),
-    transform: [{ scale: interpolate(pulse.value, [0, 1], [0.72, 1.6]) }],
-  }));
-
-  const coreStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: interpolate(pulse.value, [0, 0.5, 1], [1, 1.12, 1]) }],
-  }));
-
-  if (!currentTile) return null;
-
-  const centerX = (currentTile.x * map.tileSize) + (map.tileSize / 2);
-  const centerY = (currentTile.y * map.tileSize) + (map.tileSize / 2);
-
-  return (
-    <View
-      pointerEvents="none"
-      style={[
-        styles.playerMarkerLayer,
-        {
-          left: centerX - (PLAYER_MARKER_SIZE / 2),
-          top: centerY - (PLAYER_MARKER_SIZE / 2),
-        },
-      ]}
-    >
-      <Animated.View
-        style={[
-          styles.playerMarkerPulse,
-          {
-            left: -((PLAYER_MARKER_PULSE_SIZE - PLAYER_MARKER_SIZE) / 2),
-            top: -((PLAYER_MARKER_PULSE_SIZE - PLAYER_MARKER_SIZE) / 2),
-          },
-          pulseStyle,
-        ]}
-      />
-      <Animated.View style={[styles.playerMarkerCore, coreStyle]} />
-    </View>
-  );
-});
-
 function GameMapComponent({
   map,
   selectedTileKey,
@@ -494,7 +420,6 @@ function GameMapComponent({
   const startTranslateY = useSharedValue(0);
   const viewportWidth = useSharedValue(0);
   const viewportHeight = useSharedValue(0);
-  const playerMarkerPulse = useSharedValue(0);
 
   const ownedTileSet = useMemo(() => new Set(ownedTileKeys), [ownedTileKeys]);
   const developedTileSet = useMemo(() => new Set(developedTileKeys), [developedTileKeys]);
@@ -528,19 +453,7 @@ function GameMapComponent({
     }
   }, []);
 
-  const pulseCurrentMarker = useCallback(() => {
-    playerMarkerPulse.value = 0;
-    playerMarkerPulse.value = withSequence(
-      withTiming(1, { duration: 300 }),
-      withTiming(0, { duration: 300 }),
-    );
-  }, [playerMarkerPulse]);
-
-  const centerOnTile = useCallback((
-    tile: SandboxMapTile | null,
-    nextScale = scale.value,
-    duration = 180,
-  ) => {
+  const centerOnTile = useCallback((tile: SandboxMapTile | null, nextScale = scale.value) => {
     if (!tile || viewport.width <= 0 || viewport.height <= 0) return;
     const tileCenterX = (tile.x * map.tileSize) + (map.tileSize / 2);
     const tileCenterY = (tile.y * map.tileSize) + (map.tileSize / 2);
@@ -548,9 +461,9 @@ function GameMapComponent({
     const rawTranslateY = (viewport.height / 2) - (tileCenterY * nextScale);
     const clampedX = clampTranslation(rawTranslateX, viewport.width, map.worldWidth, nextScale);
     const clampedY = clampTranslation(rawTranslateY, viewport.height, map.worldHeight, nextScale);
-    scale.value = withTiming(nextScale, { duration });
-    translateX.value = withTiming(clampedX, { duration });
-    translateY.value = withTiming(clampedY, { duration });
+    scale.value = withTiming(nextScale, { duration: 180 });
+    translateX.value = withTiming(clampedX, { duration: 180 });
+    translateY.value = withTiming(clampedY, { duration: 180 });
   }, [map.tileSize, map.worldHeight, map.worldWidth, scale, translateX, translateY, viewport.height, viewport.width]);
 
   const adjustZoom = useCallback((delta: number) => {
@@ -573,14 +486,6 @@ function GameMapComponent({
       { duration: 180 },
     );
   }, [map.worldHeight, map.worldWidth, scale, translateX, translateY, viewport.height, viewport.width]);
-
-  const handleLocateMe = useCallback(() => {
-    const targetTile = currentTile || selectedTile;
-    if (!targetTile) return;
-    const nextScale = scale.value < ZOOM_LEVEL_TWO_MAX ? LOCATE_ME_SCALE : scale.value;
-    centerOnTile(targetTile, nextScale, 240);
-    pulseCurrentMarker();
-  }, [centerOnTile, currentTile, pulseCurrentMarker, scale, selectedTile]);
 
   const handleTap = useCallback((worldX: number, worldY: number) => {
     const tile = nearestTileForPoint(map, worldX, worldY);
@@ -694,7 +599,6 @@ function GameMapComponent({
               developedTileSet={developedTileSet}
             />
             <LabelLayer map={map} zoomTier={zoomTier} />
-            <PlayerMarkerLayer map={map} currentTile={currentTile} pulse={playerMarkerPulse} />
           </Animated.View>
         </View>
       </GestureDetector>
@@ -710,20 +614,6 @@ function GameMapComponent({
           <Text style={styles.controlLabelWide}>Center</Text>
         </Pressable>
       </View>
-
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Locate current tile"
-        disabled={!currentTile && !selectedTile}
-        onPress={handleLocateMe}
-        style={({ pressed }) => [
-          styles.locateButton,
-          pressed ? styles.locateButtonPressed : null,
-          !currentTile && !selectedTile ? styles.locateButtonDisabled : null,
-        ]}
-      >
-        <LocateMeIcon />
-      </Pressable>
     </View>
   );
 }
@@ -752,14 +642,6 @@ const styles = StyleSheet.create({
   },
   labelLayer: {
     ...StyleSheet.absoluteFillObject,
-  },
-  playerMarkerLayer: {
-    position: 'absolute',
-    width: PLAYER_MARKER_SIZE,
-    height: PLAYER_MARKER_SIZE,
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 3,
   },
   tile: {
     position: 'absolute',
@@ -811,26 +693,6 @@ const styles = StyleSheet.create({
     color: theme.ui.text.onDarkMuted,
     letterSpacing: 0.4,
   },
-  playerMarkerPulse: {
-    position: 'absolute',
-    width: PLAYER_MARKER_PULSE_SIZE,
-    height: PLAYER_MARKER_PULSE_SIZE,
-    borderRadius: PLAYER_MARKER_PULSE_SIZE / 2,
-    backgroundColor: alpha(theme.ui.action, 0.24),
-  },
-  playerMarkerCore: {
-    width: PLAYER_MARKER_SIZE,
-    height: PLAYER_MARKER_SIZE,
-    borderRadius: PLAYER_MARKER_SIZE / 2,
-    backgroundColor: theme.ui.action,
-    borderWidth: 2,
-    borderColor: theme.ui.bg.sheet,
-    shadowColor: theme.ui.action,
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 5,
-  },
   controls: {
     position: 'absolute',
     right: 10,
@@ -873,30 +735,6 @@ const styles = StyleSheet.create({
     color: theme.ui.text.onDark,
     textTransform: 'uppercase',
     letterSpacing: 0.7,
-  },
-  locateButton: {
-    position: 'absolute',
-    right: 16,
-    bottom: 16,
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    backgroundColor: theme.ui.action,
-    borderWidth: 2,
-    borderColor: alpha(theme.ui.action, 0.25),
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: theme.ui.action,
-    shadowOpacity: 0.22,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 7,
-  },
-  locateButtonPressed: {
-    opacity: 0.82,
-  },
-  locateButtonDisabled: {
-    opacity: 0.45,
   },
 });
 
