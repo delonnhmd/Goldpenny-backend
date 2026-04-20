@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 
-import { alpha, theme } from '@/design/theme';
+import { theme } from '@/design/theme';
 
 export default function LoadingSkeleton({
   lines = 1,
@@ -49,6 +49,6 @@ const styles = StyleSheet.create({
   line: {
     height: 12,
     borderRadius: theme.radius.sm,
-    backgroundColor: alpha(theme.ui.text.onDarkMuted, 0.26),
+    backgroundColor: 'rgba(148, 163, 184, 0.18)',
   },
 });

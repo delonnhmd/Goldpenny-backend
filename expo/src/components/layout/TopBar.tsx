@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { alpha, theme } from '@/design/theme';
+import { theme } from '@/design/theme';
 
 export default function TopBar({
   title,
@@ -26,8 +26,8 @@ export default function TopBar({
 const styles = StyleSheet.create({
   container: {
     borderBottomWidth: 1,
-    borderBottomColor: alpha(theme.ui.border, 0.56),
-    backgroundColor: theme.ui.bg.card,
+    borderBottomColor: 'rgba(148, 163, 184, 0.12)',
+    backgroundColor: '#091321',
     paddingHorizontal: theme.spacing.lg,
     paddingVertical: theme.spacing.sm,
     flexDirection: 'row',
@@ -41,11 +41,11 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   title: {
-    color: theme.ui.text.onDark,
+    color: '#f8fafc',
     ...theme.typography.headingMd,
   },
   subtitle: {
-    color: theme.ui.text.onDarkMuted,
+    color: '#94a3b8',
     ...theme.typography.bodySm,
   },
   right: {

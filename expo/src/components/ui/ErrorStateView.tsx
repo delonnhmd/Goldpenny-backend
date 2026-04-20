@@ -36,11 +36,11 @@ const styles = StyleSheet.create({
     gap: theme.spacing.sm,
   },
   title: {
-    color: theme.ui.warning,
+    color: '#fcd34d',
     ...theme.typography.headingSm,
   },
   message: {
-    color: theme.ui.text.onDarkMuted,
+    color: '#fde68a',
     ...theme.typography.bodySm,
   },
 });

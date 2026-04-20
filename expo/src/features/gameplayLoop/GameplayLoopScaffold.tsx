@@ -5,7 +5,6 @@ import { LayoutChangeEvent, RefreshControl, ScrollView, StyleSheet, Text, View }
 import { PlayerStatusBar } from '@/components/gameMap';
 import { OnboardingStepOverlay } from '@/components/onboarding';
 import AppShell from '@/components/layout/AppShell';
-import { gameplayBottomNavBlueprint } from '@/components/layout/AppBottomNav';
 import ContentStack from '@/components/layout/ContentStack';
 import PageContainer from '@/components/layout/PageContainer';
 import FadeInView from '@/components/motion/FadeInView';
@@ -120,6 +119,7 @@ export default function GameplayLoopScaffold({
     isSimplifiedMode,
     navigateTo,
   } = onboarding;
+  const sourceTone = loop.sourceMode === 'live' ? 'positive' : loop.sourceMode === 'mixed' ? 'warning' : 'info';
   const degradedSections = Array.isArray(loop.dashboard?.debug_meta?.degraded_sections)
     ? (loop.dashboard?.debug_meta?.degraded_sections as string[])
     : [];
@@ -273,7 +273,13 @@ export default function GameplayLoopScaffold({
   }, [bypassGate, gateBlocked, loop.playerId, softLaunch.isLoading, softLaunch.isMember]);
 
   const bottomNavItems = useMemo(
-    () => gameplayBottomNavBlueprint
+    () => ([
+      { key: 'brief', label: 'Brief' },
+      { key: 'dashboard', label: 'Dashboard' },
+      { key: 'map', label: 'Map' },
+      { key: 'market', label: 'Market' },
+      { key: 'business', label: 'Business' },
+    ]
       .filter((item) => !(onboardingActive && (item.key === 'business' || item.key === 'map')))
       .map((item) => ({
         ...item,
@@ -304,7 +310,7 @@ export default function GameplayLoopScaffold({
             });
           }
         },
-      })),
+      }))),
     [activeNavKey, expectedRoute, navigateTo, onboardingActive, onboardingStep?.key, loop.playerId],
   );
 
@@ -460,27 +466,27 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.xl,
     paddingHorizontal: theme.spacing.lg,
     paddingVertical: theme.spacing.lg,
-    backgroundColor: theme.ui.bg.card,
+    backgroundColor: '#0b1627',
     borderWidth: 1,
-    borderColor: theme.ui.border,
+    borderColor: 'rgba(103, 232, 249, 0.18)',
     gap: theme.spacing.sm,
     ...theme.shadow.md,
   },
   pageHeroEyebrow: {
     ...theme.typography.caption,
-    color: theme.ui.info,
+    color: '#67e8f9',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     fontWeight: '800',
   },
   pageHeroTitle: {
     ...theme.typography.headingLg,
-    color: theme.ui.text.onDark,
+    color: '#f8fafc',
     fontWeight: '800',
   },
   pageHeroBody: {
     ...theme.typography.bodySm,
-    color: theme.ui.text.onDarkMuted,
+    color: '#a8b6c9',
   },
   heroChipRow: {
     flexDirection: 'row',
@@ -491,13 +497,13 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.pill,
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.xs,
-    backgroundColor: theme.ui.bg.cardRaised,
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
     borderWidth: 1,
-    borderColor: theme.ui.border,
+    borderColor: 'rgba(148, 163, 184, 0.16)',
   },
   heroChipText: {
     ...theme.typography.caption,
-    color: theme.ui.text.onDarkMuted,
+    color: '#dbeafe',
     fontWeight: '800',
     textTransform: 'uppercase',
   },

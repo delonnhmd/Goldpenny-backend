@@ -14,7 +14,6 @@ import type {
   MapTileActionTag,
   SandboxMapTile,
 } from '@/components/gameMap';
-import AppBottomNav, { gameplayBottomNavBlueprint } from '@/components/layout/AppBottomNav';
 import SafeAreaPage from '@/components/layout/SafeAreaPage';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import SecondaryButton from '@/components/ui/SecondaryButton';
@@ -856,16 +855,13 @@ export default function MapDashboardScreen() {
     return buttons;
   })();
 
-  const bottomTabs = useMemo(
-    () => gameplayBottomNavBlueprint.map((tab) => ({
-      ...tab,
-      onPress: () => {
-        if (tab.key === 'map') return;
-        onboarding.navigateTo(tab.key as OnboardingRouteKey);
-      },
-    })),
-    [onboarding],
-  );
+  const bottomTabs = useMemo(() => ([
+    { key: 'map' as OnboardingRouteKey, label: 'Map', icon: '\u{1F5FA}\u{FE0F}' },
+    { key: 'work' as OnboardingRouteKey, label: 'Work', icon: '\u{1F4BC}' },
+    { key: 'business' as OnboardingRouteKey, label: 'Business', icon: '\u{1F3EA}' },
+    { key: 'dashboard' as OnboardingRouteKey, label: 'Wallet', icon: '\u{1F4B0}' },
+    { key: 'life' as OnboardingRouteKey, label: 'Life', icon: '\u{2764}\u{FE0F}' },
+  ]), []);
 
   return (
     <SafeAreaPage edges={['top', 'bottom']}>
@@ -1149,7 +1145,28 @@ export default function MapDashboardScreen() {
           </View>
         </View>
 
-        <AppBottomNav items={bottomTabs} activeKey="map" />
+        <View style={styles.bottomNav}>
+          {bottomTabs.map((tab) => {
+            const active = tab.key === 'map';
+            return (
+              <Pressable
+                key={tab.key}
+                onPress={() => {
+                  if (active) return;
+                  onboarding.navigateTo(tab.key);
+                }}
+                style={({ pressed }) => [
+                  styles.tab,
+                  active ? styles.tabActive : null,
+                  pressed ? styles.tabPressed : null,
+                ]}
+              >
+                <Text style={[styles.tabIcon, active ? styles.tabIconActive : null]}>{tab.icon}</Text>
+                <Text style={[styles.tabLabel, active ? styles.tabLabelActive : null]}>{tab.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
     </SafeAreaPage>
   );
@@ -1165,13 +1182,13 @@ const styles = StyleSheet.create({
   },
   mapArea: {
     flex: 1,
-    marginTop: 0,
+    marginTop: 4,
     marginBottom: 0,
     position: 'relative',
     overflow: 'hidden',
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-    backgroundColor: theme.ui.bg.card,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    backgroundColor: theme.gameUi.background,
   },
   selectionPanel: {
     gap: 12,
@@ -1187,26 +1204,26 @@ const styles = StyleSheet.create({
   },
   selectionEyebrow: {
     ...theme.typography.caption,
-    color: theme.ui.text.onLightMuted,
+    color: theme.gameUi.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
   selectionTitle: {
     marginTop: 3,
     ...theme.typography.headingSm,
-    color: theme.ui.text.onLight,
+    color: theme.gameUi.textPrimary,
   },
   kindBadge: {
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: theme.ui.bg.sheet,
+    backgroundColor: '#F9FAFB',
     borderWidth: 1,
-    borderColor: theme.ui.border,
+    borderColor: theme.gameUi.cardBorder,
   },
   kindBadgeText: {
     ...theme.typography.caption,
-    color: theme.ui.text.onLightMuted,
+    color: theme.gameUi.textSecondary,
   },
   selectionBadgeRow: {
     flexDirection: 'row',
@@ -1217,17 +1234,17 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: theme.ui.bg.sheet,
+    backgroundColor: '#F9FAFB',
     borderWidth: 1,
-    borderColor: theme.ui.border,
+    borderColor: theme.gameUi.cardBorder,
   },
   detailBadgePrimary: {
-    borderColor: theme.ui.action,
-    backgroundColor: alpha(theme.ui.action, 0.14),
+    borderColor: alpha(theme.gameUi.primary, 0.24),
+    backgroundColor: alpha(theme.gameUi.primary, 0.08),
   },
   detailBadgeText: {
     ...theme.typography.caption,
-    color: theme.ui.text.onLight,
+    color: theme.gameUi.textPrimary,
     fontWeight: '700',
   },
   selectionStatsRow: {
@@ -1239,25 +1256,25 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 10,
     paddingVertical: 9,
-    backgroundColor: theme.ui.bg.sheet,
+    backgroundColor: '#F9FAFB',
     borderWidth: 1,
-    borderColor: theme.ui.border,
+    borderColor: theme.gameUi.cardBorder,
   },
   selectionStatLabel: {
     ...theme.typography.caption,
-    color: theme.ui.text.onLightMuted,
+    color: theme.gameUi.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
   selectionStatValue: {
     marginTop: 3,
     ...theme.typography.bodySm,
-    color: theme.ui.text.onLight,
+    color: theme.gameUi.textPrimary,
     fontWeight: '700',
   },
   selectionDescription: {
     ...theme.typography.bodySm,
-    color: theme.ui.text.onLightMuted,
+    color: theme.gameUi.textSecondary,
   },
   landMetricsBox: {
     gap: 8,
@@ -1273,20 +1290,20 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingHorizontal: 10,
     paddingVertical: 10,
-    backgroundColor: theme.ui.bg.sheet,
+    backgroundColor: '#F9FAFB',
     borderWidth: 1,
-    borderColor: theme.ui.border,
+    borderColor: theme.gameUi.cardBorder,
     gap: 4,
   },
   landMetricLabel: {
     ...theme.typography.caption,
-    color: theme.ui.text.onLightMuted,
+    color: theme.gameUi.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
   landMetricValue: {
     ...theme.typography.bodySm,
-    color: theme.ui.text.onLight,
+    color: theme.gameUi.textPrimary,
     fontWeight: '700',
   },
   travelRow: {
@@ -1300,14 +1317,14 @@ const styles = StyleSheet.create({
   },
   travelMetaLine: {
     ...theme.typography.bodySm,
-    color: theme.ui.text.onLightMuted,
+    color: theme.gameUi.textSecondary,
   },
   actionSection: {
     gap: 10,
   },
   actionSectionTitle: {
     ...theme.typography.caption,
-    color: theme.ui.action,
+    color: theme.gameUi.primary,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
@@ -1315,9 +1332,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 12,
-    backgroundColor: theme.ui.bg.sheet,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: theme.ui.border,
+    borderColor: theme.gameUi.cardBorder,
     gap: 10,
   },
   actionCopy: {
@@ -1325,12 +1342,12 @@ const styles = StyleSheet.create({
   },
   actionTitle: {
     ...theme.typography.bodyMd,
-    color: theme.ui.text.onLight,
+    color: theme.gameUi.textPrimary,
     fontWeight: '700',
   },
   actionDetail: {
     ...theme.typography.bodySm,
-    color: theme.ui.text.onLightMuted,
+    color: theme.gameUi.textSecondary,
   },
   actionButtonWrap: {
     width: '100%',
@@ -1340,13 +1357,13 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 12,
-    backgroundColor: theme.ui.bg.sheet,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: theme.ui.border,
+    borderColor: theme.gameUi.cardBorder,
   },
   landOwnedText: {
     ...theme.typography.bodySm,
-    color: theme.ui.positive,
+    color: theme.gameUi.success,
     fontWeight: '700',
   },
   shiftTaskPanel: {
@@ -1359,41 +1376,81 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 12,
-    backgroundColor: theme.ui.bg.sheet,
+    backgroundColor: '#FFFFFF',
     borderWidth: 1,
-    borderColor: theme.ui.border,
+    borderColor: theme.gameUi.cardBorder,
     gap: 4,
   },
   shiftFocusCardActive: {
-    borderColor: theme.ui.action,
-    backgroundColor: alpha(theme.ui.action, 0.14),
+    borderColor: alpha(theme.gameUi.primary, 0.3),
+    backgroundColor: alpha(theme.gameUi.primary, 0.08),
   },
   shiftFocusCardPressed: {
     opacity: 0.8,
   },
   shiftFocusTitle: {
     ...theme.typography.bodyMd,
-    color: theme.ui.text.onLight,
+    color: theme.gameUi.textPrimary,
     fontWeight: '700',
   },
   shiftFocusTitleActive: {
-    color: theme.ui.action,
+    color: theme.gameUi.primary,
   },
   shiftFocusDetail: {
     ...theme.typography.bodySm,
-    color: theme.ui.text.onLightMuted,
+    color: theme.gameUi.textSecondary,
   },
   shiftFocusBonus: {
     ...theme.typography.caption,
-    color: theme.ui.action,
+    color: theme.gameUi.primary,
     fontWeight: '700',
   },
   hintText: {
     ...theme.typography.caption,
-    color: theme.ui.text.onLightMuted,
+    color: theme.gameUi.textSecondary,
   },
   guardText: {
     ...theme.typography.caption,
-    color: theme.ui.warning,
+    color: theme.gameUi.warning,
+  },
+  bottomNav: {
+    flexDirection: 'row',
+    backgroundColor: theme.gameUi.card,
+    borderTopWidth: 1,
+    borderTopColor: theme.gameUi.cardBorder,
+    paddingHorizontal: 6,
+    paddingTop: 6,
+    paddingBottom: 8,
+    gap: 4,
+  },
+  tab: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 2,
+    borderRadius: 10,
+    gap: 2,
+  },
+  tabActive: {
+    backgroundColor: alpha(theme.gameUi.primary, 0.12),
+  },
+  tabPressed: {
+    opacity: 0.7,
+  },
+  tabIcon: {
+    fontSize: 20,
+    opacity: 0.7,
+  },
+  tabIconActive: {
+    opacity: 1,
+  },
+  tabLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: theme.gameUi.textSecondary,
+  },
+  tabLabelActive: {
+    color: theme.gameUi.primary,
   },
 });

@@ -1,11 +1,9 @@
 import React, { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import Card from '@/components/ui/Card';
-import Chip from '@/components/ui/Chip';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import SecondaryButton from '@/components/ui/SecondaryButton';
-import { theme } from '@/design/theme';
+import { alpha, theme } from '@/design/theme';
 import { formatMoney } from '@/lib/gameplayFormatters';
 import type { ActiveBusinessProfile, BusinessMarketListing } from '@/types/business';
 
@@ -21,16 +19,10 @@ interface BusinessMarketPanelProps {
   onAdvancePhase: () => void;
 }
 
-function scoreChipVariant(score: number): 'positive' | 'warning' | 'danger' {
-  if (score >= 78) return 'positive';
-  if (score >= 58) return 'warning';
-  return 'danger';
-}
-
-function listingCardVariant(options: { selected: boolean; compared: boolean }): 'default' | 'info' | 'warning' {
-  if (options.selected) return 'info';
-  if (options.compared) return 'warning';
-  return 'default';
+function scoreTone(score: number): string {
+  if (score >= 78) return theme.gameUi.success;
+  if (score >= 58) return theme.gameUi.warning;
+  return theme.gameUi.danger;
 }
 
 export default function BusinessMarketPanel({
@@ -52,42 +44,39 @@ export default function BusinessMarketPanel({
   return (
     <View style={styles.section}>
       {activeBusinessProfile ? (
-        <Card variant="info" style={styles.activeCard}>
+        <View style={styles.activeCard}>
           <Text style={styles.sectionTitle}>Active Business Growth</Text>
           <Text style={styles.activeTitle}>{activeBusinessProfile.display_name}</Text>
           <Text style={styles.activeSubtitle}>
-            {activeBusinessProfile.growth_phase_label} | {activeBusinessProfile.location_label}
+            {activeBusinessProfile.growth_phase_label} · {activeBusinessProfile.location_label}
           </Text>
 
           <View style={styles.metricsRow}>
-            <Card padded={false} style={styles.metricCard}>
+            <View style={styles.metricCard}>
               <Text style={styles.metricLabel}>Employees</Text>
               <Text style={styles.metricValue}>
                 {activeBusinessProfile.employees}/{activeBusinessProfile.employee_capacity}
               </Text>
               <Text style={styles.metricMeta}>
-                NPC {activeBusinessProfile.npc_employees} | Players {activeBusinessProfile.player_employees}
+                NPC {activeBusinessProfile.npc_employees} · Players {activeBusinessProfile.player_employees}
               </Text>
-            </Card>
-            <Card padded={false} style={styles.metricCard}>
+            </View>
+            <View style={styles.metricCard}>
               <Text style={styles.metricLabel}>Wages</Text>
               <Text style={styles.metricValue}>{formatMoney(activeBusinessProfile.wage_cost_xgp)}</Text>
               <Text style={styles.metricMeta}>Open slots {activeBusinessProfile.open_slots}</Text>
-            </Card>
-            <Card padded={false} style={styles.metricCard}>
+            </View>
+            <View style={styles.metricCard}>
               <Text style={styles.metricLabel}>Performance</Text>
-              <Text style={styles.metricValue}>{activeBusinessProfile.performance_score}/100</Text>
-              <View style={styles.metricChipRow}>
-                <Chip
-                  label={`Demand ${activeBusinessProfile.demand_score}/100`}
-                  variant={scoreChipVariant(activeBusinessProfile.performance_score)}
-                />
-              </View>
-            </Card>
+              <Text style={[styles.metricValue, { color: scoreTone(activeBusinessProfile.performance_score) }]}>
+                {activeBusinessProfile.performance_score}/100
+              </Text>
+              <Text style={styles.metricMeta}>Demand {activeBusinessProfile.demand_score}/100</Text>
+            </View>
           </View>
 
           <Text style={styles.toolTitle}>Management tools</Text>
-          <Text style={styles.toolBody}>{activeBusinessProfile.management_tools.join(' | ')}</Text>
+          <Text style={styles.toolBody}>{activeBusinessProfile.management_tools.join(' · ')}</Text>
           <Text style={styles.phaseHint}>{activeBusinessProfile.phase_progress_label}</Text>
 
           <PrimaryButton
@@ -95,7 +84,7 @@ export default function BusinessMarketPanel({
             onPress={activeBusinessProfile.next_phase_label ? onAdvancePhase : undefined}
             disabled={!activeBusinessProfile.next_phase_label}
           />
-        </Card>
+        </View>
       ) : null}
 
       <Text style={styles.sectionTitle}>Businesses For Sale</Text>
@@ -109,33 +98,36 @@ export default function BusinessMarketPanel({
         const buyDisabled = !canTransact || !listing.buyable || listing.locked;
 
         return (
-          <Card
+          <View
             key={listing.listing_id}
-            variant={listingCardVariant({ selected: isSelected, compared })}
-            style={styles.listingCard}
+            style={[
+              styles.listingCard,
+              isSelected ? styles.listingCardSelected : null,
+              compared ? styles.listingCardCompared : null,
+            ]}
           >
             <View style={styles.listingHeader}>
               <View style={styles.listingTitleWrap}>
                 <Text style={styles.listingTitle}>{listing.listing_name}</Text>
                 <Text style={styles.listingMeta}>
-                  {listing.growth_phase_label} | {listing.location_label}
+                  {listing.growth_phase_label} · {listing.location_label}
                 </Text>
               </View>
               <Text style={styles.listingPrice}>{formatMoney(listing.price_xgp)}</Text>
             </View>
 
             <View style={styles.metricPills}>
-              <Chip label={`Demand ${listing.demand_score}`} variant="neutral" />
-              <Chip label={`Rep ${listing.reputation_score}`} variant="neutral" />
-              <Chip label={`Traffic ${listing.traffic_potential}`} variant="neutral" />
-              <Chip label={`Perf ${listing.performance_score}`} variant={scoreChipVariant(listing.performance_score)} />
+              <Text style={styles.metricPill}>Demand {listing.demand_score}</Text>
+              <Text style={styles.metricPill}>Rep {listing.reputation_score}</Text>
+              <Text style={styles.metricPill}>Traffic {listing.traffic_potential}</Text>
+              <Text style={styles.metricPill}>Perf {listing.performance_score}</Text>
             </View>
 
             <Text style={styles.listingDetail}>
-              Employees {listing.employees}/{listing.employee_capacity} | Wage cost {formatMoney(listing.wage_cost_xgp)}
+              Employees {listing.employees}/{listing.employee_capacity} · Wage cost {formatMoney(listing.wage_cost_xgp)}
             </Text>
             <Text style={styles.listingDetail}>{listing.compare_note}</Text>
-            <Text style={styles.listingDetail}>Tools: {listing.management_tools.join(' | ')}</Text>
+            <Text style={styles.listingDetail}>Tools: {listing.management_tools.join(' · ')}</Text>
             {listing.lock_reason ? <Text style={styles.lockText}>{listing.lock_reason}</Text> : null}
 
             <View style={styles.buttonRow}>
@@ -153,22 +145,22 @@ export default function BusinessMarketPanel({
                 disabled={buyDisabled}
               />
             </View>
-          </Card>
+          </View>
         );
       })}
 
       {comparedListings.length >= 2 ? (
-        <Card variant="warning" style={styles.compareBox}>
-          <Text style={styles.compareTitle}>Compare Shortlist</Text>
+        <View style={styles.compareBox}>
+          <Text style={styles.sectionTitle}>Compare Shortlist</Text>
           {comparedListings.map((listing) => (
             <View key={listing.listing_id} style={styles.compareRow}>
               <Text style={styles.compareName}>{listing.listing_name}</Text>
               <Text style={styles.compareMeta}>
-                {formatMoney(listing.price_xgp)} | Demand {listing.demand_score} | Traffic {listing.traffic_potential} | Employees {listing.employees}/{listing.employee_capacity}
+                {formatMoney(listing.price_xgp)} · Demand {listing.demand_score} · Traffic {listing.traffic_potential} · Employees {listing.employees}/{listing.employee_capacity}
               </Text>
             </View>
           ))}
-        </Card>
+        </View>
       ) : null}
     </View>
   );
@@ -184,28 +176,30 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     ...theme.typography.caption,
-    color: theme.ui.text.onLight,
+    color: theme.gameUi.primary,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
-    fontWeight: '800',
   },
   sectionBody: {
     ...theme.typography.bodySm,
-    color: theme.ui.text.onLightMuted,
+    color: theme.gameUi.textSecondary,
   },
   activeCard: {
-    gap: 10,
+    borderRadius: 18,
     paddingHorizontal: 14,
     paddingVertical: 14,
+    backgroundColor: alpha(theme.gameUi.primary, 0.08),
+    borderWidth: 1,
+    borderColor: alpha(theme.gameUi.primary, 0.24),
+    gap: 10,
   },
   activeTitle: {
     ...theme.typography.headingSm,
-    color: theme.ui.text.onLight,
-    fontWeight: '800',
+    color: theme.gameUi.textPrimary,
   },
   activeSubtitle: {
     ...theme.typography.bodySm,
-    color: theme.ui.text.onLightMuted,
+    color: theme.gameUi.textSecondary,
   },
   metricsRow: {
     flexDirection: 'row',
@@ -215,45 +209,56 @@ const styles = StyleSheet.create({
   metricCard: {
     flex: 1,
     minWidth: 96,
+    borderRadius: 14,
     paddingHorizontal: 10,
     paddingVertical: 10,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: theme.gameUi.cardBorder,
     gap: 4,
   },
   metricLabel: {
     ...theme.typography.caption,
-    color: theme.ui.text.onDarkMuted,
+    color: theme.gameUi.textSecondary,
     textTransform: 'uppercase',
   },
   metricValue: {
     ...theme.typography.bodyMd,
-    color: theme.ui.text.onDark,
+    color: theme.gameUi.textPrimary,
     fontWeight: '800',
   },
   metricMeta: {
     ...theme.typography.caption,
-    color: theme.ui.text.onDarkMuted,
-  },
-  metricChipRow: {
-    marginTop: 2,
+    color: theme.gameUi.textSecondary,
   },
   toolTitle: {
     ...theme.typography.caption,
-    color: theme.ui.text.onLightMuted,
+    color: theme.gameUi.textSecondary,
     textTransform: 'uppercase',
   },
   toolBody: {
     ...theme.typography.bodySm,
-    color: theme.ui.text.onLight,
+    color: theme.gameUi.textPrimary,
   },
   phaseHint: {
     ...theme.typography.bodySm,
-    color: theme.ui.text.onLightMuted,
+    color: theme.gameUi.warning,
     fontWeight: '700',
   },
   listingCard: {
-    gap: 8,
+    borderRadius: 18,
     paddingHorizontal: 12,
     paddingVertical: 12,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: theme.gameUi.cardBorder,
+    gap: 8,
+  },
+  listingCardSelected: {
+    borderColor: theme.gameUi.primary,
+  },
+  listingCardCompared: {
+    borderColor: theme.gameUi.warning,
   },
   listingHeader: {
     flexDirection: 'row',
@@ -266,16 +271,16 @@ const styles = StyleSheet.create({
   },
   listingTitle: {
     ...theme.typography.bodyMd,
-    color: theme.ui.text.onDark,
+    color: theme.gameUi.textPrimary,
     fontWeight: '700',
   },
   listingMeta: {
     ...theme.typography.bodySm,
-    color: theme.ui.text.onDarkMuted,
+    color: theme.gameUi.textSecondary,
   },
   listingPrice: {
     ...theme.typography.bodyMd,
-    color: theme.ui.text.onDark,
+    color: theme.gameUi.warning,
     fontWeight: '800',
   },
   metricPills: {
@@ -283,40 +288,46 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 6,
   },
+  metricPill: {
+    ...theme.typography.caption,
+    color: theme.gameUi.textPrimary,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: theme.gameUi.cardBorder,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
   listingDetail: {
     ...theme.typography.bodySm,
-    color: theme.ui.text.onDarkMuted,
+    color: theme.gameUi.textSecondary,
   },
   lockText: {
     ...theme.typography.caption,
-    color: theme.ui.text.onDarkMuted,
-    fontWeight: '700',
+    color: theme.gameUi.warning,
   },
   buttonRow: {
     gap: 8,
   },
   compareBox: {
-    gap: 8,
+    borderRadius: 18,
     paddingHorizontal: 12,
     paddingVertical: 12,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: theme.gameUi.cardBorder,
+    gap: 8,
   },
   compareRow: {
     gap: 2,
   },
   compareName: {
     ...theme.typography.bodySm,
-    color: theme.ui.text.onDark,
+    color: theme.gameUi.textPrimary,
     fontWeight: '700',
-  },
-  compareTitle: {
-    ...theme.typography.caption,
-    color: theme.ui.text.onDark,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    fontWeight: '800',
   },
   compareMeta: {
     ...theme.typography.caption,
-    color: theme.ui.text.onDarkMuted,
+    color: theme.gameUi.textSecondary,
   },
 });

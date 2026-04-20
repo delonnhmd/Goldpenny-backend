@@ -1,13 +1,13 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { alpha, theme } from '@/design/theme';
+import { theme } from '@/design/theme';
 import { formatMoney } from '@/lib/gameplayFormatters';
 import { StockMarketItem, StockMarketSnapshotResponse } from '@/types/stocks';
 
 function changeTone(changePct: number): string {
-  if (changePct > 0) return theme.ui.positive;
-  if (changePct < 0) return theme.ui.danger;
+  if (changePct > 0) return '#86efac';
+  if (changePct < 0) return '#fca5a5';
   return theme.color.textSecondary;
 }
 
@@ -201,7 +201,7 @@ export default function StockMarketCard({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: alpha(theme.ui.border, 0.64),
+    borderColor: 'rgba(148, 163, 184, 0.14)',
     borderRadius: theme.radius.xl,
     backgroundColor: theme.color.surface,
     padding: theme.spacing.lg,
@@ -263,9 +263,9 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 110,
     borderWidth: 1,
-    borderColor: alpha(theme.ui.border, 0.64),
+    borderColor: 'rgba(148, 163, 184, 0.14)',
     borderRadius: theme.radius.lg,
-    backgroundColor: theme.ui.bg.cardRaised,
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
     padding: theme.spacing.sm,
     gap: theme.spacing.xxs,
   },
@@ -282,20 +282,20 @@ const styles = StyleSheet.create({
   },
   warning: {
     ...theme.typography.bodySm,
-    color: theme.ui.text.onDarkMuted,
+    color: '#fcd34d',
     fontWeight: '600',
   },
   guidanceBox: {
     borderWidth: 1,
-    borderColor: alpha(theme.ui.border, 0.64),
+    borderColor: 'rgba(34, 211, 238, 0.24)',
     borderRadius: theme.radius.xl,
-    backgroundColor: theme.ui.bg.cardRaised,
+    backgroundColor: 'rgba(8, 47, 73, 0.3)',
     padding: theme.spacing.md,
     gap: theme.spacing.xs,
   },
   guidanceTitle: {
     ...theme.typography.caption,
-    color: theme.ui.text.onDark,
+    color: '#67e8f9',
     fontWeight: '800',
     textTransform: 'uppercase',
   },
@@ -329,9 +329,9 @@ const styles = StyleSheet.create({
   },
   stockRow: {
     borderWidth: 1,
-    borderColor: alpha(theme.ui.border, 0.64),
+    borderColor: 'rgba(148, 163, 184, 0.14)',
     borderRadius: theme.radius.xl,
-    backgroundColor: theme.ui.bg.cardRaised,
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
     padding: theme.spacing.md,
     gap: theme.spacing.sm,
   },
@@ -383,13 +383,13 @@ const styles = StyleSheet.create({
   },
   volatilityBadge: {
     borderRadius: theme.radius.pill,
-    backgroundColor: alpha(theme.ui.info, 0.18),
+    backgroundColor: 'rgba(30, 64, 175, 0.22)',
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.xs,
   },
   volatilityBadgeText: {
     ...theme.typography.caption,
-    color: theme.ui.text.onDark,
+    color: '#93c5fd',
     fontWeight: '800',
     textTransform: 'uppercase',
   },
@@ -400,7 +400,7 @@ const styles = StyleSheet.create({
   },
   holdingChip: {
     borderRadius: theme.radius.lg,
-    backgroundColor: theme.ui.bg.cardRaised,
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.sm,
     gap: theme.spacing.xxs,
@@ -431,16 +431,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   tradeButtonNeutral: {
-    backgroundColor: theme.ui.bg.cardRaised,
-    borderColor: alpha(theme.ui.border, 0.72),
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
+    borderColor: 'rgba(148, 163, 184, 0.16)',
   },
   tradeButtonBuy: {
-    backgroundColor: alpha(theme.ui.positive, 0.14),
-    borderColor: alpha(theme.ui.positive, 0.72),
+    backgroundColor: 'rgba(20, 83, 45, 0.34)',
+    borderColor: 'rgba(74, 222, 128, 0.26)',
   },
   tradeButtonSell: {
-    backgroundColor: alpha(theme.ui.danger, 0.14),
-    borderColor: alpha(theme.ui.danger, 0.72),
+    backgroundColor: 'rgba(127, 29, 29, 0.32)',
+    borderColor: 'rgba(248, 113, 113, 0.26)',
   },
   tradeButtonDisabled: {
     opacity: 0.5,

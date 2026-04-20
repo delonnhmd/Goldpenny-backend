@@ -1,7 +1,7 @@
 import React from 'react';
 import { ActivityIndicator, Pressable, StyleProp, StyleSheet, Text, ViewStyle } from 'react-native';
 
-import { theme } from '@/design/theme';
+import { alpha, theme } from '@/design/theme';
 
 export default function SecondaryButton({
   label,
@@ -30,7 +30,7 @@ export default function SecondaryButton({
         pressed && !blocked ? styles.pressed : null,
       ]}
     >
-      {loading ? <ActivityIndicator size="small" color={theme.ui.text.onDarkMuted} /> : null}
+      {loading ? <ActivityIndicator size="small" color={theme.gameUi.textSecondary} /> : null}
       <Text style={styles.text}>{label}</Text>
     </Pressable>
   );
@@ -40,9 +40,9 @@ const styles = StyleSheet.create({
   button: {
     minHeight: 48,
     borderWidth: 1,
-    borderColor: theme.ui.border,
-    borderRadius: theme.ui.radius.card,
-    backgroundColor: theme.ui.bg.cardRaised,
+    borderColor: alpha(theme.gameUi.secondaryButtonBorder, 0.92),
+    borderRadius: theme.radius.lg,
+    backgroundColor: theme.gameUi.secondaryButton,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: theme.spacing.lg,
@@ -54,12 +54,12 @@ const styles = StyleSheet.create({
     opacity: 0.78,
   },
   pressed: {
-    backgroundColor: theme.ui.bg.card,
+    backgroundColor: '#DCE1E8',
     transform: [{ scale: 0.96 }],
     opacity: 0.9,
   },
   text: {
-    color: theme.ui.text.onDark,
+    color: theme.gameUi.textPrimary,
     ...theme.typography.label,
     fontWeight: '700',
     textAlign: 'center',

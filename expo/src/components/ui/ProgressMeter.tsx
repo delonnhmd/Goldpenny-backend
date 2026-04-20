@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
 
 import { motion, useReducedMotion } from '@/design/motion';
-import { alpha, theme } from '@/design/theme';
+import { theme } from '@/design/theme';
 
 export default function ProgressMeter({
   progress,
@@ -62,12 +62,12 @@ const styles = StyleSheet.create({
     height: 8,
     borderRadius: theme.radius.pill,
     overflow: 'hidden',
-    backgroundColor: alpha(theme.ui.text.onDarkMuted, 0.26),
+    backgroundColor: 'rgba(148, 163, 184, 0.18)',
   },
   fill: {
     height: 8,
     borderRadius: theme.radius.pill,
-    backgroundColor: theme.ui.info,
+    backgroundColor: '#22d3ee',
   },
   meta: {
     color: theme.color.textSecondary,

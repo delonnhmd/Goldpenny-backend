@@ -1,5 +1,3 @@
-import { uiTokens } from '@/theme/tokens';
-
 export function clampPercent(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(100, value));
@@ -40,25 +38,25 @@ export function alignmentLabel(value: string): string {
 
 export function driftColor(level: string): string {
   const normalized = String(level || '').toLowerCase();
-  if (normalized === 'high') return uiTokens.danger;
-  if (normalized === 'moderate') return uiTokens.warning;
-  if (normalized === 'low') return uiTokens.info;
-  return uiTokens.positive;
+  if (normalized === 'high') return '#b91c1c';
+  if (normalized === 'moderate') return '#b45309';
+  if (normalized === 'low') return '#0369a1';
+  return '#166534';
 }
 
 export function statusBadgeColor(status: string): string {
   const normalized = String(status || '').toLowerCase();
-  if (normalized === 'active') return uiTokens.action;
-  if (normalized === 'completed') return uiTokens.positive;
-  if (normalized === 'failed') return uiTokens.danger;
-  if (normalized === 'cancelled' || normalized === 'replaced' || normalized === 'expired') return uiTokens.info;
-  return uiTokens.text.onDarkMuted;
+  if (normalized === 'active') return '#1d4ed8';
+  if (normalized === 'completed') return '#166534';
+  if (normalized === 'failed') return '#b91c1c';
+  if (normalized === 'cancelled' || normalized === 'replaced' || normalized === 'expired') return '#7c3aed';
+  return '#475569';
 }
 
 export function feedbackSeverityColor(severity: string): string {
   const normalized = String(severity || '').toLowerCase();
-  if (normalized === 'success') return uiTokens.positive;
-  if (normalized === 'warning') return uiTokens.warning;
-  if (normalized === 'critical') return uiTokens.danger;
-  return uiTokens.action;
+  if (normalized === 'success') return '#166534';
+  if (normalized === 'warning') return '#b45309';
+  if (normalized === 'critical') return '#b91c1c';
+  return '#1e40af';
 }

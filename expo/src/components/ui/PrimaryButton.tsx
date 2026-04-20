@@ -36,7 +36,7 @@ export default function PrimaryButton({
         pressed && !blocked ? styles.pressed : null,
       ]}
     >
-      {loading ? <ActivityIndicator size="small" color={theme.ui.text.onDark} /> : null}
+      {loading ? <ActivityIndicator size="small" color="#ffffff" /> : null}
       <Text style={styles.text}>{loading ? label : label}</Text>
     </Pressable>
   );
@@ -45,22 +45,23 @@ export default function PrimaryButton({
 const styles = StyleSheet.create({
   button: {
     minHeight: 52,
-    borderRadius: theme.ui.radius.card,
+    borderRadius: theme.radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     gap: theme.spacing.xs,
     paddingHorizontal: theme.spacing.lg,
+    ...theme.shadow.md,
   },
   primary: {
-    backgroundColor: theme.ui.action,
+    backgroundColor: theme.gameUi.primary,
     borderWidth: 1,
-    borderColor: alpha(theme.ui.action, 0.92),
+    borderColor: alpha(theme.gameUi.primary, 0.92),
   },
   danger: {
-    backgroundColor: theme.ui.danger,
+    backgroundColor: theme.gameUi.danger,
     borderWidth: 1,
-    borderColor: alpha(theme.ui.danger, 0.92),
+    borderColor: alpha(theme.gameUi.danger, 0.92),
   },
   disabled: {
     opacity: 0.5,
@@ -75,7 +76,7 @@ const styles = StyleSheet.create({
     elevation: 0,
   },
   text: {
-    color: theme.ui.text.onDark,
+    color: theme.gameUi.card,
     ...theme.typography.label,
     fontWeight: '800',
     letterSpacing: 0.3,

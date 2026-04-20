@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-import { alpha, theme } from '@/design/theme';
+import { theme } from '@/design/theme';
 
 import { actionStatusColor, confidenceLabel } from '@/lib/gameplayFormatters';
 import { BALANCE } from '@/lib/balanceConfig';
@@ -80,15 +80,15 @@ export default function ActionCard({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: alpha(theme.ui.border, 0.64),
+    borderColor: 'rgba(148, 163, 184, 0.14)',
     borderRadius: theme.radius.xl,
-    backgroundColor: theme.ui.bg.card,
+    backgroundColor: '#0c1729',
     padding: theme.spacing.md,
     gap: theme.spacing.sm,
   },
   cardRecommended: {
-    borderColor: alpha(theme.ui.info, 0.72),
-    backgroundColor: theme.ui.bg.cardRaised,
+    borderColor: 'rgba(34, 211, 238, 0.28)',
+    backgroundColor: 'rgba(8, 47, 73, 0.34)',
   },
   topRow: {
     flexDirection: 'row',
@@ -125,7 +125,7 @@ const styles = StyleSheet.create({
     ...theme.typography.bodySm,
   },
   blocker: {
-    color: theme.ui.text.onDarkMuted,
+    color: '#fca5a5',
     ...theme.typography.bodySm,
     fontWeight: '700',
   },
@@ -136,7 +136,7 @@ const styles = StyleSheet.create({
   },
   metaChip: {
     borderRadius: theme.radius.md,
-    backgroundColor: theme.ui.bg.cardRaised,
+    backgroundColor: 'rgba(15, 23, 42, 0.92)',
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.xs,
     gap: 2,
@@ -154,15 +154,15 @@ const styles = StyleSheet.create({
   },
   calloutBox: {
     borderWidth: 1,
-    borderColor: alpha(theme.ui.warning, 0.72),
+    borderColor: 'rgba(251, 191, 36, 0.18)',
     borderRadius: theme.radius.lg,
-    backgroundColor: theme.ui.bg.cardRaised,
+    backgroundColor: 'rgba(120, 53, 15, 0.2)',
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.sm,
     gap: theme.spacing.xxs,
   },
   calloutLabel: {
-    color: theme.ui.text.onDark,
+    color: '#fcd34d',
     ...theme.typography.caption,
     textTransform: 'uppercase',
     fontWeight: '800',
@@ -176,9 +176,9 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     minHeight: 46,
     borderRadius: theme.radius.lg,
-    backgroundColor: theme.ui.action,
+    backgroundColor: '#0f3c52',
     borderWidth: 1,
-    borderColor: alpha(theme.ui.action, 0.88),
+    borderColor: '#22d3ee',
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
     justifyContent: 'center',
@@ -188,7 +188,7 @@ const styles = StyleSheet.create({
     opacity: 0.45,
   },
   buttonText: {
-    color: theme.ui.text.onDark,
+    color: '#ffffff',
     ...theme.typography.label,
     fontWeight: '700',
     textAlign: 'center',

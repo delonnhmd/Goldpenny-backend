@@ -1,5 +1,4 @@
 import { OnboardingStatus } from '@/types/onboarding';
-import { uiTokens } from '@/theme/tokens';
 
 export function onboardingStatusLabel(status: OnboardingStatus): string {
   const normalized = String(status || '').toLowerCase();
@@ -11,10 +10,10 @@ export function onboardingStatusLabel(status: OnboardingStatus): string {
 
 export function onboardingStatusTone(status: OnboardingStatus): string {
   const normalized = String(status || '').toLowerCase();
-  if (normalized === 'completed') return uiTokens.positive;
-  if (normalized === 'skipped') return uiTokens.text.onDarkMuted;
-  if (normalized === 'in_progress') return uiTokens.action;
-  return uiTokens.text.onDarkMuted;
+  if (normalized === 'completed') return '#166534';
+  if (normalized === 'skipped') return '#475569';
+  if (normalized === 'in_progress') return '#1d4ed8';
+  return '#334155';
 }
 
 export function onboardingSectionLabel(sectionKey: string | null | undefined): string {
@@ -41,3 +40,4 @@ export function onboardingProgressRatio(progressLabel: string | null | undefined
 export function unlockStatusLabel(unlocked: boolean): string {
   return unlocked ? 'Unlocked' : 'Locked';
 }
+

@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import { alpha, theme } from '@/design/theme';
+import { theme } from '@/design/theme';
 
 export default function BottomActionBar({
   children,
@@ -14,8 +14,8 @@ export default function BottomActionBar({
 const styles = StyleSheet.create({
   bar: {
     borderTopWidth: 1,
-    borderTopColor: alpha(theme.ui.border, 0.58),
-    backgroundColor: theme.ui.bg.card,
+    borderTopColor: 'rgba(148, 163, 184, 0.14)',
+    backgroundColor: '#091321',
     paddingHorizontal: theme.spacing.lg,
     paddingTop: theme.spacing.md,
     paddingBottom: theme.spacing.md,

@@ -3,7 +3,7 @@ import { StyleSheet, View } from 'react-native';
 
 import { theme } from '@/design/theme';
 
-import AppBottomNav, { AppBottomNavItem } from './AppBottomNav';
+import BottomNav, { BottomNavItem } from './BottomNav';
 import SafeAreaPage from './SafeAreaPage';
 import TopBar from './TopBar';
 
@@ -23,7 +23,7 @@ export default function AppShell({
   topStatusBar?: React.ReactNode;
   children: React.ReactNode;
   footer?: React.ReactNode;
-  bottomNavItems?: AppBottomNavItem[];
+  bottomNavItems?: BottomNavItem[];
   activeBottomNavKey?: string | null;
 }) {
   return (
@@ -34,7 +34,7 @@ export default function AppShell({
         <View style={styles.body}>{children}</View>
         {footer ? footer : null}
         {bottomNavItems && bottomNavItems.length > 0 ? (
-          <AppBottomNav items={bottomNavItems} activeKey={activeBottomNavKey || undefined} />
+          <BottomNav items={bottomNavItems} activeKey={activeBottomNavKey || undefined} />
         ) : null}
       </View>
     </SafeAreaPage>

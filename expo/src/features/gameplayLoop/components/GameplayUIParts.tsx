@@ -2,40 +2,44 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import BottomActionBar from '@/components/layout/BottomActionBar';
-import Card from '@/components/ui/Card';
-import Chip, { ChipVariant } from '@/components/ui/Chip';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import SecondaryButton from '@/components/ui/SecondaryButton';
 import SurfaceCard from '@/components/ui/SurfaceCard';
-import { theme } from '@/design/theme';
+import { alpha, theme } from '@/design/theme';
 
 export type GameplayTone = 'neutral' | 'positive' | 'warning' | 'danger' | 'info';
 
 interface TonePalette {
-  cardVariant: 'default' | 'positive' | 'warning' | 'danger' | 'info';
-  chipVariant: ChipVariant;
+  background: string;
+  border: string;
+  text: string;
 }
 
 const tonePalette: Record<GameplayTone, TonePalette> = {
   neutral: {
-    cardVariant: 'default',
-    chipVariant: 'neutral',
+    background: '#F9FAFB',
+    border: theme.gameUi.cardBorder,
+    text: theme.gameUi.textPrimary,
   },
   positive: {
-    cardVariant: 'positive',
-    chipVariant: 'positive',
+    background: alpha(theme.gameUi.success, 0.1),
+    border: alpha(theme.gameUi.success, 0.28),
+    text: theme.gameUi.success,
   },
   warning: {
-    cardVariant: 'warning',
-    chipVariant: 'warning',
+    background: alpha(theme.gameUi.warning, 0.1),
+    border: alpha(theme.gameUi.warning, 0.28),
+    text: theme.gameUi.warning,
   },
   danger: {
-    cardVariant: 'danger',
-    chipVariant: 'danger',
+    background: alpha(theme.gameUi.danger, 0.1),
+    border: alpha(theme.gameUi.danger, 0.28),
+    text: theme.gameUi.danger,
   },
   info: {
-    cardVariant: 'info',
-    chipVariant: 'info',
+    background: alpha(theme.gameUi.primary, 0.1),
+    border: alpha(theme.gameUi.primary, 0.28),
+    text: theme.gameUi.primary,
   },
 };
 
@@ -106,11 +110,11 @@ export function GameplayStatCard({
 }) {
   const palette = paletteFor(tone);
   return (
-    <Card variant={palette.cardVariant} style={styles.statCard}>
+    <View style={[styles.statCard, { borderColor: palette.border, backgroundColor: palette.background }]}>
       <Text style={styles.statLabel}>{label}</Text>
-      <Text style={styles.statValue} numberOfLines={2}>{value}</Text>
+      <Text style={[styles.statValue, { color: palette.text }]} numberOfLines={2}>{value}</Text>
       {note ? <Text style={styles.statNote} numberOfLines={2}>{note}</Text> : null}
-    </Card>
+    </View>
   );
 }
 
@@ -124,7 +128,12 @@ export function GameplayTrendChip({
   tone?: GameplayTone;
 }) {
   const palette = paletteFor(tone);
-  return <Chip label={`${label}: ${value}`} variant={palette.chipVariant} />;
+  return (
+    <View style={[styles.trendChip, { borderColor: palette.border, backgroundColor: palette.background }]}>
+      <Text style={styles.trendLabel}>{label}</Text>
+      <Text style={[styles.trendValue, { color: palette.text }]} numberOfLines={1}>{value}</Text>
+    </View>
+  );
 }
 
 export function GameplayCompactMetricRows({
@@ -142,7 +151,13 @@ export function GameplayCompactMetricRows({
               {item.valueNode}
             </View>
           ) : (
-            <Text style={styles.metricValue} numberOfLines={2}>
+            <Text
+              style={[
+                styles.metricValue,
+                item.tone ? { color: paletteFor(item.tone).text } : null,
+              ]}
+              numberOfLines={2}
+            >
               {item.value}
             </Text>
           )}
@@ -163,10 +178,10 @@ export function GameplayWarningBanner({
 }) {
   const palette = paletteFor(tone);
   return (
-    <Card variant={palette.cardVariant} style={styles.banner}>
-      <Text style={styles.bannerTitle}>{title}</Text>
-      <Text style={styles.bannerMessage}>{message}</Text>
-    </Card>
+    <View style={[styles.banner, { borderColor: palette.border, backgroundColor: palette.background }]}>
+      <Text style={[styles.bannerTitle, { color: palette.text }]}>{title}</Text>
+      <Text style={[styles.bannerMessage, { color: palette.text }]}>{message}</Text>
+    </View>
   );
 }
 
@@ -178,10 +193,10 @@ export function GameplayOpportunityCallout({
   message: string;
 }) {
   return (
-    <Card variant="positive" style={styles.opportunityCallout}>
+    <View style={styles.opportunityCallout}>
       <Text style={styles.opportunityTitle}>{title}</Text>
       <Text style={styles.opportunityText}>{message}</Text>
-    </Card>
+    </View>
   );
 }
 
@@ -247,16 +262,16 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.7,
     fontWeight: '800',
-    color: theme.ui.text.onDarkMuted,
+    color: theme.gameUi.primary,
   },
   sectionTitle: {
     ...theme.typography.headingMd,
-    color: theme.ui.text.onDark,
+    color: theme.gameUi.textPrimary,
     fontWeight: '800',
   },
   sectionSubtitle: {
     ...theme.typography.bodySm,
-    color: theme.ui.text.onDarkMuted,
+    color: theme.gameUi.textSecondary,
   },
   summaryCard: {
     gap: theme.spacing.md,
@@ -267,31 +282,52 @@ const styles = StyleSheet.create({
   statCard: {
     flex: 1,
     minWidth: 130,
+    borderWidth: 1,
+    borderRadius: theme.radius.lg,
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.md,
     gap: theme.spacing.xxs,
   },
   statLabel: {
     ...theme.typography.caption,
-    color: theme.ui.text.onDarkMuted,
+    color: theme.gameUi.textSecondary,
     textTransform: 'uppercase',
     fontWeight: '800',
   },
   statValue: {
     ...theme.typography.headingSm,
     fontWeight: '800',
-    color: theme.ui.text.onDark,
+    color: theme.gameUi.textPrimary,
   },
   statNote: {
     ...theme.typography.caption,
-    color: theme.ui.text.onDarkMuted,
+    color: theme.gameUi.textSecondary,
     lineHeight: 15,
+  },
+  trendChip: {
+    borderWidth: 1,
+    borderRadius: theme.radius.pill,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    gap: 1,
+    minWidth: 104,
+  },
+  trendLabel: {
+    ...theme.typography.caption,
+    color: theme.gameUi.textSecondary,
+    textTransform: 'uppercase',
+    fontWeight: '700',
+  },
+  trendValue: {
+    ...theme.typography.bodySm,
+    color: theme.gameUi.textPrimary,
+    fontWeight: '700',
   },
   metricRows: {
     borderWidth: 1,
-    borderColor: theme.ui.border,
+    borderColor: theme.gameUi.cardBorder,
     borderRadius: theme.radius.lg,
-    backgroundColor: theme.ui.bg.cardRaised,
+    backgroundColor: '#F9FAFB',
     overflow: 'hidden',
   },
   metricRow: {
@@ -299,7 +335,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.xs,
     borderBottomWidth: 1,
-    borderBottomColor: theme.ui.border,
+    borderBottomColor: theme.gameUi.cardBorder,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -307,12 +343,12 @@ const styles = StyleSheet.create({
   },
   metricLabel: {
     ...theme.typography.bodySm,
-    color: theme.ui.text.onDarkMuted,
+    color: theme.gameUi.textSecondary,
     flex: 1,
   },
   metricValue: {
     ...theme.typography.bodySm,
-    color: theme.ui.text.onDark,
+    color: theme.gameUi.textPrimary,
     fontWeight: '700',
     maxWidth: '60%',
     textAlign: 'right',
@@ -323,38 +359,42 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   banner: {
+    borderWidth: 1,
+    borderRadius: theme.radius.lg,
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
     gap: theme.spacing.xxs,
   },
   bannerTitle: {
     ...theme.typography.label,
-    color: theme.ui.text.onDark,
     fontWeight: '800',
   },
   bannerMessage: {
     ...theme.typography.bodySm,
-    color: theme.ui.text.onDarkMuted,
     fontWeight: '600',
   },
   opportunityCallout: {
+    borderWidth: 1,
+    borderColor: alpha(theme.gameUi.success, 0.3),
+    borderRadius: theme.radius.lg,
+    backgroundColor: alpha(theme.gameUi.success, 0.1),
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
     gap: theme.spacing.xxs,
   },
   opportunityTitle: {
     ...theme.typography.label,
-    color: theme.ui.text.onDark,
+    color: theme.gameUi.success,
     fontWeight: '800',
   },
   opportunityText: {
     ...theme.typography.bodySm,
-    color: theme.ui.text.onDarkMuted,
+    color: theme.gameUi.textPrimary,
     fontWeight: '600',
   },
   stickySummary: {
     ...theme.typography.bodySm,
-    color: theme.ui.text.onDarkMuted,
+    color: theme.gameUi.textSecondary,
   },
   stickyButtonRow: {
     flexDirection: 'row',

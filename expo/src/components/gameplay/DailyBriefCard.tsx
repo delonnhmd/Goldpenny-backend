@@ -57,9 +57,9 @@ export default function DailyBriefCard({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: theme.ui.border,
+    borderColor: 'rgba(103, 232, 249, 0.18)',
     borderRadius: theme.radius.xl,
-    backgroundColor: theme.ui.bg.card,
+    backgroundColor: '#0b1627',
     padding: theme.spacing.lg,
     ...theme.shadow.md,
   },
@@ -70,7 +70,7 @@ const styles = StyleSheet.create({
     ...theme.typography.caption,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
-    color: theme.ui.text.onDarkMuted,
+    color: '#67e8f9',
     fontWeight: '800',
   },
   headline: {
@@ -88,7 +88,7 @@ const styles = StyleSheet.create({
     paddingTop: theme.spacing.xs,
   },
   bulletItem: {
-    color: theme.ui.text.onDarkMuted,
+    color: '#cbd5e1',
     ...theme.typography.bodySm,
     lineHeight: 18,
   },

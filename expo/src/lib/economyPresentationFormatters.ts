@@ -1,5 +1,4 @@
 import { formatMoney } from '@/lib/gameplayFormatters';
-import { uiTokens } from '@/theme/tokens';
 import {
   CommutePressureLevel,
   CostPressure,
@@ -18,9 +17,9 @@ export function marketMoodLabel(mood: MarketMood): string {
 
 export function marketMoodColor(mood: MarketMood): string {
   const normalized = String(mood || '').toLowerCase();
-  if (normalized === 'supportive') return uiTokens.positive;
-  if (normalized === 'pressured') return uiTokens.danger;
-  return uiTokens.action;
+  if (normalized === 'supportive') return '#166534';
+  if (normalized === 'pressured') return '#b91c1c';
+  return '#1d4ed8';
 }
 
 export function trendLabelText(trend: TrendLabel): string {
@@ -32,37 +31,37 @@ export function trendLabelText(trend: TrendLabel): string {
 
 export function trendTone(trend: TrendLabel): string {
   const normalized = String(trend || '').toLowerCase();
-  if (normalized === 'rising') return uiTokens.danger;
-  if (normalized === 'falling') return uiTokens.positive;
-  return uiTokens.text.onDarkMuted;
+  if (normalized === 'rising') return '#dc2626';
+  if (normalized === 'falling') return '#166534';
+  return '#475569';
 }
 
 export function volatilityTone(label: VolatilityLabel): string {
   const normalized = String(label || '').toLowerCase();
-  if (normalized === 'high') return uiTokens.danger;
-  if (normalized === 'moderate') return uiTokens.warning;
-  return uiTokens.action;
+  if (normalized === 'high') return '#b91c1c';
+  if (normalized === 'moderate') return '#b45309';
+  return '#2563eb';
 }
 
 export function marginTone(label: MarginOutlook): string {
   const normalized = String(label || '').toLowerCase();
-  if (normalized === 'favorable') return uiTokens.positive;
-  if (normalized === 'pressured') return uiTokens.danger;
-  return uiTokens.action;
+  if (normalized === 'favorable') return '#166534';
+  if (normalized === 'pressured') return '#b91c1c';
+  return '#1d4ed8';
 }
 
 export function costPressureTone(label: CostPressure): string {
   const normalized = String(label || '').toLowerCase();
-  if (normalized === 'high') return uiTokens.danger;
-  if (normalized === 'moderate') return uiTokens.warning;
-  return uiTokens.positive;
+  if (normalized === 'high') return '#b91c1c';
+  if (normalized === 'moderate') return '#b45309';
+  return '#166534';
 }
 
 export function commutePressureTone(level: CommutePressureLevel): string {
   const normalized = String(level || '').toLowerCase();
-  if (normalized === 'high') return uiTokens.danger;
-  if (normalized === 'moderate') return uiTokens.warning;
-  return uiTokens.positive;
+  if (normalized === 'high') return '#b91c1c';
+  if (normalized === 'moderate') return '#b45309';
+  return '#166534';
 }
 
 export function lockedBadgeText(): string {

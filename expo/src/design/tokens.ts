@@ -1,18 +1,78 @@
-import { uiTokens } from '@/theme/tokens';
-
 export const colorTokens = {
-  background: uiTokens.bg.app,
-  surface: uiTokens.bg.card,
-  surfaceAlt: uiTokens.bg.cardRaised,
-  textPrimary: uiTokens.text.onDark,
-  textSecondary: uiTokens.text.onDarkMuted,
-  border: uiTokens.border,
-  positive: uiTokens.positive,
-  warning: uiTokens.warning,
-  danger: uiTokens.danger,
-  info: uiTokens.info,
-  accent: uiTokens.action,
-  muted: uiTokens.tab.inactive,
+  background: '#07101d',
+  surface: '#0c1729',
+  surfaceAlt: '#122033',
+  textPrimary: '#f8fafc',
+  textSecondary: '#a8b6c9',
+  border: '#243348',
+  positive: '#4ade80',
+  warning: '#fbbf24',
+  danger: '#f87171',
+  info: '#60a5fa',
+  accent: '#22d3ee',
+  muted: '#7f8ea3',
+} as const;
+
+export const gameUiTokens = {
+  primary: '#3A7DFF',
+  success: '#22C55E',
+  danger: '#EF4444',
+  warning: '#F59E0B',
+  background: '#F5F7FA',
+  card: '#FFFFFF',
+  textPrimary: '#111827',
+  textSecondary: '#6B7280',
+  border: '#D7DEE8',
+  cardBorder: '#E5E7EB',
+  secondaryButton: '#E5E7EB',
+  secondaryButtonBorder: '#D1D5DB',
+  hudGlass: 'rgba(255, 255, 255, 0.88)',
+  hudBorder: 'rgba(255, 255, 255, 0.74)',
+  hudShadow: 'rgba(17, 24, 39, 0.12)',
+  mapBackdrop: '#EEF3FA',
+  mapBackdropDeep: '#E1E9F6',
+  mapGrid: '#E5EBF3',
+  road: '#9CA3AF',
+  roadStripe: 'rgba(255, 255, 255, 0.74)',
+  lowActivityOverlay: 'rgba(107, 114, 128, 0.20)',
+  district: {
+    suburban: {
+      base: '#D1FAE5',
+      accent: '#A7F3D0',
+      label: '#0F766E',
+      badgeBackground: 'rgba(255, 255, 255, 0.72)',
+    },
+    downtown: {
+      base: '#1E3A8A',
+      accent: '#1E40AF',
+      highlight: '#3B82F6',
+      label: '#EFF6FF',
+      badgeBackground: 'rgba(15, 23, 42, 0.26)',
+    },
+    commercial: {
+      base: '#FDE68A',
+      accent: '#FBBF24',
+      label: '#92400E',
+      badgeBackground: 'rgba(255, 251, 235, 0.78)',
+    },
+  },
+  signals: {
+    demand: '#FB923C',
+    profit: '#4ADE80',
+    lowActivity: '#6B7280',
+  },
+  icons: {
+    player: '#3A7DFF',
+    ownedBusiness: '#22C55E',
+    neutral: '#6B7280',
+    openSlot: '#FBBF24',
+    hotspot: '#FB923C',
+  },
+  status: {
+    cash: '#22C55E',
+    stress: '#EF4444',
+    health: '#F59E0B',
+  },
 } as const;
 
 export const spacing = {
@@ -27,38 +87,37 @@ export const spacing = {
 } as const;
 
 export const radius = {
-  sm: 8,
+  sm: 6,
   md: 12,
   lg: 16,
-  xl: uiTokens.radius.card,
-  pill: uiTokens.radius.chip,
-  navTile: uiTokens.radius.navTile,
+  xl: 22,
+  pill: 999,
 } as const;
 
 export const shadow = {
   none: {
-    shadowColor: uiTokens.border,
+    shadowColor: '#000000',
     shadowOpacity: 0,
     shadowRadius: 0,
     shadowOffset: { width: 0, height: 0 },
     elevation: 0,
   },
   sm: {
-    shadowColor: uiTokens.border,
+    shadowColor: '#020617',
     shadowOpacity: 0.18,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 3 },
     elevation: 2,
   },
   md: {
-    shadowColor: uiTokens.border,
+    shadowColor: '#020617',
     shadowOpacity: 0.24,
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 8 },
     elevation: 6,
   },
   lg: {
-    shadowColor: uiTokens.border,
+    shadowColor: '#020617',
     shadowOpacity: 0.34,
     shadowRadius: 22,
     shadowOffset: { width: 0, height: 12 },
