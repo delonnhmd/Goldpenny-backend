@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { theme } from '@/design/theme';
 
 import {
   adherenceLabel,
@@ -89,9 +90,9 @@ export default function ActiveCommitmentCard({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: '#cbd5e1',
+    borderColor: theme.ui.text.onLightMuted,
     borderRadius: 12,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 14,
     gap: 8,
   },
@@ -102,7 +103,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   heading: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 17,
     fontWeight: '800',
   },
@@ -112,12 +113,12 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   title: {
-    color: '#1d4ed8',
+    color: theme.ui.action,
     fontSize: 14,
     fontWeight: '900',
   },
   description: {
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 17,
   },
@@ -128,7 +129,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   meta: {
-    color: '#475569',
+    color: theme.ui.text.onLightMuted,
     fontSize: 11,
     fontWeight: '700',
   },
@@ -139,21 +140,21 @@ const styles = StyleSheet.create({
   },
   scoreItem: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.ui.border,
     borderRadius: 10,
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.ui.bg.sheet,
     paddingHorizontal: 10,
     paddingVertical: 8,
     gap: 3,
     minWidth: 130,
   },
   scoreLabel: {
-    color: '#64748b',
+    color: theme.ui.text.onLightMuted,
     fontSize: 11,
     fontWeight: '700',
   },
   scoreValue: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 13,
     fontWeight: '800',
   },
@@ -164,22 +165,22 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   statusText: {
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     fontWeight: '700',
   },
   payoff: {
-    color: '#166534',
+    color: theme.ui.positive,
     fontSize: 12,
     lineHeight: 17,
   },
   downside: {
-    color: '#b91c1c',
+    color: theme.ui.danger,
     fontSize: 12,
     lineHeight: 17,
   },
   correction: {
-    color: '#1e40af',
+    color: theme.ui.action,
     fontSize: 12,
     lineHeight: 17,
     fontWeight: '700',
@@ -187,13 +188,13 @@ const styles = StyleSheet.create({
   cancelButton: {
     marginTop: 2,
     borderRadius: 9,
-    backgroundColor: '#334155',
+    backgroundColor: theme.ui.text.onLightMuted,
     paddingVertical: 8,
     paddingHorizontal: 10,
     alignItems: 'center',
   },
   cancelButtonText: {
-    color: '#ffffff',
+    color: theme.ui.bg.sheet,
     fontSize: 12,
     fontWeight: '800',
   },
@@ -201,7 +202,7 @@ const styles = StyleSheet.create({
     opacity: 0.45,
   },
   empty: {
-    color: '#64748b',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 17,
   },

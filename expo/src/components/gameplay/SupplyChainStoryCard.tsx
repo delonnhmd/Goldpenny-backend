@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { theme } from '@/design/theme';
 
 import { SupplyChainStoryResponse, SupplyChainSummaryResponse } from '@/types/supplyChain';
 
@@ -80,24 +81,24 @@ export default function SupplyChainStoryCard({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.ui.border,
     borderRadius: 12,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 14,
     gap: 10,
   },
   heading: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 17,
     fontWeight: '800',
   },
   summary: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 13,
     fontWeight: '700',
   },
   story: {
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 18,
   },
@@ -106,21 +107,21 @@ const styles = StyleSheet.create({
   },
   metaBox: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.ui.border,
     borderRadius: 10,
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 10,
     gap: 2,
   },
   metaLabel: {
-    color: '#475569',
+    color: theme.ui.text.onLightMuted,
     fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.4,
   },
   metaValue: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 13,
     fontWeight: '700',
   },
@@ -129,27 +130,27 @@ const styles = StyleSheet.create({
   },
   column: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.ui.border,
     borderRadius: 10,
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 10,
     gap: 4,
   },
   columnTitle: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 12,
     fontWeight: '700',
   },
   itemText: {
-    color: '#475569',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 17,
   },
   signalBox: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.ui.border,
     borderRadius: 10,
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 10,
     gap: 4,
   },
@@ -158,9 +159,9 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   warningTitle: {
-    color: '#b91c1c',
+    color: theme.ui.danger,
   },
   opportunityTitle: {
-    color: '#166534',
+    color: theme.ui.positive,
   },
 });

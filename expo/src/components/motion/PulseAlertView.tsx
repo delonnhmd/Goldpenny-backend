@@ -8,9 +8,9 @@ type PulseTone = 'warning' | 'danger' | 'info';
 type PulseStrength = 'soft' | 'strong';
 
 function toneColor(tone: PulseTone): string {
-  if (tone === 'danger') return 'rgba(220,38,38,1)';
-  if (tone === 'info') return 'rgba(37,99,235,1)';
-  return 'rgba(245,158,11,1)';
+  if (tone === 'danger') return theme.ui.danger;
+  if (tone === 'info') return theme.ui.action;
+  return theme.ui.warning;
 }
 
 function maxOpacity(strength: PulseStrength): number {

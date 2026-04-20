@@ -20,12 +20,12 @@ interface DockActionButton {
 
 function feedbackColors(tone: FeedbackTone): { borderColor: string; backgroundColor: string; color: string } {
   if (tone === 'success') {
-    return { borderColor: '#86efac', backgroundColor: '#f0fdf4', color: '#166534' };
+    return { borderColor: theme.ui.positive, backgroundColor: theme.ui.bg.sheet, color: theme.ui.positive };
   }
   if (tone === 'error') {
-    return { borderColor: '#fecaca', backgroundColor: '#fef2f2', color: '#b91c1c' };
+    return { borderColor: theme.ui.danger, backgroundColor: theme.ui.bg.sheet, color: theme.ui.danger };
   }
-  return { borderColor: '#bfdbfe', backgroundColor: '#eff6ff', color: '#1e40af' };
+  return { borderColor: theme.ui.info, backgroundColor: theme.ui.bg.sheet, color: theme.ui.action };
 }
 
 export default function ThumbReachActionDock({
@@ -169,13 +169,13 @@ const styles = StyleSheet.create({
   },
   dayPill: {
     borderRadius: 999,
-    backgroundColor: '#e0ecff',
+    backgroundColor: theme.ui.bg.sheet,
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.xxs,
     alignSelf: 'flex-start',
   },
   dayPillText: {
-    color: '#1d4ed8',
+    color: theme.ui.action,
     ...theme.typography.caption,
     fontWeight: '800',
   },
@@ -239,7 +239,7 @@ const styles = StyleSheet.create({
     minWidth: 92,
   },
   highlightedButton: {
-    borderColor: '#1d4ed8',
+    borderColor: theme.ui.action,
     borderWidth: 2,
   },
 });

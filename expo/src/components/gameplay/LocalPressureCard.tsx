@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { theme } from '@/design/theme';
 
 import { lockedBadgeText, pressureTone } from '@/lib/worldMemoryFormatters';
 import { LocalPressureSummaryResponse } from '@/types/worldMemory';
@@ -43,9 +44,9 @@ export default function LocalPressureCard({ local }: { local: LocalPressureSumma
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.ui.border,
     borderRadius: 12,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 14,
     gap: 8,
   },
@@ -55,7 +56,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   heading: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 17,
     fontWeight: '800',
   },
@@ -64,12 +65,12 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   meta: {
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     fontWeight: '600',
   },
   summary: {
-    color: '#475569',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 17,
   },
@@ -78,41 +79,41 @@ const styles = StyleSheet.create({
   },
   responsesBox: {
     borderWidth: 1,
-    borderColor: '#dbeafe',
+    borderColor: theme.ui.info,
     borderRadius: 10,
-    backgroundColor: '#eff6ff',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 10,
     gap: 3,
   },
   sectionTitle: {
-    color: '#1e3a8a',
+    color: theme.ui.action,
     fontSize: 11,
     fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   responseText: {
-    color: '#1e40af',
+    color: theme.ui.action,
     fontSize: 12,
     lineHeight: 16,
   },
   lockedBox: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.ui.border,
     borderRadius: 10,
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 10,
     gap: 3,
   },
   lockedBadge: {
-    color: '#64748b',
+    color: theme.ui.text.onLightMuted,
     fontSize: 10,
     fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   lockedText: {
-    color: '#475569',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 16,
   },

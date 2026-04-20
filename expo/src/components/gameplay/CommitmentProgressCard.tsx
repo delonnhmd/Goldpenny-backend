@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { theme } from '@/design/theme';
 
 import { clampPercent, driftColor, driftSeverityLabel } from '@/lib/commitmentFormatters';
 import { CommitmentSummaryResponse } from '@/types/commitment';
@@ -37,13 +38,13 @@ export default function CommitmentProgressCard({
         <Text style={styles.label}>Adherence</Text>
         <Text style={styles.value}>{Math.round(active.adherence_score)}%</Text>
       </View>
-      <ProgressBar value={active.adherence_score} color="#1d4ed8" />
+      <ProgressBar value={active.adherence_score} color={theme.ui.action} />
 
       <View style={styles.row}>
         <Text style={styles.label}>Momentum</Text>
         <Text style={styles.value}>{Math.round(active.momentum_score)}%</Text>
       </View>
-      <ProgressBar value={active.momentum_score} color="#0369a1" />
+      <ProgressBar value={active.momentum_score} color={theme.ui.action} />
 
       <View style={styles.row}>
         <Text style={styles.label}>Followed</Text>
@@ -65,19 +66,19 @@ export default function CommitmentProgressCard({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.ui.border,
     borderRadius: 12,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 14,
     gap: 8,
   },
   heading: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 17,
     fontWeight: '800',
   },
   subheading: {
-    color: '#1e3a8a',
+    color: theme.ui.action,
     fontSize: 13,
     fontWeight: '700',
   },
@@ -88,19 +89,19 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   label: {
-    color: '#475569',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     fontWeight: '700',
   },
   value: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 12,
     fontWeight: '800',
   },
   track: {
     height: 8,
     borderRadius: 999,
-    backgroundColor: '#e2e8f0',
+    backgroundColor: theme.ui.border,
     overflow: 'hidden',
   },
   fill: {
@@ -113,12 +114,12 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   summary: {
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 17,
   },
   empty: {
-    color: '#64748b',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
   },
 });

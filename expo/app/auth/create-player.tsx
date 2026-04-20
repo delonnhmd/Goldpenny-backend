@@ -263,30 +263,30 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.lg,
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.md,
-    backgroundColor: '#fff7ed',
+    backgroundColor: theme.ui.bg.card,
     borderWidth: 1,
-    borderColor: '#fed7aa',
+    borderColor: theme.ui.warning,
     gap: theme.spacing.xxs,
   },
   summaryEyebrow: {
     ...theme.typography.caption,
-    color: '#c2410c',
+    color: theme.ui.warning,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     fontWeight: '800',
   },
   summaryTitle: {
     ...theme.typography.bodyLg,
-    color: '#9a3412',
+    color: theme.ui.text.onDark,
     fontWeight: '800',
   },
   summaryBody: {
     ...theme.typography.bodySm,
-    color: '#7c2d12',
+    color: theme.ui.text.onDarkMuted,
   },
   summaryMeta: {
     ...theme.typography.caption,
-    color: '#9a3412',
+    color: theme.ui.warning,
     fontWeight: '700',
   },
   questionCard: {
@@ -320,8 +320,8 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   optionCardSelected: {
-    borderColor: '#c2410c',
-    backgroundColor: '#fff7ed',
+    borderColor: theme.ui.action,
+    backgroundColor: theme.ui.bg.cardRaised,
   },
   optionCardPressed: {
     opacity: 0.85,
@@ -332,13 +332,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   optionLabelSelected: {
-    color: '#9a3412',
+    color: theme.ui.text.onDark,
   },
   optionImpact: {
     ...theme.typography.caption,
     color: theme.color.textSecondary,
   },
   optionImpactSelected: {
-    color: '#c2410c',
+    color: theme.ui.action,
   },
 });

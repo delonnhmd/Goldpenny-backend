@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleProp, ViewStyle } from 'react-native';
+import { alpha, theme } from '@/design/theme';
 
 import { motion, useReducedMotion } from '@/design/motion';
 
@@ -64,7 +65,7 @@ export default function HighlightOnChangeView({
           transform: [{ scale }],
           backgroundColor: flash.interpolate({
             inputRange: [0, 1],
-            outputRange: ['rgba(255,255,255,0)', 'rgba(29,78,216,0.12)'],
+            outputRange: [alpha(theme.ui.bg.sheet, 0), alpha(theme.ui.action, 0.12)],
           }),
         },
       ]}

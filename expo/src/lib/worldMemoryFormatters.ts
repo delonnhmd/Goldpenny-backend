@@ -1,8 +1,10 @@
+import { uiTokens } from '@/theme/tokens';
+
 export function patternSeverityColor(severity?: string | null): string {
   const value = String(severity || '').toLowerCase();
-  if (value === 'high') return '#b91c1c';
-  if (value === 'moderate') return '#b45309';
-  return '#166534';
+  if (value === 'high') return uiTokens.danger;
+  if (value === 'moderate') return uiTokens.warning;
+  return uiTokens.positive;
 }
 
 export function patternStatusLabel(status?: string | null): string {
@@ -22,9 +24,9 @@ export function persistenceLabel(score?: number | null): string {
 
 export function pressureTone(level?: string | null): string {
   const value = String(level || '').toLowerCase();
-  if (value === 'high') return '#b91c1c';
-  if (value === 'moderate') return '#b45309';
-  return '#166534';
+  if (value === 'high') return uiTokens.danger;
+  if (value === 'moderate') return uiTokens.warning;
+  return uiTokens.positive;
 }
 
 export function trendLabel(direction?: string | null): string {

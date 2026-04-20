@@ -1,4 +1,5 @@
 import { OnboardingStatus } from '@/types/onboarding';
+import { theme } from '@/design/theme';
 
 export function onboardingStatusLabel(status: OnboardingStatus): string {
   const normalized = String(status || '').toLowerCase();
@@ -10,10 +11,10 @@ export function onboardingStatusLabel(status: OnboardingStatus): string {
 
 export function onboardingStatusTone(status: OnboardingStatus): string {
   const normalized = String(status || '').toLowerCase();
-  if (normalized === 'completed') return '#166534';
-  if (normalized === 'skipped') return '#475569';
-  if (normalized === 'in_progress') return '#1d4ed8';
-  return '#334155';
+  if (normalized === 'completed') return theme.ui.positive;
+  if (normalized === 'skipped') return theme.ui.text.onLightMuted;
+  if (normalized === 'in_progress') return theme.ui.action;
+  return theme.ui.text.onLightMuted;
 }
 
 export function onboardingSectionLabel(sectionKey: string | null | undefined): string {

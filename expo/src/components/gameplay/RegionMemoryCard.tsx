@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { theme } from '@/design/theme';
 
 import { RegionMemorySummaryResponse } from '@/types/worldMemory';
 
@@ -12,14 +13,14 @@ export default function RegionMemoryCard({ region }: { region: RegionMemorySumma
       <Text style={styles.summary}>{region.recent_change_summary}</Text>
 
       <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: '#b91c1c' }]}>Dominant Pressures</Text>
+        <Text style={[styles.sectionTitle, { color: theme.ui.danger }]}>Dominant Pressures</Text>
         {region.dominant_region_pressures.slice(0, 3).map((item, index) => (
           <Text key={`pressure_${index}`} style={styles.itemText}>- {item}</Text>
         ))}
       </View>
 
       <View style={styles.section}>
-        <Text style={[styles.sectionTitle, { color: '#166534' }]}>Dominant Opportunities</Text>
+        <Text style={[styles.sectionTitle, { color: theme.ui.positive }]}>Dominant Opportunities</Text>
         {region.dominant_region_opportunities.slice(0, 3).map((item, index) => (
           <Text key={`opportunity_${index}`} style={styles.itemText}>- {item}</Text>
         ))}
@@ -31,29 +32,29 @@ export default function RegionMemoryCard({ region }: { region: RegionMemorySumma
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.ui.border,
     borderRadius: 12,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 14,
     gap: 8,
   },
   heading: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 17,
     fontWeight: '800',
   },
   meta: {
-    color: '#475569',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     fontWeight: '700',
   },
   identity: {
-    color: '#1e3a8a',
+    color: theme.ui.action,
     fontSize: 13,
     fontWeight: '700',
   },
   summary: {
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 17,
   },
@@ -67,7 +68,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   itemText: {
-    color: '#475569',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 16,
   },

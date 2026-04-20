@@ -45,9 +45,9 @@ function toneForOpportunity(tier: OpportunityTier): 'positive' | 'warning' | 'da
 
 function colorForOpportunity(tier: OpportunityTier): string {
   const normalized = String(tier || '').toLowerCase();
-  if (normalized === 'high') return '#16a34a';
-  if (normalized === 'low') return '#f59e0b';
-  return '#2563eb';
+  if (normalized === 'high') return theme.ui.positive;
+  if (normalized === 'low') return theme.ui.warning;
+  return theme.ui.action;
 }
 
 function actionsForNode(nodeType: string): string {
@@ -257,15 +257,15 @@ export default function CityMapScreen() {
       <GameplaySummaryCard eyebrow="Map" title="Houston Strategy Map">
         <View style={styles.legendRow}>
           <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: '#16a34a' }]} />
+            <View style={[styles.legendDot, { backgroundColor: theme.ui.positive }]} />
             <Text style={styles.legendLabel}>High opportunity</Text>
           </View>
           <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: '#f59e0b' }]} />
+            <View style={[styles.legendDot, { backgroundColor: theme.ui.warning }]} />
             <Text style={styles.legendLabel}>Calmer / lower payout</Text>
           </View>
           <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: '#dc2626' }]} />
+            <View style={[styles.legendDot, { backgroundColor: theme.ui.danger }]} />
             <Text style={styles.legendLabel}>Higher pressure</Text>
           </View>
         </View>
@@ -323,7 +323,7 @@ export default function CityMapScreen() {
                     styles.pin,
                     {
                       backgroundColor: colorForOpportunity(String(node.opportunity_tier || 'moderate')),
-                      borderColor: isCurrent ? '#0ea5e9' : isSelected ? '#1d4ed8' : '#ffffff',
+                      borderColor: isCurrent ? theme.ui.info : isSelected ? theme.ui.action : theme.ui.bg.sheet,
                       transform: [{ scale: isCurrent ? Animated.multiply(pulseAnim, arrivalAnim) : 1 }],
                     },
                   ]}
@@ -422,7 +422,7 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.lg,
     borderWidth: 1,
     borderColor: theme.color.border,
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.ui.bg.sheet,
     overflow: 'hidden',
   },
   regionSuburban: {
@@ -433,8 +433,8 @@ const styles = StyleSheet.create({
     height: '84%',
     borderRadius: theme.radius.lg,
     borderWidth: 1,
-    borderColor: '#d9f99d',
-    backgroundColor: '#f7fee7',
+    borderColor: theme.ui.bg.sheet,
+    backgroundColor: theme.ui.bg.sheet,
     padding: theme.spacing.sm,
   },
   regionDowntown: {
@@ -445,8 +445,8 @@ const styles = StyleSheet.create({
     height: '84%',
     borderRadius: theme.radius.lg,
     borderWidth: 1,
-    borderColor: '#bfdbfe',
-    backgroundColor: '#eff6ff',
+    borderColor: theme.ui.info,
+    backgroundColor: theme.ui.bg.sheet,
     padding: theme.spacing.sm,
   },
   regionTitle: {
@@ -460,7 +460,7 @@ const styles = StyleSheet.create({
   routeLine: {
     position: 'absolute',
     height: 2,
-    backgroundColor: '#0ea5e9',
+    backgroundColor: theme.ui.info,
     borderRadius: 999,
   },
   pinWrap: {

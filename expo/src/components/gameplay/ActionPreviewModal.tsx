@@ -202,18 +202,18 @@ const styles = StyleSheet.create({
     ...theme.typography.label,
   },
   metaText: {
-    color: '#1e3a8a',
+    color: theme.ui.action,
     ...theme.typography.bodySm,
   },
   warningBlock: {
     gap: theme.spacing.xxs,
   },
   warningTitle: {
-    color: '#92400e',
+    color: theme.ui.warning,
     ...theme.typography.label,
   },
   warningText: {
-    color: '#78350f',
+    color: theme.ui.warning,
     ...theme.typography.bodySm,
   },
   loadingBlock: {

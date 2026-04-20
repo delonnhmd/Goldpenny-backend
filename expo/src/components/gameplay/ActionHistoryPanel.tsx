@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { theme } from '@/design/theme';
 
 import { DailyActionHistoryEntry } from '@/types/gameplay';
 
@@ -46,9 +47,9 @@ export default function ActionHistoryPanel({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.ui.border,
     borderRadius: 12,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 14,
     gap: 10,
   },
@@ -58,26 +59,26 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   heading: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 16,
     fontWeight: '800',
   },
   sessionBadge: {
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     fontSize: 11,
     textTransform: 'uppercase',
     fontWeight: '700',
     borderWidth: 1,
-    borderColor: '#cbd5e1',
+    borderColor: theme.ui.text.onLightMuted,
     borderRadius: 999,
     paddingHorizontal: 9,
     paddingVertical: 3,
   },
   item: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.ui.border,
     borderRadius: 10,
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 10,
     gap: 4,
   },
@@ -87,7 +88,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   itemOrder: {
-    color: '#475569',
+    color: theme.ui.text.onLightMuted,
     fontSize: 11,
     fontWeight: '700',
   },
@@ -97,34 +98,34 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   success: {
-    color: '#166534',
+    color: theme.ui.positive,
   },
   failure: {
-    color: '#b91c1c',
+    color: theme.ui.danger,
   },
   itemTitle: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 14,
     fontWeight: '700',
   },
   itemDescription: {
-    color: '#475569',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 17,
   },
   itemMeta: {
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 16,
   },
   errorText: {
-    color: '#b91c1c',
+    color: theme.ui.danger,
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '600',
   },
   emptyText: {
-    color: '#64748b',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 18,
   },

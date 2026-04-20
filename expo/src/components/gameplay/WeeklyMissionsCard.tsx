@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { theme } from '@/design/theme';
 
 import { formatProgress, progressStatusColor } from '@/lib/gameplayFormatters';
 import { WeeklyMissionItem } from '@/types/progression';
@@ -47,27 +48,27 @@ export default function WeeklyMissionsCard({ missions }: { missions: WeeklyMissi
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.ui.border,
     borderRadius: 12,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 14,
     gap: 8,
   },
   heading: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 17,
     fontWeight: '800',
   },
   subheading: {
-    color: '#475569',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 17,
   },
   missionRow: {
     borderWidth: 1,
-    borderColor: '#dbeafe',
+    borderColor: theme.ui.info,
     borderRadius: 10,
-    backgroundColor: '#eff6ff',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 10,
     gap: 5,
   },
@@ -78,7 +79,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   missionTitle: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 13,
     fontWeight: '700',
     flex: 1,
@@ -89,20 +90,20 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   missionDescription: {
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 17,
   },
   progressTrack: {
     height: 8,
     borderRadius: 999,
-    backgroundColor: '#bfdbfe',
+    backgroundColor: theme.ui.info,
     overflow: 'hidden',
   },
   progressFill: {
     height: 8,
     borderRadius: 999,
-    backgroundColor: '#1d4ed8',
+    backgroundColor: theme.ui.action,
   },
   missionBottom: {
     flexDirection: 'row',
@@ -110,18 +111,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   missionMeta: {
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
   },
   missionReward: {
-    color: '#1e3a8a',
+    color: theme.ui.action,
     fontSize: 11,
     lineHeight: 15,
   },
   empty: {
-    color: '#64748b',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
   },
 });

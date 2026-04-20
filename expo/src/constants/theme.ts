@@ -4,25 +4,26 @@
  */
 
 import { Platform } from 'react-native';
+import { uiTokens } from '@/theme/tokens';
 
-const tintColorLight = '#0a7ea4';
-const tintColorDark = '#fff';
+const tintColorLight = uiTokens.action;
+const tintColorDark = uiTokens.action;
 
 export const Colors = {
   light: {
-    text: '#11181C',
-    background: '#fff',
+    text: uiTokens.text.onLight,
+    background: uiTokens.bg.sheet,
     tint: tintColorLight,
-    icon: '#687076',
-    tabIconDefault: '#687076',
+    icon: uiTokens.text.onLightMuted,
+    tabIconDefault: uiTokens.text.onLightMuted,
     tabIconSelected: tintColorLight,
   },
   dark: {
-    text: '#ECEDEE',
-    background: '#151718',
+    text: uiTokens.text.onDark,
+    background: uiTokens.bg.app,
     tint: tintColorDark,
-    icon: '#9BA1A6',
-    tabIconDefault: '#9BA1A6',
+    icon: uiTokens.text.onDarkMuted,
+    tabIconDefault: uiTokens.text.onDarkMuted,
     tabIconSelected: tintColorDark,
   },
 };

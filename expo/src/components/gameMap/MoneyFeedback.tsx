@@ -1,7 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
-
-import { theme } from '@/design/theme';
+import { alpha, theme } from '@/design/theme';
 import { formatMoney } from '@/lib/gameplayFormatters';
 
 export interface MoneyFeedbackItem {
@@ -108,7 +107,7 @@ const styles = StyleSheet.create({
   text: {
     fontSize: 20,
     fontWeight: '900',
-    textShadowColor: 'rgba(0, 0, 0, 0.15)',
+    textShadowColor: alpha(theme.ui.text.onLight, 0.15),
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
   },

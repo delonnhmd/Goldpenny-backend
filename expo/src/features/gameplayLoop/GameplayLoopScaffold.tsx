@@ -12,6 +12,7 @@ import ErrorStateView from '@/components/ui/ErrorStateView';
 import LoadingSkeleton from '@/components/ui/LoadingSkeleton';
 import SectionCard from '@/components/ui/SectionCard';
 import TextButton from '@/components/ui/TextButton';
+import Chip from '@/components/ui/Chip';
 import { useOnboarding } from '@/features/onboarding';
 import { OnboardingRouteKey } from '@/features/onboarding/context';
 import { FeedbackSheet, IssueReportSheet, SoftLaunchGate, useSoftLaunch } from '@/features/softLaunch';
@@ -23,6 +24,7 @@ import {
   GameplayOpportunityCallout,
   GameplayWarningBanner,
 } from './components/GameplayUIParts';
+import { buildGameplayBottomNavItems } from './navigation';
 import { PlaytestObserver } from './components/PlaytestObserver';
 
 function sourceLabel(mode: 'live' | 'mixed' | 'mock'): string {
@@ -68,8 +70,8 @@ const PAGE_IDENTITY: Record<string, { eyebrow: string; mood: string; chips: stri
     chips: ['Revenue', 'Margin', 'Operations'],
   },
   market: {
-    eyebrow: 'Market lane',
-    mood: 'Basket signals and stock exposure feel like readable opportunity, not spreadsheet output.',
+    eyebrow: 'Wallet lane',
+    mood: 'Cash, holdings, baskets, and optional stock exposure should feel readable instead of spreadsheet heavy.',
     chips: ['Baskets', 'Volatility', 'Capital'],
   },
   life: {
@@ -119,7 +121,6 @@ export default function GameplayLoopScaffold({
     isSimplifiedMode,
     navigateTo,
   } = onboarding;
-  const sourceTone = loop.sourceMode === 'live' ? 'positive' : loop.sourceMode === 'mixed' ? 'warning' : 'info';
   const degradedSections = Array.isArray(loop.dashboard?.debug_meta?.degraded_sections)
     ? (loop.dashboard?.debug_meta?.degraded_sections as string[])
     : [];
@@ -273,44 +274,34 @@ export default function GameplayLoopScaffold({
   }, [bypassGate, gateBlocked, loop.playerId, softLaunch.isLoading, softLaunch.isMember]);
 
   const bottomNavItems = useMemo(
-    () => ([
-      { key: 'brief', label: 'Brief' },
-      { key: 'dashboard', label: 'Dashboard' },
-      { key: 'map', label: 'Map' },
-      { key: 'market', label: 'Market' },
-      { key: 'business', label: 'Business' },
-    ]
-      .filter((item) => !(onboardingActive && (item.key === 'business' || item.key === 'map')))
-      .map((item) => ({
-        ...item,
-        onPress: () => {
-          if (INTERACTION_DIAGNOSTICS_ENABLED) {
-            recordInfo('gameplayLoop', 'Bottom nav pressed.', {
-              action: 'tab_press',
-              context: {
-                playerId: loop.playerId,
-                fromRoute: activeNavKey,
-                targetRoute: item.key,
-                onboardingActive,
-                expectedRoute: expectedRoute || null,
-              },
-            });
-          }
-          const allowed = navigateTo(item.key as OnboardingRouteKey);
-          if (!allowed && INTERACTION_DIAGNOSTICS_ENABLED) {
-            recordWarning('gameplayLoop', 'Bottom nav press blocked by onboarding route guard.', {
-              action: 'tab_press_blocked',
-              context: {
-                playerId: loop.playerId,
-                fromRoute: activeNavKey,
-                targetRoute: item.key,
-                expectedRoute: expectedRoute || null,
-                onboardingStepKey: onboardingStep?.key || null,
-              },
-            });
-          }
-        },
-      }))),
+    () => buildGameplayBottomNavItems((targetRoute) => {
+      if (INTERACTION_DIAGNOSTICS_ENABLED) {
+        recordInfo('gameplayLoop', 'Bottom nav pressed.', {
+          action: 'tab_press',
+          context: {
+            playerId: loop.playerId,
+            fromRoute: activeNavKey,
+            targetRoute,
+            onboardingActive,
+            expectedRoute: expectedRoute || null,
+          },
+        });
+      }
+      const allowed = navigateTo(targetRoute);
+      if (!allowed && INTERACTION_DIAGNOSTICS_ENABLED) {
+        recordWarning('gameplayLoop', 'Bottom nav press blocked by onboarding route guard.', {
+          action: 'tab_press_blocked',
+          context: {
+            playerId: loop.playerId,
+            fromRoute: activeNavKey,
+            targetRoute,
+            expectedRoute: expectedRoute || null,
+            onboardingStepKey: onboardingStep?.key || null,
+          },
+        });
+      }
+      return allowed;
+    }),
     [activeNavKey, expectedRoute, navigateTo, onboardingActive, onboardingStep?.key, loop.playerId],
   );
 
@@ -365,9 +356,7 @@ export default function GameplayLoopScaffold({
                 <Text style={styles.pageHeroBody}>{identity.mood}</Text>
                 <View style={styles.heroChipRow}>
                   {identity.chips.map((chip) => (
-                    <View key={chip} style={styles.heroChip}>
-                      <Text style={styles.heroChipText}>{chip}</Text>
-                    </View>
+                    <Chip key={chip} label={chip} variant="active" />
                   ))}
                 </View>
               </View>
@@ -463,48 +452,34 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   pageHeroCard: {
-    borderRadius: theme.radius.xl,
+    borderRadius: theme.ui.radius.card,
     paddingHorizontal: theme.spacing.lg,
     paddingVertical: theme.spacing.lg,
-    backgroundColor: '#0b1627',
+    backgroundColor: theme.ui.bg.card,
     borderWidth: 1,
-    borderColor: 'rgba(103, 232, 249, 0.18)',
+    borderColor: theme.ui.border,
     gap: theme.spacing.sm,
     ...theme.shadow.md,
   },
   pageHeroEyebrow: {
     ...theme.typography.caption,
-    color: '#67e8f9',
+    color: theme.ui.info,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
     fontWeight: '800',
   },
   pageHeroTitle: {
     ...theme.typography.headingLg,
-    color: '#f8fafc',
+    color: theme.ui.text.onDark,
     fontWeight: '800',
   },
   pageHeroBody: {
     ...theme.typography.bodySm,
-    color: '#a8b6c9',
+    color: theme.ui.text.onDarkMuted,
   },
   heroChipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: theme.spacing.sm,
-  },
-  heroChip: {
-    borderRadius: theme.radius.pill,
-    paddingHorizontal: theme.spacing.sm,
-    paddingVertical: theme.spacing.xs,
-    backgroundColor: 'rgba(15, 23, 42, 0.92)',
-    borderWidth: 1,
-    borderColor: 'rgba(148, 163, 184, 0.16)',
-  },
-  heroChipText: {
-    ...theme.typography.caption,
-    color: '#dbeafe',
-    fontWeight: '800',
-    textTransform: 'uppercase',
   },
 });

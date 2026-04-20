@@ -1,3 +1,4 @@
+import { alpha, theme } from '@/design/theme';
 // Gold Penny — Soft Launch: FeedbackSheet
 // Modal bottom sheet shown after Day 1 or Day 2 settlement.
 // Rating: 1–5 stars.  Three optional short-text questions.
@@ -16,7 +17,6 @@ import {
   View,
 } from 'react-native';
 
-import { theme } from '@/design/theme';
 
 import { FeedbackPayload } from './types';
 
@@ -137,7 +137,7 @@ export function FeedbackSheet({ visible, gameDay, sessionId, onSubmit, onDismiss
                 activeOpacity={0.75}
               >
                 {submitting ? (
-                  <ActivityIndicator color="#ffffff" size="small" />
+                  <ActivityIndicator color={theme.ui.bg.sheet} size="small" />
                 ) : (
                   <Text style={styles.submitLabel}>Submit Feedback</Text>
                 )}
@@ -157,7 +157,7 @@ export function FeedbackSheet({ visible, gameDay, sessionId, onSubmit, onDismiss
 const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: alpha(theme.ui.text.onLight, 0.4),
   },
   sheetContainer: {
     position: 'absolute',
@@ -203,7 +203,7 @@ const styles = StyleSheet.create({
     color: theme.color.border,
   },
   starActive: {
-    color: '#f59e0b',
+    color: theme.ui.warning,
   },
   questionLabel: {
     ...theme.typography.label,
@@ -238,7 +238,7 @@ const styles = StyleSheet.create({
   },
   submitLabel: {
     ...theme.typography.headingSm,
-    color: '#ffffff',
+    color: theme.ui.bg.sheet,
   },
   skipButton: {
     alignItems: 'center',

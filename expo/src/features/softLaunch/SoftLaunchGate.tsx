@@ -70,7 +70,7 @@ export function SoftLaunchGate({ onJoin, error, isLoading = false }: Props) {
           activeOpacity={0.75}
         >
           {busy ? (
-            <ActivityIndicator color="#ffffff" size="small" />
+            <ActivityIndicator color={theme.ui.bg.sheet} size="small" />
           ) : (
             <Text style={styles.buttonLabel}>Join</Text>
           )}
@@ -135,6 +135,6 @@ const styles = StyleSheet.create({
   },
   buttonLabel: {
     ...theme.typography.headingSm,
-    color: '#ffffff',
+    color: theme.ui.bg.sheet,
   },
 });

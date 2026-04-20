@@ -1,6 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { theme } from '@/design/theme';
+
 export interface FABAction {
   key: string;
   icon: string;
@@ -40,7 +42,7 @@ function FABButton({ action, index }: { action: FABAction; index: number }) {
       <Pressable
         style={({ pressed }) => [
           styles.fab,
-          { backgroundColor: action.disabled ? '#94a3b8' : action.color },
+          { backgroundColor: action.disabled ? theme.ui.text.onDarkMuted : action.color },
           pressed && !action.disabled ? styles.fabPressed : null,
         ]}
         onPress={action.disabled ? undefined : action.onPress}
@@ -78,7 +80,7 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
+    shadowColor: theme.ui.text.onLight,
     shadowOpacity: 0.2,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
@@ -94,7 +96,7 @@ const styles = StyleSheet.create({
   fabLabel: {
     fontSize: 7,
     fontWeight: '800',
-    color: '#ffffff',
+    color: theme.ui.text.onDark,
     textTransform: 'uppercase',
     marginTop: 1,
     letterSpacing: 0.3,

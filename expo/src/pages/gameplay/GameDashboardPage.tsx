@@ -248,12 +248,12 @@ function deriveSuggestedTimeUnits(snapshot: PlayerDashboardResponse | null): num
 
 function feedbackToneStyle(tone: FeedbackTone): { borderColor: string; backgroundColor: string; color: string } {
   if (tone === 'success') {
-    return { borderColor: '#86efac', backgroundColor: '#f0fdf4', color: '#166534' };
+    return { borderColor: theme.ui.positive, backgroundColor: theme.ui.bg.sheet, color: theme.ui.positive };
   }
   if (tone === 'error') {
-    return { borderColor: '#fecaca', backgroundColor: '#fef2f2', color: '#b91c1c' };
+    return { borderColor: theme.ui.danger, backgroundColor: theme.ui.bg.sheet, color: theme.ui.danger };
   }
-  return { borderColor: '#bfdbfe', backgroundColor: '#eff6ff', color: '#1e40af' };
+  return { borderColor: theme.ui.info, backgroundColor: theme.ui.bg.sheet, color: theme.ui.action };
 }
 
 function feedbackToneLabel(tone: FeedbackTone): string {
@@ -3707,10 +3707,10 @@ const styles = StyleSheet.create({
   },
   highlightSection: {
     borderWidth: 2,
-    borderColor: '#93c5fd',
+    borderColor: theme.ui.info,
     borderRadius: theme.radius.lg,
     padding: 4,
-    backgroundColor: '#f8fbff',
+    backgroundColor: theme.ui.bg.sheet,
   },
   groupStack: {
     gap: theme.spacing.sm,
@@ -3776,30 +3776,30 @@ const styles = StyleSheet.create({
   },
   fallbackSummaryCard: {
     borderWidth: 1,
-    borderColor: '#bfdbfe',
+    borderColor: theme.ui.info,
     borderRadius: theme.radius.md,
-    backgroundColor: '#eff6ff',
+    backgroundColor: theme.ui.bg.sheet,
     padding: theme.spacing.md,
     gap: theme.spacing.xs,
   },
   fallbackSummaryTitle: {
-    color: '#1e40af',
+    color: theme.ui.action,
     ...theme.typography.headingSm,
   },
   fallbackSummaryText: {
-    color: '#1e3a8a',
+    color: theme.ui.action,
     ...theme.typography.bodySm,
   },
   onboardingFallbackBox: {
     borderWidth: 1,
-    borderColor: '#fde68a',
+    borderColor: theme.ui.warning,
     borderRadius: theme.radius.md,
-    backgroundColor: '#fffbeb',
+    backgroundColor: theme.ui.bg.sheet,
     paddingVertical: theme.spacing.sm,
     paddingHorizontal: theme.spacing.md,
   },
   onboardingFallbackText: {
-    color: '#92400e',
+    color: theme.ui.warning,
     ...theme.typography.bodySm,
     fontWeight: '600',
   },

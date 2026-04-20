@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 
 import { motion, useReducedMotion } from '@/design/motion';
-import { theme } from '@/design/theme';
+import { alpha, theme } from '@/design/theme';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { recordInfo } from '@/lib/logger';
 
@@ -120,7 +120,7 @@ export default function SlideUpPanel({
 const styles = StyleSheet.create({
   backdropWrap: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.55)',
+    backgroundColor: alpha(theme.ui.bg.card, 0.55),
   },
   backdropHit: {
     ...StyleSheet.absoluteFillObject,

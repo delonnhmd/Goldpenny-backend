@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
+import { theme } from '@/design/theme';
 
 export type PlayerState = 'idle' | 'working' | 'driving' | 'stressed';
 
@@ -18,10 +19,10 @@ const STATE_EMOJI: Record<PlayerState, string> = {
 };
 
 const STATE_GLOW: Record<PlayerState, string> = {
-  idle: '#3B82F6',
-  working: '#F59E0B',
-  driving: '#22C55E',
-  stressed: '#EF4444',
+  idle: theme.ui.action,
+  working: theme.ui.warning,
+  driving: theme.ui.positive,
+  stressed: theme.ui.danger,
 };
 
 export default function PlayerAvatar({ state, x, y, stressLevel }: PlayerAvatarProps) {
@@ -135,11 +136,11 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.ui.bg.sheet,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 3,
-    shadowColor: '#000',
+    shadowColor: theme.ui.text.onLight,
     shadowOpacity: 0.2,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 3 },
@@ -157,7 +158,7 @@ const styles = StyleSheet.create({
   stateBadgeText: {
     fontSize: 8,
     fontWeight: '800',
-    color: '#ffffff',
+    color: theme.ui.bg.sheet,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },

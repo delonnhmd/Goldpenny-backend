@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { theme } from '@/design/theme';
 
 import {
   patternSeverityColor,
@@ -43,27 +44,27 @@ export default function PatternInsightsCard({ patterns }: { patterns: WorldPatte
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.ui.border,
     borderRadius: 12,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 14,
     gap: 8,
   },
   heading: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 17,
     fontWeight: '800',
   },
   empty: {
-    color: '#64748b',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     fontWeight: '600',
   },
   itemRow: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.ui.border,
     borderRadius: 10,
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 10,
     gap: 4,
   },
@@ -74,7 +75,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   itemTitle: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 12,
     fontWeight: '800',
     flex: 1,
@@ -86,12 +87,12 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
   },
   itemMeta: {
-    color: '#475569',
+    color: theme.ui.text.onLightMuted,
     fontSize: 11,
     fontWeight: '700',
   },
   itemDescription: {
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 16,
   },

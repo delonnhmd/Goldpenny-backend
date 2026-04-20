@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
+import { alpha, theme } from '@/design/theme';
 
 export type OpportunityType = 'delivery' | 'produce' | 'job' | 'stress';
 
@@ -11,10 +12,10 @@ interface OpportunityIndicatorProps {
 }
 
 const TYPE_CONFIG: Record<OpportunityType, { emoji: string; color: string; glowColor: string }> = {
-  delivery: { emoji: '\u{1F69A}', color: '#3B82F6', glowColor: 'rgba(59, 130, 246, 0.35)' },
-  produce: { emoji: '\u{1F34E}', color: '#22C55E', glowColor: 'rgba(34, 197, 94, 0.35)' },
-  job: { emoji: '\u{1F4BC}', color: '#F59E0B', glowColor: 'rgba(245, 158, 11, 0.35)' },
-  stress: { emoji: '\u{1F525}', color: '#EF4444', glowColor: 'rgba(239, 68, 68, 0.35)' },
+  delivery: { emoji: '\u{1F69A}', color: theme.ui.action, glowColor: alpha(theme.ui.action, 0.35) },
+  produce: { emoji: '\u{1F34E}', color: theme.ui.positive, glowColor: alpha(theme.ui.positive, 0.35) },
+  job: { emoji: '\u{1F4BC}', color: theme.ui.warning, glowColor: alpha(theme.ui.warning, 0.35) },
+  stress: { emoji: '\u{1F525}', color: theme.ui.danger, glowColor: alpha(theme.ui.danger, 0.35) },
 };
 
 export default function OpportunityIndicator({ type, label, x, y }: OpportunityIndicatorProps) {
@@ -107,8 +108,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.8)',
-    shadowColor: '#000',
+    borderColor: alpha(theme.ui.bg.sheet, 0.8),
+    shadowColor: theme.ui.text.onLight,
     shadowOpacity: 0.15,
     shadowRadius: 4,
     shadowOffset: { width: 0, height: 2 },
@@ -127,7 +128,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 7,
     fontWeight: '800',
-    color: '#ffffff',
+    color: theme.ui.bg.sheet,
     textAlign: 'center',
     textTransform: 'uppercase',
     letterSpacing: 0.3,

@@ -30,11 +30,11 @@ export default function ErrorStateCard({
 
 const styles = StyleSheet.create({
   title: {
-    color: '#92400e',
+    color: theme.ui.warning,
     ...theme.typography.headingSm,
   },
   message: {
-    color: '#78350f',
+    color: theme.ui.warning,
     ...theme.typography.bodySm,
   },
 });

@@ -15,16 +15,16 @@ interface PlayerStatusBarProps {
 
 function stressColor(stress: number, max: number): string {
   const pct = Math.min(1, Math.max(0, stress / max));
-  if (pct <= 0.4) return '#22C55E';
-  if (pct <= 0.7) return '#EAB308';
-  return '#EF4444';
+  if (pct <= 0.4) return theme.ui.positive;
+  if (pct <= 0.7) return theme.ui.warning;
+  return theme.ui.danger;
 }
 
 function healthColor(health: number, max: number): string {
   const pct = Math.min(1, Math.max(0, health / max));
-  if (pct >= 0.6) return '#22C55E';
-  if (pct >= 0.3) return '#F97316';
-  return '#EF4444';
+  if (pct >= 0.6) return theme.ui.positive;
+  if (pct >= 0.3) return theme.ui.warning;
+  return theme.ui.danger;
 }
 
 function stressEmoji(stress: number, max: number): string {
@@ -135,7 +135,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 6,
     borderRadius: 999,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: theme.ui.border,
     overflow: 'hidden',
   },
   miniBarFill: {

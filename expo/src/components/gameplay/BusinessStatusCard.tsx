@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { theme } from '@/design/theme';
 
 import { formatMoney } from '@/lib/gameplayFormatters';
 
@@ -15,7 +16,7 @@ export default function BusinessStatusCard({ input }: { input: BusinessStatusInp
     <View style={styles.card}>
       <Text style={styles.title}>Business</Text>
       <Text style={styles.mainMetric}>Active: {Math.max(0, Math.round(Number(input.count ?? 0)))}</Text>
-      <Text style={[styles.metric, { color: profit >= 0 ? '#166534' : '#b91c1c' }]}>
+      <Text style={[styles.metric, { color: profit >= 0 ? theme.ui.positive : theme.ui.danger }]}>
         Net: {formatMoney(profit)}
       </Text>
       <Text style={styles.summary}>
@@ -28,20 +29,20 @@ export default function BusinessStatusCard({ input }: { input: BusinessStatusInp
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.ui.border,
     borderRadius: 10,
     padding: 12,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.ui.bg.sheet,
     gap: 5,
   },
   title: {
-    color: '#475569',
+    color: theme.ui.text.onLightMuted,
     fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
   },
   mainMetric: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 17,
     fontWeight: '800',
   },
@@ -50,7 +51,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   summary: {
-    color: '#475569',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 16,
   },

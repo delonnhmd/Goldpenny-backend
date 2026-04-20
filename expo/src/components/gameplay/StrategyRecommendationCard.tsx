@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { theme } from '@/design/theme';
 
 import { StrategyRecommendationResponse } from '@/types/strategicPlanning';
 
@@ -33,53 +34,53 @@ export default function StrategyRecommendationCard({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: '#bfdbfe',
+    borderColor: theme.ui.info,
     borderRadius: 12,
-    backgroundColor: '#eff6ff',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 14,
     gap: 8,
   },
   heading: {
-    color: '#1e3a8a',
+    color: theme.ui.action,
     fontSize: 17,
     fontWeight: '800',
   },
   planTitle: {
-    color: '#1d4ed8',
+    color: theme.ui.action,
     fontSize: 14,
     fontWeight: '900',
   },
   reason: {
-    color: '#1e3a8a',
+    color: theme.ui.action,
     fontSize: 12,
     lineHeight: 17,
   },
   block: {
     borderWidth: 1,
-    borderColor: '#dbeafe',
+    borderColor: theme.ui.info,
     borderRadius: 10,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 10,
     gap: 4,
   },
   blockTitle: {
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     fontWeight: '700',
   },
   blockText: {
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 17,
   },
   move: {
-    color: '#1e3a8a',
+    color: theme.ui.action,
     fontSize: 12,
     lineHeight: 17,
     fontWeight: '700',
   },
   warning: {
-    color: '#b91c1c',
+    color: theme.ui.danger,
     fontSize: 12,
     lineHeight: 17,
     fontWeight: '700',

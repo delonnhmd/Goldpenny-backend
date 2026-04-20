@@ -11,7 +11,6 @@ import {
 } from 'react-native';
 
 import { theme } from '@/design/theme';
-import { formatMoney } from '@/lib/gameplayFormatters';
 
 export interface BriefItem {
   key: string;
@@ -164,10 +163,10 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.ui.bg.sheet,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    shadowColor: '#000',
+    shadowColor: theme.ui.text.onLight,
     shadowOpacity: 0.15,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: -4 },
@@ -183,7 +182,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#cbd5e1',
+    backgroundColor: theme.ui.text.onLightMuted,
     marginBottom: 6,
   },
   panelTitle: {
@@ -214,10 +213,10 @@ const styles = StyleSheet.create({
   },
   // Brief cards
   briefCard: {
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.ui.bg.sheet,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.ui.border,
     padding: 12,
     gap: 4,
   },
@@ -244,13 +243,13 @@ const styles = StyleSheet.create({
   },
   // Opportunity cards
   oppCard: {
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.ui.bg.sheet,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#dbeafe',
+    borderColor: theme.ui.info,
     padding: 12,
     gap: 10,
-    shadowColor: '#3B82F6',
+    shadowColor: theme.ui.action,
     shadowOpacity: 0.06,
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
@@ -278,7 +277,7 @@ const styles = StyleSheet.create({
     color: theme.color.textSecondary,
   },
   bonusBadge: {
-    backgroundColor: '#dcfce7',
+    backgroundColor: theme.ui.positive,
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 10,
@@ -286,21 +285,21 @@ const styles = StyleSheet.create({
   bonusText: {
     fontSize: 11,
     fontWeight: '800',
-    color: '#16a34a',
+    color: theme.ui.positive,
   },
   oppButton: {
-    backgroundColor: '#3A7DFF',
+    backgroundColor: theme.ui.action,
     borderRadius: 10,
     paddingVertical: 10,
     alignItems: 'center',
   },
   oppButtonPressed: {
-    backgroundColor: '#2563eb',
+    backgroundColor: theme.ui.action,
     transform: [{ scale: 0.97 }],
   },
   oppButtonText: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#ffffff',
+    color: theme.ui.bg.sheet,
   },
 });

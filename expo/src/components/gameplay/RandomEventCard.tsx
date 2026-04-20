@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { theme } from '@/design/theme';
 
 import { ActiveRandomEvent, RecoveryActionDefinition } from '@/types/randomEvent';
 
@@ -32,35 +33,35 @@ const TONE_STYLES: Record<
   }
 > = {
   positive: {
-    borderColor: '#bbf7d0',
-    backgroundColor: '#f0fdf4',
-    badgeBackground: '#dcfce7',
-    badgeColor: '#166534',
-    effectColor: '#16a34a',
+    borderColor: theme.ui.positive,
+    backgroundColor: theme.ui.bg.sheet,
+    badgeBackground: theme.ui.bg.sheet,
+    badgeColor: theme.ui.positive,
+    effectColor: theme.ui.positive,
     label: 'Good Fortune',
   },
   negative_high: {
-    borderColor: '#fecaca',
-    backgroundColor: '#fef2f2',
-    badgeBackground: '#fee2e2',
-    badgeColor: '#b91c1c',
-    effectColor: '#dc2626',
+    borderColor: theme.ui.danger,
+    backgroundColor: theme.ui.bg.sheet,
+    badgeBackground: theme.ui.bg.sheet,
+    badgeColor: theme.ui.danger,
+    effectColor: theme.ui.danger,
     label: 'High Impact',
   },
   negative_medium: {
-    borderColor: '#fde68a',
-    backgroundColor: '#fffbeb',
-    badgeBackground: '#fef3c7',
-    badgeColor: '#92400e',
-    effectColor: '#d97706',
+    borderColor: theme.ui.warning,
+    backgroundColor: theme.ui.bg.sheet,
+    badgeBackground: theme.ui.bg.sheet,
+    badgeColor: theme.ui.warning,
+    effectColor: theme.ui.warning,
     label: 'Unexpected',
   },
   negative_low: {
-    borderColor: '#e2e8f0',
-    backgroundColor: '#f8fafc',
-    badgeBackground: '#f1f5f9',
-    badgeColor: '#475569',
-    effectColor: '#64748b',
+    borderColor: theme.ui.border,
+    backgroundColor: theme.ui.bg.sheet,
+    badgeBackground: theme.ui.bg.sheet,
+    badgeColor: theme.ui.text.onLightMuted,
+    effectColor: theme.ui.text.onLightMuted,
     label: 'Minor Event',
   },
 };
@@ -153,12 +154,12 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 17,
     fontWeight: '800',
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     lineHeight: 22,
   },
   description: {
     fontSize: 14,
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     lineHeight: 20,
   },
   effectSummary: {
@@ -172,16 +173,16 @@ const styles = StyleSheet.create({
     fontSize: 11,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
-    color: '#475569',
+    color: theme.ui.text.onLightMuted,
     fontWeight: '700',
   },
   actionsGrid: {
     gap: 6,
   },
   actionButton: {
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.ui.bg.sheet,
     borderWidth: 1,
-    borderColor: '#cbd5e1',
+    borderColor: theme.ui.text.onLightMuted,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -189,11 +190,11 @@ const styles = StyleSheet.create({
   actionButtonLabel: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#1e293b',
+    color: theme.ui.text.onLight,
   },
   actionButtonEffect: {
     fontSize: 12,
-    color: '#64748b',
+    color: theme.ui.text.onLightMuted,
     marginTop: 2,
   },
   dismissButton: {
@@ -202,11 +203,11 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#cbd5e1',
+    borderColor: theme.ui.text.onLightMuted,
   },
   dismissText: {
     fontSize: 13,
-    color: '#64748b',
+    color: theme.ui.text.onLightMuted,
     fontWeight: '600',
   },
 });

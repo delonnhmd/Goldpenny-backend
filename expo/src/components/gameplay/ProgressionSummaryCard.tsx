@@ -1,6 +1,8 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 
+import Card from '@/components/ui/Card';
+import { theme } from '@/design/theme';
 import { ProgressionSummaryResponse } from '@/types/progression';
 
 export default function ProgressionSummaryCard({
@@ -9,94 +11,66 @@ export default function ProgressionSummaryCard({
   summary: ProgressionSummaryResponse;
 }) {
   return (
-    <View style={styles.card}>
+    <Card style={styles.card}>
       <Text style={styles.heading}>Progression Summary</Text>
       <Text style={styles.copy}>{summary.motivational_summary || 'Keep compounding small wins.'}</Text>
 
       {summary.suggested_focus.length > 0 ? (
-        <View style={styles.focusBlock}>
-          <Text style={styles.focusTitle}>Suggested Focus</Text>
+        <Card variant="info" style={styles.block}>
+          <Text style={styles.blockTitle}>Suggested Focus</Text>
           {summary.suggested_focus.slice(0, 4).map((line, index) => (
-            <Text key={`focus_${index}`} style={styles.focusText}>
+            <Text key={`focus_${index}`} style={styles.blockText}>
               - {line}
             </Text>
           ))}
-        </View>
+        </Card>
       ) : null}
 
       {summary.recently_completed.length > 0 ? (
-        <View style={styles.completedBlock}>
-          <Text style={styles.completedTitle}>Recently Completed</Text>
+        <Card variant="positive" style={styles.block}>
+          <Text style={styles.blockTitle}>Recently Completed</Text>
           {summary.recently_completed.slice(0, 4).map((entry) => (
-            <Text key={`${entry.scope}_${entry.key}_${entry.credited_on}`} style={styles.completedText}>
+            <Text key={`${entry.scope}_${entry.key}_${entry.credited_on}`} style={styles.blockText}>
               - {entry.title} ({entry.reward_summary})
             </Text>
           ))}
-        </View>
+        </Card>
       ) : (
         <Text style={styles.empty}>No recent completions yet. Today&apos;s goals can start your streak.</Text>
       )}
-    </View>
+    </Card>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 12,
-    backgroundColor: '#ffffff',
-    padding: 14,
-    gap: 8,
+    gap: theme.spacing.sm,
   },
   heading: {
-    color: '#0f172a',
+    color: theme.ui.text.onDark,
     fontSize: 17,
     fontWeight: '800',
   },
   copy: {
-    color: '#334155',
+    color: theme.ui.text.onDarkMuted,
     fontSize: 13,
     lineHeight: 18,
   },
-  focusBlock: {
-    borderWidth: 1,
-    borderColor: '#dbeafe',
-    borderRadius: 10,
-    backgroundColor: '#eff6ff',
-    padding: 10,
-    gap: 4,
+  block: {
+    gap: theme.spacing.xs,
   },
-  focusTitle: {
-    color: '#1e40af',
+  blockTitle: {
+    color: theme.ui.text.onDark,
     fontSize: 12,
     fontWeight: '700',
   },
-  focusText: {
-    color: '#1e3a8a',
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  completedBlock: {
-    borderWidth: 1,
-    borderColor: '#86efac',
-    borderRadius: 10,
-    backgroundColor: '#f0fdf4',
-    padding: 10,
-    gap: 4,
-  },
-  completedTitle: {
-    color: '#166534',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  completedText: {
-    color: '#14532d',
+  blockText: {
+    color: theme.ui.text.onDarkMuted,
     fontSize: 12,
     lineHeight: 17,
   },
   empty: {
-    color: '#64748b',
+    color: theme.ui.text.onDarkMuted,
     fontSize: 12,
   },
 });

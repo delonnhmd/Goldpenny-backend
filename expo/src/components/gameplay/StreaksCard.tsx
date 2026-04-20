@@ -1,13 +1,14 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { theme } from '@/design/theme';
 
 import { StreakItem } from '@/types/progression';
 
 function riskColor(resetRisk: string): string {
   const normalized = String(resetRisk || '').toLowerCase();
-  if (normalized === 'high') return '#b91c1c';
-  if (normalized === 'medium') return '#b45309';
-  return '#166534';
+  if (normalized === 'high') return theme.ui.danger;
+  if (normalized === 'medium') return theme.ui.warning;
+  return theme.ui.positive;
 }
 
 export default function StreaksCard({ streaks }: { streaks: StreakItem[] }) {
@@ -42,27 +43,27 @@ export default function StreaksCard({ streaks }: { streaks: StreakItem[] }) {
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.ui.border,
     borderRadius: 12,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 14,
     gap: 8,
   },
   heading: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 17,
     fontWeight: '800',
   },
   subheading: {
-    color: '#475569',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 17,
   },
   streakRow: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.ui.border,
     borderRadius: 10,
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 10,
     gap: 5,
   },
@@ -70,12 +71,12 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   streakTitle: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 13,
     fontWeight: '700',
   },
   streakCounts: {
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     fontWeight: '600',
   },
@@ -88,12 +89,12 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   conditionText: {
-    color: '#475569',
+    color: theme.ui.text.onLightMuted,
     fontSize: 11,
     lineHeight: 15,
   },
   empty: {
-    color: '#64748b',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
   },
 });

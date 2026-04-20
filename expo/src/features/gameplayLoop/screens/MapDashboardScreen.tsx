@@ -14,14 +14,15 @@ import type {
   MapTileActionTag,
   SandboxMapTile,
 } from '@/components/gameMap';
+import AppBottomNav from '@/components/layout/AppBottomNav';
 import SafeAreaPage from '@/components/layout/SafeAreaPage';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import SecondaryButton from '@/components/ui/SecondaryButton';
 import { alpha, theme } from '@/design/theme';
 import { useOnboarding } from '@/features/onboarding';
-import type { OnboardingRouteKey } from '@/features/onboarding/context';
 import BusinessMarketPanel from '@/features/gameplayLoop/components/BusinessMarketPanel';
 import JobMarketPanel from '@/features/gameplayLoop/components/JobMarketPanel';
+import { buildGameplayBottomNavItems } from '@/features/gameplayLoop/navigation';
 import { useScreenTimer } from '@/hooks/useScreenTimer';
 import {
   businessLabel,
@@ -855,13 +856,10 @@ export default function MapDashboardScreen() {
     return buttons;
   })();
 
-  const bottomTabs = useMemo(() => ([
-    { key: 'map' as OnboardingRouteKey, label: 'Map', icon: '\u{1F5FA}\u{FE0F}' },
-    { key: 'work' as OnboardingRouteKey, label: 'Work', icon: '\u{1F4BC}' },
-    { key: 'business' as OnboardingRouteKey, label: 'Business', icon: '\u{1F3EA}' },
-    { key: 'dashboard' as OnboardingRouteKey, label: 'Wallet', icon: '\u{1F4B0}' },
-    { key: 'life' as OnboardingRouteKey, label: 'Life', icon: '\u{2764}\u{FE0F}' },
-  ]), []);
+  const bottomTabs = useMemo(
+    () => buildGameplayBottomNavItems(onboarding.navigateTo),
+    [onboarding.navigateTo],
+  );
 
   return (
     <SafeAreaPage edges={['top', 'bottom']}>
@@ -1145,28 +1143,7 @@ export default function MapDashboardScreen() {
           </View>
         </View>
 
-        <View style={styles.bottomNav}>
-          {bottomTabs.map((tab) => {
-            const active = tab.key === 'map';
-            return (
-              <Pressable
-                key={tab.key}
-                onPress={() => {
-                  if (active) return;
-                  onboarding.navigateTo(tab.key);
-                }}
-                style={({ pressed }) => [
-                  styles.tab,
-                  active ? styles.tabActive : null,
-                  pressed ? styles.tabPressed : null,
-                ]}
-              >
-                <Text style={[styles.tabIcon, active ? styles.tabIconActive : null]}>{tab.icon}</Text>
-                <Text style={[styles.tabLabel, active ? styles.tabLabelActive : null]}>{tab.label}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
+        <AppBottomNav items={bottomTabs} activeKey="map" />
       </View>
     </SafeAreaPage>
   );
@@ -1217,7 +1194,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.ui.bg.sheet,
     borderWidth: 1,
     borderColor: theme.gameUi.cardBorder,
   },
@@ -1234,7 +1211,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.ui.bg.sheet,
     borderWidth: 1,
     borderColor: theme.gameUi.cardBorder,
   },
@@ -1256,7 +1233,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 10,
     paddingVertical: 9,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.ui.bg.sheet,
     borderWidth: 1,
     borderColor: theme.gameUi.cardBorder,
   },
@@ -1290,7 +1267,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingHorizontal: 10,
     paddingVertical: 10,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.ui.bg.sheet,
     borderWidth: 1,
     borderColor: theme.gameUi.cardBorder,
     gap: 4,
@@ -1332,7 +1309,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.ui.bg.sheet,
     borderWidth: 1,
     borderColor: theme.gameUi.cardBorder,
     gap: 10,
@@ -1357,7 +1334,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.ui.bg.sheet,
     borderWidth: 1,
     borderColor: theme.gameUi.cardBorder,
   },
@@ -1376,7 +1353,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.ui.bg.sheet,
     borderWidth: 1,
     borderColor: theme.gameUi.cardBorder,
     gap: 4,

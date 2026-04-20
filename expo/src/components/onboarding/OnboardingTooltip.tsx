@@ -68,9 +68,9 @@ export default function OnboardingTooltip({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: '#bfdbfe',
+    borderColor: theme.ui.info,
     borderRadius: theme.radius.xl,
-    backgroundColor: '#eff6ff',
+    backgroundColor: theme.ui.bg.sheet,
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.md,
     gap: theme.spacing.xs,
@@ -83,34 +83,34 @@ const styles = StyleSheet.create({
   },
   kicker: {
     ...theme.typography.caption,
-    color: '#1e40af',
+    color: theme.ui.action,
     textTransform: 'uppercase',
     fontWeight: '800',
     letterSpacing: 0.7,
   },
   progress: {
     ...theme.typography.caption,
-    color: '#1d4ed8',
+    color: theme.ui.action,
     fontWeight: '800',
   },
   title: {
     ...theme.typography.headingSm,
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontWeight: '800',
   },
   message: {
     ...theme.typography.bodySm,
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     fontWeight: '600',
   },
   status: {
     ...theme.typography.bodySm,
-    color: '#1e3a8a',
+    color: theme.ui.action,
     fontWeight: '700',
   },
   blocked: {
     ...theme.typography.bodySm,
-    color: '#b91c1c',
+    color: theme.ui.danger,
     fontWeight: '700',
   },
   actionRow: {

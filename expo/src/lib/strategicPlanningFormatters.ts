@@ -1,9 +1,11 @@
+import { uiTokens } from '@/theme/tokens';
+
 export function confidenceColor(label: string | null | undefined): string {
   const normalized = String(label || '').toLowerCase();
-  if (normalized === 'high') return '#166534';
-  if (normalized === 'moderate' || normalized === 'medium') return '#b45309';
-  if (normalized === 'low') return '#b91c1c';
-  return '#475569';
+  if (normalized === 'high') return uiTokens.positive;
+  if (normalized === 'moderate' || normalized === 'medium') return uiTokens.warning;
+  if (normalized === 'low') return uiTokens.danger;
+  return uiTokens.text.onDarkMuted;
 }
 
 export function confidenceLabel(label: string | null | undefined): string {
@@ -16,23 +18,23 @@ export function confidenceLabel(label: string | null | undefined): string {
 
 export function liquidityRiskColor(label: string | null | undefined): string {
   const normalized = String(label || '').toLowerCase();
-  if (normalized === 'high') return '#b91c1c';
-  if (normalized === 'moderate' || normalized === 'medium') return '#b45309';
-  return '#166534';
+  if (normalized === 'high') return uiTokens.danger;
+  if (normalized === 'moderate' || normalized === 'medium') return uiTokens.warning;
+  return uiTokens.positive;
 }
 
 export function pressureLevelColor(label: string | null | undefined): string {
   const normalized = String(label || '').toLowerCase();
-  if (normalized === 'high') return '#b91c1c';
-  if (normalized === 'moderate' || normalized === 'medium') return '#b45309';
-  return '#166534';
+  if (normalized === 'high') return uiTokens.danger;
+  if (normalized === 'moderate' || normalized === 'medium') return uiTokens.warning;
+  return uiTokens.positive;
 }
 
 export function tradeoffAccentColor(text: string | null | undefined): string {
   const normalized = String(text || '').toLowerCase();
-  if (normalized.includes('higher') || normalized.includes('cost')) return '#b91c1c';
-  if (normalized.includes('gain') || normalized.includes('improve')) return '#166534';
-  return '#334155';
+  if (normalized.includes('higher') || normalized.includes('cost')) return uiTokens.danger;
+  if (normalized.includes('gain') || normalized.includes('improve')) return uiTokens.positive;
+  return uiTokens.text.onDarkMuted;
 }
 
 export function scoreLabel(value: number | null | undefined): string {

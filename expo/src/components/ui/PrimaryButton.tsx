@@ -1,7 +1,7 @@
 import React from 'react';
 import { ActivityIndicator, Pressable, StyleProp, StyleSheet, Text, ViewStyle } from 'react-native';
 
-import { alpha, theme } from '@/design/theme';
+import { theme } from '@/design/theme';
 
 export default function PrimaryButton({
   label,
@@ -36,7 +36,7 @@ export default function PrimaryButton({
         pressed && !blocked ? styles.pressed : null,
       ]}
     >
-      {loading ? <ActivityIndicator size="small" color="#ffffff" /> : null}
+      {loading ? <ActivityIndicator size="small" color={theme.ui.text.onDark} /> : null}
       <Text style={styles.text}>{loading ? label : label}</Text>
     </Pressable>
   );
@@ -45,7 +45,7 @@ export default function PrimaryButton({
 const styles = StyleSheet.create({
   button: {
     minHeight: 52,
-    borderRadius: theme.radius.lg,
+    borderRadius: theme.ui.radius.navTile,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
@@ -54,14 +54,14 @@ const styles = StyleSheet.create({
     ...theme.shadow.md,
   },
   primary: {
-    backgroundColor: theme.gameUi.primary,
+    backgroundColor: theme.ui.action,
     borderWidth: 1,
-    borderColor: alpha(theme.gameUi.primary, 0.92),
+    borderColor: theme.ui.action,
   },
   danger: {
-    backgroundColor: theme.gameUi.danger,
+    backgroundColor: theme.ui.danger,
     borderWidth: 1,
-    borderColor: alpha(theme.gameUi.danger, 0.92),
+    borderColor: theme.ui.danger,
   },
   disabled: {
     opacity: 0.5,
@@ -76,7 +76,7 @@ const styles = StyleSheet.create({
     elevation: 0,
   },
   text: {
-    color: theme.gameUi.card,
+    color: theme.ui.text.onDark,
     ...theme.typography.label,
     fontWeight: '800',
     letterSpacing: 0.3,

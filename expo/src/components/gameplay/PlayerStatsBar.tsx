@@ -68,15 +68,15 @@ export default function PlayerStatsBar({
     economy?.netCashFlow == null
       ? theme.color.textSecondary
       : economy.netCashFlow < 0
-        ? '#b91c1c'
+        ? theme.ui.danger
         : economy.netCashFlow > 0
-          ? '#166534'
+          ? theme.ui.positive
           : theme.color.textSecondary;
-  const debtTone = debtAmount > 0 ? '#b91c1c' : '#166534';
+  const debtTone = debtAmount > 0 ? theme.ui.danger : theme.ui.positive;
   const pressureTone = economy?.debtPressure === 'critical'
-    ? '#b91c1c'
+    ? theme.ui.danger
     : economy?.debtPressure === 'high'
-      ? '#b45309'
+      ? theme.ui.warning
       : theme.color.textSecondary;
   const pressureLabel = economy
     ? economy.debtPressure.charAt(0).toUpperCase() + economy.debtPressure.slice(1)
@@ -122,9 +122,9 @@ const styles = StyleSheet.create({
     minWidth: 138,
     flex: 1,
     borderWidth: 1,
-    borderColor: '#dbe4ef',
+    borderColor: theme.ui.border,
     borderRadius: theme.radius.xl,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.ui.bg.sheet,
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.md,
     gap: theme.spacing.xs,
@@ -152,7 +152,7 @@ const styles = StyleSheet.create({
   },
   detailPill: {
     borderRadius: theme.radius.lg,
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.ui.bg.sheet,
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.sm,
     minWidth: 96,

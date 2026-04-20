@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { theme } from '@/design/theme';
 
 import { statusBadgeColor } from '@/lib/commitmentFormatters';
 import { ActiveCommitmentResponse, AvailableCommitmentItem, AvailableCommitmentsResponse } from '@/types/commitment';
@@ -62,27 +63,27 @@ export default function CommitmentPickerCard({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: '#dbeafe',
+    borderColor: theme.ui.info,
     borderRadius: 12,
-    backgroundColor: '#eff6ff',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 14,
     gap: 8,
   },
   heading: {
-    color: '#1e3a8a',
+    color: theme.ui.action,
     fontSize: 17,
     fontWeight: '800',
   },
   subheading: {
-    color: '#1e40af',
+    color: theme.ui.action,
     fontSize: 12,
     lineHeight: 17,
   },
   activeChip: {
     borderWidth: 1,
-    borderColor: '#bfdbfe',
+    borderColor: theme.ui.info,
     borderRadius: 999,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.ui.bg.sheet,
     paddingVertical: 5,
     paddingHorizontal: 10,
     alignSelf: 'flex-start',
@@ -93,36 +94,36 @@ const styles = StyleSheet.create({
   },
   item: {
     borderWidth: 1,
-    borderColor: '#bfdbfe',
+    borderColor: theme.ui.info,
     borderRadius: 10,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 10,
     gap: 4,
   },
   itemTitle: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 14,
     fontWeight: '800',
   },
   itemDescription: {
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 17,
   },
   tradeoff: {
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 17,
   },
   duration: {
-    color: '#1e40af',
+    color: theme.ui.action,
     fontSize: 11,
     fontWeight: '700',
   },
   button: {
     marginTop: 4,
     borderRadius: 9,
-    backgroundColor: '#1d4ed8',
+    backgroundColor: theme.ui.action,
     paddingVertical: 8,
     paddingHorizontal: 10,
     alignItems: 'center',
@@ -131,12 +132,12 @@ const styles = StyleSheet.create({
     opacity: 0.45,
   },
   buttonText: {
-    color: '#ffffff',
+    color: theme.ui.bg.sheet,
     fontSize: 12,
     fontWeight: '800',
   },
   empty: {
-    color: '#64748b',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
   },
 });

@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { theme } from '@/design/theme';
 
 import { confidenceColor, confidenceLabel } from '@/lib/strategicPlanningFormatters';
 import { ShortHorizonPlansResponse } from '@/types/strategicPlanning';
@@ -32,27 +33,27 @@ export default function ShortHorizonPlansCard({ plans }: { plans: ShortHorizonPl
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.ui.border,
     borderRadius: 12,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 14,
     gap: 10,
   },
   heading: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 17,
     fontWeight: '800',
   },
   copy: {
-    color: '#475569',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 17,
   },
   item: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.ui.border,
     borderRadius: 10,
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 10,
     gap: 4,
   },
@@ -63,7 +64,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   itemTitle: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 14,
     fontWeight: '800',
     flex: 1,
@@ -74,28 +75,28 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   duration: {
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     fontSize: 11,
     fontWeight: '700',
   },
   itemCopy: {
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 17,
   },
   tradeoff: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 12,
     fontWeight: '700',
     lineHeight: 17,
   },
   upside: {
-    color: '#166534',
+    color: theme.ui.positive,
     fontSize: 12,
     lineHeight: 17,
   },
   downside: {
-    color: '#b91c1c',
+    color: theme.ui.danger,
     fontSize: 12,
     lineHeight: 17,
   },

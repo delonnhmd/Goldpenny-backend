@@ -10,7 +10,7 @@ import { OnboardingHighlight } from '@/components/onboarding';
 import EmptyStateView from '@/components/ui/EmptyStateView';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import SecondaryButton from '@/components/ui/SecondaryButton';
-import { theme } from '@/design/theme';
+import { alpha, theme } from '@/design/theme';
 import { useOnboarding } from '@/features/onboarding';
 import { useScreenTimer } from '@/hooks/useScreenTimer';
 import { finalizePlayerWorkState } from '@/lib/api/gameplay';
@@ -2301,11 +2301,11 @@ export default function DashboardScreen() {
                 {
                   backgroundColor: rideshareResultGlow.interpolate({
                     inputRange: [0, 1],
-                    outputRange: ['rgba(16,185,129,0.06)', 'rgba(16,185,129,0.24)'],
+                    outputRange: [alpha(theme.ui.positive, 0.06), alpha(theme.ui.positive, 0.24)],
                   }),
                   borderColor: rideshareResultGlow.interpolate({
                     inputRange: [0, 1],
-                    outputRange: ['#6ee7b7', '#16a34a'],
+                    outputRange: [theme.ui.positive, theme.ui.positive],
                   }),
                 },
               ]}
@@ -2773,20 +2773,20 @@ const styles = StyleSheet.create({
     paddingVertical: theme.spacing.xxs,
   },
   riskBadgeLow: {
-    borderColor: '#86efac',
-    backgroundColor: '#f0fdf4',
+    borderColor: theme.ui.positive,
+    backgroundColor: theme.ui.bg.sheet,
   },
   riskBadgeModerate: {
-    borderColor: '#93c5fd',
-    backgroundColor: '#eff6ff',
+    borderColor: theme.ui.info,
+    backgroundColor: theme.ui.bg.sheet,
   },
   riskBadgeHigh: {
-    borderColor: '#fcd34d',
-    backgroundColor: '#fffbeb',
+    borderColor: theme.ui.warning,
+    backgroundColor: theme.ui.bg.sheet,
   },
   riskBadgeCritical: {
-    borderColor: '#fca5a5',
-    backgroundColor: '#fef2f2',
+    borderColor: theme.ui.danger,
+    backgroundColor: theme.ui.bg.sheet,
   },
   riskBadgeText: {
     ...theme.typography.caption,
@@ -2848,12 +2848,12 @@ const styles = StyleSheet.create({
   },
   rideshareResultTitle: {
     ...theme.typography.bodySm,
-    color: '#065f46',
+    color: theme.ui.positive,
     fontWeight: '800',
   },
   rideshareResultMeta: {
     ...theme.typography.caption,
-    color: '#065f46',
+    color: theme.ui.positive,
   },
   rideshareResultRow: {
     flexDirection: 'row',
@@ -2862,13 +2862,13 @@ const styles = StyleSheet.create({
   },
   rideshareResultLabel: {
     ...theme.typography.caption,
-    color: '#065f46',
+    color: theme.ui.positive,
     fontWeight: '700',
   },
   rideshareResultValue: {
     ...theme.typography.bodySm,
     fontWeight: '800',
-    color: '#166534',
+    color: theme.ui.positive,
   },
   activityList: {
     gap: theme.spacing.sm,

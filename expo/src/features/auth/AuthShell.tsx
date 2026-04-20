@@ -79,7 +79,7 @@ export const authScreenStyles = StyleSheet.create({
     ...theme.typography.bodySm,
   },
   successText: {
-    color: '#166534',
+    color: theme.ui.positive,
     ...theme.typography.bodySm,
     fontWeight: '700',
   },

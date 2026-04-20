@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { theme } from '@/design/theme';
 
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import SecondaryButton from '@/components/ui/SecondaryButton';
@@ -78,9 +79,9 @@ export default function OnboardingBanner({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: '#bfdbfe',
+    borderColor: theme.ui.info,
     borderRadius: 12,
-    backgroundColor: '#eff6ff',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 14,
     gap: 8,
   },
@@ -92,29 +93,29 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   title: {
-    color: '#1e40af',
+    color: theme.ui.action,
     fontSize: 12,
     fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 0.3,
   },
   stepPill: {
-    color: '#1d4ed8',
+    color: theme.ui.action,
     fontSize: 11,
     fontWeight: '800',
   },
   stepTitle: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 16,
     fontWeight: '700',
   },
   body: {
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     fontSize: 13,
     lineHeight: 18,
   },
   hint: {
-    color: '#1e3a8a',
+    color: theme.ui.action,
     fontSize: 12,
     lineHeight: 17,
     fontWeight: '600',

@@ -637,13 +637,13 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   diagnosticLevelInfo: {
-    color: '#1d4ed8',
+    color: theme.ui.action,
   },
   diagnosticLevelWarn: {
-    color: '#b45309',
+    color: theme.ui.warning,
   },
   diagnosticLevelError: {
-    color: '#b91c1c',
+    color: theme.ui.danger,
   },
   diagnosticMeta: {
     flex: 1,

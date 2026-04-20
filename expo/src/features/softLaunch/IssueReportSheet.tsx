@@ -1,3 +1,4 @@
+import { alpha, theme } from '@/design/theme';
 // Gold Penny — Soft Launch: IssueReportSheet
 // Quick in-game bug / friction report form.
 
@@ -15,7 +16,6 @@ import {
   View,
 } from 'react-native';
 
-import { theme } from '@/design/theme';
 
 import { IssueCategory, IssueSeverity, IssuePayload } from './types';
 
@@ -143,7 +143,7 @@ export function IssueReportSheet({ visible, gameDay, sessionId, onSubmit, onDism
                 activeOpacity={0.75}
               >
                 {submitting ? (
-                  <ActivityIndicator color="#ffffff" size="small" />
+                  <ActivityIndicator color={theme.ui.bg.sheet} size="small" />
                 ) : (
                   <Text style={styles.submitLabel}>Send Report</Text>
                 )}
@@ -163,7 +163,7 @@ export function IssueReportSheet({ visible, gameDay, sessionId, onSubmit, onDism
 const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: alpha(theme.ui.text.onLight, 0.4),
   },
   sheetContainer: {
     position: 'absolute',
@@ -221,7 +221,7 @@ const styles = StyleSheet.create({
     color: theme.color.textSecondary,
   },
   chipLabelActive: {
-    color: '#ffffff',
+    color: theme.ui.bg.sheet,
     fontWeight: '700',
   },
   textInput: {
@@ -249,7 +249,7 @@ const styles = StyleSheet.create({
   },
   submitLabel: {
     ...theme.typography.headingSm,
-    color: '#ffffff',
+    color: theme.ui.bg.sheet,
   },
   skipButton: {
     alignItems: 'center',

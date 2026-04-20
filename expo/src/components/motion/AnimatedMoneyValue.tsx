@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 
 import { useReducedMotion } from '@/design/motion';
-import { theme } from '@/design/theme';
+import { alpha, theme } from '@/design/theme';
 import { formatMoney } from '@/lib/gameplayFormatters';
 
 type Tone = 'neutral' | 'positive' | 'danger' | 'warning' | 'info';
@@ -28,9 +28,9 @@ function toneColorForValue(value: number, tone: Tone): string {
 
 function pulseColor(delta: number, invertDeltaTone: boolean): string {
   const effective = invertDeltaTone ? -delta : delta;
-  if (effective > 0) return 'rgba(22,163,74,0.22)';
-  if (effective < 0) return 'rgba(220,38,38,0.22)';
-  return 'rgba(37,99,235,0.16)';
+  if (effective > 0) return alpha(theme.ui.positive, 0.22);
+  if (effective < 0) return alpha(theme.ui.danger, 0.22);
+  return alpha(theme.ui.action, 0.16);
 }
 
 export default function AnimatedMoneyValue({
@@ -65,7 +65,7 @@ export default function AnimatedMoneyValue({
   const previousValueRef = useRef(initial);
   const countValue = useRef(new Animated.Value(initial)).current;
   const pulseOpacity = useRef(new Animated.Value(0)).current;
-  const pulseTintRef = useRef<string>('rgba(37,99,235,0.16)');
+  const pulseTintRef = useRef<string>(alpha(theme.ui.action, 0.16));
 
   const formatted = useMemo(() => {
     const current = Number.isFinite(displayValue) ? displayValue : 0;

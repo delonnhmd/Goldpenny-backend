@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { alpha, theme } from '@/design/theme';
 
 import { severityColor } from '@/lib/gameplayFormatters';
 import { PlayerNotificationItem } from '@/types/gameplay';
@@ -72,20 +73,20 @@ export default function NotificationsDrawer({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(2, 6, 23, 0.45)',
+    backgroundColor: alpha(theme.ui.bg.app, 0.45),
     flexDirection: 'row',
     justifyContent: 'flex-end',
   },
   drawer: {
     width: '88%',
     maxWidth: 400,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.ui.bg.sheet,
     borderLeftWidth: 1,
-    borderLeftColor: '#e2e8f0',
+    borderLeftColor: theme.ui.border,
   },
   header: {
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: theme.ui.border,
     paddingHorizontal: 14,
     paddingVertical: 12,
     flexDirection: 'row',
@@ -93,19 +94,19 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   title: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 18,
     fontWeight: '800',
   },
   close: {
     borderWidth: 1,
-    borderColor: '#cbd5e1',
+    borderColor: theme.ui.text.onLightMuted,
     borderRadius: 8,
     paddingVertical: 7,
     paddingHorizontal: 12,
   },
   closeText: {
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     fontWeight: '700',
   },
@@ -115,9 +116,9 @@ const styles = StyleSheet.create({
   },
   item: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.ui.border,
     borderRadius: 10,
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 10,
     gap: 5,
   },
@@ -132,41 +133,41 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   category: {
-    color: '#64748b',
+    color: theme.ui.text.onLightMuted,
     fontSize: 11,
     textTransform: 'uppercase',
     fontWeight: '700',
   },
   itemTitle: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 14,
     fontWeight: '700',
   },
   itemBody: {
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 17,
   },
   itemAction: {
-    color: '#1d4ed8',
+    color: theme.ui.action,
     fontSize: 12,
     fontWeight: '600',
   },
   empty: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.ui.border,
     borderRadius: 10,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 12,
     gap: 5,
   },
   emptyTitle: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 14,
     fontWeight: '700',
   },
   emptyBody: {
-    color: '#64748b',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 17,
   },

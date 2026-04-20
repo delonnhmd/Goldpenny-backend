@@ -42,7 +42,7 @@ export default function EndOfDaySummaryCard({
   transactions?: TransactionHistoryItem[];
 }) {
   const guidedSummaryActive = Number(summary.guided_day_number || 0) >= 1 && Number(summary.guided_day_number || 0) <= 3;
-  const netTone = summary.net_change_xgp >= 0 ? '#166534' : '#b91c1c';
+  const netTone = summary.net_change_xgp >= 0 ? theme.ui.positive : theme.ui.danger;
 
   const settlementRows = useMemo<SettlementRow[]>(() => {
     const salary = bucketTotal(transactions, ['salary']);
@@ -101,7 +101,7 @@ export default function EndOfDaySummaryCard({
               durationMs={720}
               threshold={0.01}
               showSign
-              style={[styles.metricValue, { color: '#b91c1c' }]}
+              style={[styles.metricValue, { color: theme.ui.danger }]}
             />
           </View>
         </FadeInView>
@@ -203,9 +203,9 @@ export default function EndOfDaySummaryCard({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: '#dbe4ef',
+    borderColor: theme.ui.border,
     borderRadius: theme.radius.xl,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.ui.bg.sheet,
     padding: theme.spacing.lg,
     gap: theme.spacing.md,
   },
@@ -233,20 +233,20 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 120,
     borderWidth: 1,
-    borderColor: '#dbe4ef',
+    borderColor: theme.ui.border,
     borderRadius: theme.radius.lg,
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.ui.bg.sheet,
     paddingVertical: theme.spacing.sm,
     paddingHorizontal: theme.spacing.sm,
     gap: theme.spacing.xxs,
   },
   metricPositive: {
-    borderColor: '#86efac',
-    backgroundColor: '#f0fdf4',
+    borderColor: theme.ui.positive,
+    backgroundColor: theme.ui.bg.sheet,
   },
   metricNegative: {
-    borderColor: '#fecaca',
-    backgroundColor: '#fef2f2',
+    borderColor: theme.ui.danger,
+    backgroundColor: theme.ui.bg.sheet,
   },
   metricLabel: {
     color: theme.color.textSecondary,
@@ -265,12 +265,12 @@ const styles = StyleSheet.create({
     gap: theme.spacing.xs,
   },
   settlementPositive: {
-    borderColor: '#86efac',
-    backgroundColor: '#f0fdf4',
+    borderColor: theme.ui.positive,
+    backgroundColor: theme.ui.bg.sheet,
   },
   settlementNegative: {
-    borderColor: '#fecaca',
-    backgroundColor: '#fef2f2',
+    borderColor: theme.ui.danger,
+    backgroundColor: theme.ui.bg.sheet,
   },
   settlementTitle: {
     ...theme.typography.label,
@@ -282,7 +282,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     borderBottomWidth: 1,
-    borderBottomColor: '#dbe4ef',
+    borderBottomColor: theme.ui.border,
     paddingBottom: theme.spacing.xs,
   },
   settlementLabel: {
@@ -300,9 +300,9 @@ const styles = StyleSheet.create({
   },
   storyBox: {
     borderWidth: 1,
-    borderColor: '#dbe4ef',
+    borderColor: theme.ui.border,
     borderRadius: theme.radius.xl,
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.ui.bg.sheet,
     padding: theme.spacing.md,
     gap: theme.spacing.xs,
   },
@@ -329,9 +329,9 @@ const styles = StyleSheet.create({
   },
   deltaChip: {
     borderRadius: theme.radius.lg,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.ui.bg.sheet,
     borderWidth: 1,
-    borderColor: '#dbe4ef',
+    borderColor: theme.ui.border,
     paddingHorizontal: theme.spacing.sm,
     paddingVertical: theme.spacing.sm,
     minWidth: 88,
@@ -350,55 +350,55 @@ const styles = StyleSheet.create({
   },
   lessonBox: {
     borderWidth: 1,
-    borderColor: '#bfdbfe',
+    borderColor: theme.ui.info,
     borderRadius: theme.radius.xl,
-    backgroundColor: '#eff6ff',
+    backgroundColor: theme.ui.bg.sheet,
     padding: theme.spacing.md,
     gap: theme.spacing.xs,
   },
   lessonTitle: {
-    color: '#1d4ed8',
+    color: theme.ui.action,
     ...theme.typography.bodySm,
     fontWeight: '800',
   },
   lessonText: {
-    color: '#1e3a8a',
+    color: theme.ui.action,
     ...theme.typography.bodySm,
   },
   warningBox: {
     borderWidth: 1,
-    borderColor: '#fecaca',
+    borderColor: theme.ui.danger,
     borderRadius: theme.radius.xl,
-    backgroundColor: '#fef2f2',
+    backgroundColor: theme.ui.bg.sheet,
     padding: theme.spacing.md,
     gap: theme.spacing.xs,
   },
   warningTitle: {
-    color: '#b91c1c',
+    color: theme.ui.danger,
     ...theme.typography.label,
     fontWeight: '800',
   },
   warningText: {
-    color: '#7f1d1d',
+    color: theme.ui.danger,
     ...theme.typography.bodySm,
   },
   focusBox: {
     borderWidth: 1,
-    borderColor: '#bfdbfe',
+    borderColor: theme.ui.info,
     borderRadius: theme.radius.xl,
-    backgroundColor: '#eff6ff',
+    backgroundColor: theme.ui.bg.sheet,
     padding: theme.spacing.md,
     gap: theme.spacing.xs,
   },
   focusTitle: {
-    color: '#1e40af',
+    color: theme.ui.action,
     ...theme.typography.caption,
     fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
   focusText: {
-    color: '#1e3a8a',
+    color: theme.ui.action,
     ...theme.typography.bodySm,
   },
 });

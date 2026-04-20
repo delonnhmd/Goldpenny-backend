@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { theme } from '@/design/theme';
 
 import { pressureLevelColor } from '@/lib/strategicPlanningFormatters';
 import { RecoveryVsPushResponse } from '@/types/strategicPlanning';
@@ -32,9 +33,9 @@ export default function RecoveryVsPushCard({ analysis }: { analysis: RecoveryVsP
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.ui.border,
     borderRadius: 12,
-    backgroundColor: '#ffffff',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 14,
     gap: 8,
   },
@@ -46,7 +47,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   heading: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 17,
     fontWeight: '800',
   },
@@ -56,31 +57,31 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   copy: {
-    color: '#0f172a',
+    color: theme.ui.text.onLight,
     fontSize: 12,
     lineHeight: 17,
     fontWeight: '700',
   },
   block: {
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: theme.ui.border,
     borderRadius: 10,
-    backgroundColor: '#f8fafc',
+    backgroundColor: theme.ui.bg.sheet,
     padding: 10,
     gap: 4,
   },
   blockTitle: {
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     fontWeight: '700',
   },
   blockText: {
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 17,
   },
   line: {
-    color: '#334155',
+    color: theme.ui.text.onLightMuted,
     fontSize: 12,
     lineHeight: 17,
   },

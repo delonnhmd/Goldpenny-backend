@@ -46,7 +46,7 @@ export default function LoadingStateCard({
 
   return (
     <SurfaceCard variant="muted" style={[styles.card, compact ? styles.cardCompact : null]}>
-      <ActivityIndicator size="small" color="#1d4ed8" />
+      <ActivityIndicator size="small" color={theme.ui.action} />
       <View style={styles.copyWrap}>
         <Text style={styles.label}>{label}</Text>
         <Animated.View style={[styles.skeletonRow, { opacity: shimmer }]} />
@@ -77,6 +77,6 @@ const styles = StyleSheet.create({
     height: 8,
     width: '62%',
     borderRadius: theme.radius.pill,
-    backgroundColor: '#dbe7f5',
+    backgroundColor: theme.ui.bg.sheet,
   },
 });
