@@ -160,8 +160,8 @@ interface RiverSegment {
   end: Point;
 }
 
-export const MAP_COLUMNS = 56;
-export const MAP_ROWS = 40;
+export const MAP_COLUMNS = 72;
+export const MAP_ROWS = 46;
 export const MAP_TILE_SIZE = 16;
 
 const RIVER_WATERFRONT_DISTANCE_PX = MAP_TILE_SIZE * 1.42;
@@ -210,48 +210,60 @@ const DISTRICT_BY_KEY = Object.fromEntries(
 ) as Record<string, SandboxDistrict>;
 
 const ROAD_SEEDS: RoadSeed[] = [
-  { key: 'h_1_w', x: 0, y: 6, width: 25, height: 1, major: true },
-  { key: 'h_1_e', x: 30, y: 6, width: 26, height: 1, major: true },
-  { key: 'h_2_w', x: 2, y: 12, width: 20, height: 1, major: false },
-  { key: 'h_2_e', x: 26, y: 12, width: 30, height: 1, major: true },
-  { key: 'h_3_w', x: 5, y: 19, width: 17, height: 1, major: false },
-  { key: 'h_3_e', x: 24, y: 19, width: 32, height: 2, major: true },
-  { key: 'h_4_w', x: 0, y: 27, width: 18, height: 1, major: false },
-  { key: 'h_4_e', x: 22, y: 27, width: 34, height: 1, major: true },
-  { key: 'h_5_w', x: 3, y: 34, width: 19, height: 1, major: false },
-  { key: 'h_5_e', x: 27, y: 34, width: 29, height: 1, major: true },
-  { key: 'v_1_n', x: 8, y: 0, width: 1, height: 16, major: false },
-  { key: 'v_1_s', x: 8, y: 20, width: 1, height: 20, major: false },
-  { key: 'v_2_n', x: 16, y: 4, width: 1, height: 14, major: false },
-  { key: 'v_2_s', x: 16, y: 22, width: 1, height: 18, major: false },
-  { key: 'v_3_n', x: 24, y: 0, width: 2, height: 12, major: true },
-  { key: 'v_3_s', x: 24, y: 16, width: 2, height: 24, major: true },
-  { key: 'v_4_n', x: 33, y: 3, width: 1, height: 13, major: false },
-  { key: 'v_4_s', x: 33, y: 20, width: 1, height: 18, major: false },
-  { key: 'v_5_n', x: 41, y: 0, width: 2, height: 18, major: true },
-  { key: 'v_5_s', x: 41, y: 22, width: 2, height: 18, major: true },
-  { key: 'v_6', x: 49, y: 6, width: 1, height: 34, major: false },
+  { key: 'h_1_w', x: 0, y: 6, width: 30, height: 1, major: true },
+  { key: 'h_1_e', x: 36, y: 6, width: 36, height: 1, major: true },
+  { key: 'h_2_w', x: 2, y: 12, width: 24, height: 1, major: false },
+  { key: 'h_2_e', x: 30, y: 12, width: 42, height: 1, major: true },
+  { key: 'h_3_w', x: 6, y: 19, width: 22, height: 1, major: false },
+  { key: 'h_3_e', x: 32, y: 19, width: 40, height: 2, major: true },
+  { key: 'h_4_w', x: 0, y: 27, width: 22, height: 1, major: false },
+  { key: 'h_4_e', x: 28, y: 27, width: 44, height: 1, major: true },
+  { key: 'h_5_w', x: 4, y: 35, width: 20, height: 1, major: false },
+  { key: 'h_5_e', x: 30, y: 35, width: 42, height: 1, major: true },
+  { key: 'h_6_w', x: 8, y: 41, width: 18, height: 1, major: false },
+  { key: 'h_6_e', x: 36, y: 41, width: 36, height: 1, major: true },
+  { key: 'v_1_n', x: 8, y: 0, width: 1, height: 18, major: false },
+  { key: 'v_1_s', x: 8, y: 22, width: 1, height: 24, major: false },
+  { key: 'v_2_n', x: 16, y: 4, width: 1, height: 16, major: false },
+  { key: 'v_2_s', x: 16, y: 24, width: 1, height: 22, major: false },
+  { key: 'v_3_n', x: 26, y: 0, width: 2, height: 15, major: true },
+  { key: 'v_3_s', x: 26, y: 19, width: 2, height: 27, major: true },
+  { key: 'v_4_n', x: 36, y: 2, width: 1, height: 18, major: false },
+  { key: 'v_4_s', x: 36, y: 22, width: 1, height: 22, major: false },
+  { key: 'v_5_n', x: 46, y: 0, width: 2, height: 20, major: true },
+  { key: 'v_5_s', x: 46, y: 24, width: 2, height: 22, major: true },
+  { key: 'v_6_n', x: 56, y: 4, width: 1, height: 18, major: false },
+  { key: 'v_6_s', x: 56, y: 22, width: 1, height: 24, major: false },
+  { key: 'v_7_n', x: 64, y: 0, width: 2, height: 18, major: true },
+  { key: 'v_7_s', x: 64, y: 20, width: 2, height: 26, major: true },
+  { key: 'v_8', x: 69, y: 8, width: 1, height: 38, major: false },
 ];
 
 const RIVER_SEGMENTS: RiverSegment[] = [
   {
-    start: { x: 40, y: -2 },
-    c1: { x: 45, y: 4 },
-    c2: { x: 34, y: 11 },
-    end: { x: 29, y: 16 },
+    start: { x: -4, y: 15 },
+    c1: { x: 8, y: 6 },
+    c2: { x: 20, y: 10 },
+    end: { x: 30, y: 18 },
   },
   {
-    start: { x: 29, y: 16 },
-    c1: { x: 24, y: 22 },
-    c2: { x: 20, y: 31 },
-    end: { x: 14, y: 42 },
+    start: { x: 30, y: 18 },
+    c1: { x: 42, y: 28 },
+    c2: { x: 52, y: 11 },
+    end: { x: 63, y: 20 },
+  },
+  {
+    start: { x: 63, y: 20 },
+    c1: { x: 72, y: 30 },
+    c2: { x: 82, y: 16 },
+    end: { x: 88, y: 25 },
   },
 ];
 
 const STATIC_SPECIAL_TILES: TileSeed[] = [
   {
-    x: 44,
-    y: 25,
+    x: 60,
+    y: 31,
     kind: 'service_building',
     label: 'Food Truck Court',
     shortLabel: 'DIN',
@@ -260,7 +272,7 @@ const STATIC_SPECIAL_TILES: TileSeed[] = [
   },
   {
     x: 22,
-    y: 23,
+    y: 28,
     kind: 'service_building',
     label: 'Pocket Park',
     shortLabel: 'REST',
@@ -268,24 +280,24 @@ const STATIC_SPECIAL_TILES: TileSeed[] = [
     actionTags: ['recovery'],
   },
   {
-    x: 52,
-    y: 5,
+    x: 68,
+    y: 6,
     kind: 'expansion_node',
     label: 'North Expansion',
     shortLabel: 'EXP',
     description: 'Future district unlock node for larger projects.',
   },
   {
-    x: 3,
-    y: 35,
+    x: 4,
+    y: 40,
     kind: 'expansion_node',
     label: 'West Expansion',
     shortLabel: 'EXP',
     description: 'Reserved edge tile for future neighborhood growth.',
   },
   {
-    x: 53,
-    y: 36,
+    x: 69,
+    y: 43,
     kind: 'expansion_node',
     label: 'South Expansion',
     shortLabel: 'EXP',
@@ -294,28 +306,29 @@ const STATIC_SPECIAL_TILES: TileSeed[] = [
 ];
 
 const FIXED_NODE_ANCHORS: Record<string, { x: number; y: number }> = {
-  home: { x: 10, y: 30 },
+  home: { x: 12, y: 34 },
   grocery: { x: 11, y: 8 },
-  rideshare_hotspot_suburban: { x: 18, y: 26 },
-  job_center: { x: 35, y: 10 },
-  work: { x: 39, y: 24 },
-  rideshare_hotspot_downtown: { x: 34, y: 16 },
-  business_spot: { x: 46, y: 28 },
-  bank: { x: 43, y: 10 },
-  stock_center: { x: 49, y: 12 },
-  certification_school: { x: 38, y: 13 },
-  housing: { x: 14, y: 28 },
-  clinic: { x: 22, y: 29 },
-  gas_station: { x: 8, y: 34 },
-  car_sale: { x: 50, y: 15 },
+  rideshare_hotspot_suburban: { x: 18, y: 29 },
+  job_center: { x: 47, y: 10 },
+  work: { x: 52, y: 25 },
+  rideshare_hotspot_downtown: { x: 44, y: 16 },
+  business_spot: { x: 60, y: 30 },
+  bank: { x: 56, y: 10 },
+  stock_center: { x: 65, y: 13 },
+  certification_school: { x: 50, y: 15 },
+  housing: { x: 18, y: 32 },
+  clinic: { x: 25, y: 33 },
+  gas_station: { x: 9, y: 39 },
+  car_sale: { x: 68, y: 18 },
 };
 
 const FLEX_NODE_ANCHORS = [
-  { x: 30, y: 9 },
-  { x: 34, y: 24 },
-  { x: 18, y: 11 },
-  { x: 26, y: 26 },
-  { x: 44, y: 18 },
+  { x: 30, y: 10 },
+  { x: 38, y: 24 },
+  { x: 21, y: 12 },
+  { x: 28, y: 31 },
+  { x: 56, y: 19 },
+  { x: 66, y: 26 },
 ];
 
 const ROAD_TILE_SET = buildRoadTileSet();
@@ -330,18 +343,18 @@ function tileKey(x: number, y: number): string {
 }
 
 function zoneToneForTile(x: number, y: number): MapZoneTone {
-  const diagonalSplit = (x * 0.42) + 7;
+  const diagonalSplit = (x * 0.32) + 9;
   return y > diagonalSplit ? 'downtown' : 'rural';
 }
 
 function districtKeyForTile(x: number, y: number, tone: MapZoneTone): string {
   if (tone === 'rural') {
-    if (y < 12) return 'heights';
-    if (x > 20 && y < 25) return 'exchange';
+    if (y < 13) return 'heights';
+    if (x > 24 && y < 28) return 'exchange';
     return 'makers';
   }
-  if (y < 15) return 'midtown';
-  if (x > 40 || y > 31) return 'harbor';
+  if (y < 17) return 'midtown';
+  if (x > 56 || y > 36) return 'harbor';
   return 'commerce';
 }
 
@@ -770,24 +783,24 @@ function buildZoneWashes(tileSize: number): SandboxZoneWash[] {
       tone: 'rural',
       x: 0,
       y: 0,
-      width: Math.round(worldWidth * 0.66),
-      height: Math.round(worldHeight * 0.62),
+      width: Math.round(worldWidth * 0.56),
+      height: Math.round(worldHeight * 0.54),
       fill: alpha(theme.ui.positive, 0.14),
-      labelX: Math.round(tileSize * 4),
-      labelY: Math.round(tileSize * 7),
+      labelX: Math.round(tileSize * 5),
+      labelY: Math.round(tileSize * 8),
       labelColor: theme.ui.positive,
     },
     {
       key: 'downtown',
       label: 'DOWNTOWN',
       tone: 'downtown',
-      x: Math.round(worldWidth * 0.33),
-      y: Math.round(worldHeight * 0.28),
-      width: Math.round(worldWidth * 0.67),
-      height: Math.round(worldHeight * 0.72),
+      x: Math.round(worldWidth * 0.28),
+      y: Math.round(worldHeight * 0.22),
+      width: Math.round(worldWidth * 0.72),
+      height: Math.round(worldHeight * 0.78),
       fill: alpha(theme.ui.action, 0.12),
-      labelX: Math.round(worldWidth * 0.64),
-      labelY: Math.round(worldHeight * 0.73),
+      labelX: Math.round(worldWidth * 0.68),
+      labelY: Math.round(worldHeight * 0.72),
       labelColor: theme.ui.info,
     },
   ];

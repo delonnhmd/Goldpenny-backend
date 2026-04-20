@@ -236,8 +236,8 @@ export default function CityMapScreen() {
       footer={(
         <GameplayStickyActionArea
           summary={`Current location: ${currentLocationLabel}`}
-          secondaryLabel="Back To Dashboard"
-          onSecondaryPress={() => { onboarding.navigateTo('dashboard'); }}
+          secondaryLabel="Back To Work"
+          onSecondaryPress={() => { onboarding.navigateTo('work'); }}
           primaryLabel="Open Work"
           onPrimaryPress={() => { onboarding.navigateTo('work'); }}
         />

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { alpha, theme } from '@/design/theme';
 
@@ -10,18 +10,16 @@ export interface AppBottomNavItem {
   onPress: () => void;
 }
 
-export const gameplayBottomNavBlueprint: Array<{
+export const gameplayBottomNavBlueprint: {
   key: string;
   label: string;
   icon: string;
-}> = [
-  { key: 'brief', label: 'Brief', icon: '\u{1F4F0}' },
-  { key: 'dashboard', label: 'Dashboard', icon: '\u{1F4CA}' },
+}[] = [
+  { key: 'map', label: 'Map', icon: '\u{1F5FA}\u{FE0F}' },
   { key: 'work', label: 'Work', icon: '\u{1F4BC}' },
   { key: 'business', label: 'Business', icon: '\u{1F3EA}' },
-  { key: 'market', label: 'Wallet', icon: '\u{1F4B0}' },
+  { key: 'portfolio', label: 'Portfolio', icon: '\u{1F4C8}' },
   { key: 'life', label: 'Life', icon: '\u{2764}\u{FE0F}' },
-  { key: 'map', label: 'Map', icon: '\u{1F5FA}\u{FE0F}' },
 ];
 
 export default function AppBottomNav({
@@ -31,8 +29,12 @@ export default function AppBottomNav({
   items: AppBottomNavItem[];
   activeKey?: string | null;
 }) {
+  const webGridStyle = Platform.OS === 'web'
+    ? ({ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)' } as never)
+    : null;
+
   return (
-    <View style={styles.wrap}>
+    <View style={[styles.wrap, webGridStyle]}>
       {items.map((item) => {
         const active = activeKey === item.key;
         return (
@@ -60,23 +62,22 @@ const styles = StyleSheet.create({
     borderTopColor: theme.ui.border,
     backgroundColor: theme.ui.bg.card,
     flexDirection: 'row',
-    paddingHorizontal: 4,
+    paddingHorizontal: 0,
     paddingTop: 6,
     paddingBottom: 8,
-    gap: 4,
   },
   item: {
     flex: 1,
     minHeight: 52,
-    borderRadius: theme.ui.radius.navTile,
+    borderRadius: 0,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
     gap: 2,
-    paddingHorizontal: 2,
+    paddingHorizontal: 4,
   },
   itemActive: {
-    backgroundColor: alpha(theme.ui.tab.active, 0.16),
+    backgroundColor: alpha(theme.ui.tab.active, 0.12),
   },
   itemPressed: {
     opacity: 0.74,

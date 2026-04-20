@@ -9,12 +9,14 @@ import { theme } from '@/design/theme';
 import { useOnboarding } from '@/features/onboarding';
 import { useScreenTimer } from '@/hooks/useScreenTimer';
 import { BALANCE } from '@/lib/balanceConfig';
+import { formatMoney } from '@/lib/gameplayFormatters';
 import { recordInfo } from '@/lib/logger';
 import { DailyActionItem, JobMarketJobSnapshot } from '@/types/gameplay';
 
 import JobMarketPanel from '../components/JobMarketPanel';
 import { useGameplayLoop } from '../context';
 import {
+  GameplayCompactMetricRows,
   GameplayStatCard,
   GameplayStickyActionArea,
   GameplaySummaryCard,
@@ -97,6 +99,24 @@ export default function WorkScreen() {
     ?? loop.actionHub?.debug_meta?.new_player_first_session
     ?? false,
   );
+  const jobProgress = loop.dashboard?.job_progress || null;
+  const currentJobLabel = String(
+    jobProgress?.position_title
+    || stats?.current_job_display
+    || loop.jobIncome.currentJob
+    || stats?.current_job
+    || 'No job selected',
+  ).replace(/_/g, ' ');
+  const shiftWindow = workState?.testing_mode?.enabled && workState.testing_mode.shift_length_label
+    ? `On-demand - ${workState.testing_mode.shift_length_label}`
+    : workState?.scheduled_shift_window_label || 'No scheduled shift';
+  const payModelLabel = String(workState?.pay_model_label || 'Paid daily after shift completion');
+  const salaryToday = Number(workState?.salary_earned_today ?? loop.jobIncome.incomeAmount ?? 0);
+  const salaryStatus = String(workState?.salary_status_label || 'No salary posted').replace(/Â·/g, '-');
+  const nextSalaryLabel = jobProgress?.estimated_next_level_monthly_salary_xgp
+    ? formatMoney(jobProgress.estimated_next_level_monthly_salary_xgp)
+    : 'Awaiting level data';
+  const jobLevelLabel = jobProgress ? `Lv ${jobProgress.job_level}` : 'Unranked';
   const showJobMarket = Boolean(
     (jobMarket?.jobs && jobMarket.jobs.length > 0)
     || firstSessionFlag
@@ -191,9 +211,9 @@ export default function WorkScreen() {
       footer={guidedWorkActive ? null : (
         <GameplayStickyActionArea
           summary={`${loop.dailySession.remainingTimeUnits} time units left today`}
-          secondaryLabel="Open Market"
+          secondaryLabel="Open Portfolio"
           onSecondaryPress={() => {
-            onboarding.navigateTo('market');
+            onboarding.navigateTo('portfolio');
           }}
           primaryLabel="Open Summary"
           onPrimaryPress={() => {
@@ -203,38 +223,32 @@ export default function WorkScreen() {
         />
       )}
     >
-      <GameplaySummaryCard
-        eyebrow="Your work status"
-        title="Income, Energy &amp; Time"
-        subtitle="Start a shift to earn money. Each shift uses time and increases stress."
-      >
-        <View style={styles.metricRow}>
-          <GameplayStatCard
-            label="Today's pay"
-            value={loop.jobIncome.dailyIncomeLabel}
-            tone={loop.jobIncome.incomeAmount != null && loop.jobIncome.incomeAmount >= 0 ? 'positive' : 'warning'}
-            note={loop.jobIncome.currentJob ? loop.jobIncome.currentJob.replace(/_/g, ' ') : 'No job selected yet'}
+      <OnboardingHighlight target="work-career-overview">
+        <GameplaySummaryCard
+          eyebrow="Career overview"
+          title="Income, shifts, and momentum"
+          subtitle="Career stats from the old dashboard now live here."
+        >
+          <GameplayCompactMetricRows
+            items={[
+              { label: 'Current job', value: currentJobLabel, tone: currentJobKey ? 'info' : 'warning' },
+              { label: 'Shift window', value: shiftWindow, tone: 'info' },
+              { label: 'Salary today', value: salaryToday > 0 ? `+${formatMoney(salaryToday)}` : 'No salary yet', tone: salaryToday > 0 ? 'positive' : 'neutral' },
+              { label: 'Payment status', value: salaryStatus, tone: salaryStatus.toLowerCase().includes('failed') ? 'danger' : salaryToday > 0 ? 'positive' : 'warning' },
+              { label: 'Job level', value: jobLevelLabel, tone: jobProgress ? 'positive' : 'neutral' },
+              { label: 'Next salary', value: nextSalaryLabel, tone: jobProgress ? 'info' : 'neutral' },
+              { label: 'Pay model', value: payModelLabel, tone: 'info' },
+              { label: 'Stress', value: `${Math.round(stats?.stress ?? 0)}`, tone: (stats?.stress ?? 0) >= 65 ? 'danger' : 'warning' },
+              { label: 'Health', value: `${Math.round(stats?.health ?? 100)}`, tone: (stats?.health ?? 100) >= 65 ? 'positive' : 'warning' },
+              {
+                label: 'Time left',
+                value: `${loop.dailySession.remainingTimeUnits}/${loop.dailySession.totalTimeUnits}`,
+                tone: loop.dailySession.remainingTimeUnits <= 2 ? 'warning' : 'info',
+              },
+            ]}
           />
-          <GameplayStatCard
-            label="Stress"
-            value={`${Math.round(stats?.stress ?? 0)}`}
-            tone={(stats?.stress ?? 0) >= 65 ? 'danger' : 'warning'}
-            note="High stress slows recovery and raises mistakes."
-          />
-          <GameplayStatCard
-            label="Health"
-            value={`${Math.round(stats?.health ?? 100)}`}
-            tone={(stats?.health ?? 100) >= 65 ? 'positive' : 'warning'}
-            note="Low health reduces earnings from shifts."
-          />
-          <GameplayStatCard
-            label="Time left"
-            value={`${loop.dailySession.remainingTimeUnits}/${loop.dailySession.totalTimeUnits}`}
-            tone={loop.dailySession.remainingTimeUnits <= 2 ? 'warning' : 'info'}
-            note={`1 unit = ${BALANCE.REALTIME.MINUTES_PER_UNIT} mins. Timed activities now consume units over time.`}
-          />
-        </View>
-      </GameplaySummaryCard>
+        </GameplaySummaryCard>
+      </OnboardingHighlight>
 
       {showJobMarket ? (
         <JobMarketPanel
@@ -252,7 +266,20 @@ export default function WorkScreen() {
         title="Job board and shift actions now live on the map"
         subtitle="Use the Job Center for hiring and certifications, then use your work location node to run shifts and shift-focus bonuses."
       >
-        <View />
+        <View style={styles.metricRow}>
+          <GameplayStatCard
+            label="Today's pay"
+            value={loop.jobIncome.dailyIncomeLabel}
+            tone={loop.jobIncome.incomeAmount != null && loop.jobIncome.incomeAmount >= 0 ? 'positive' : 'warning'}
+            note={loop.jobIncome.currentJob ? loop.jobIncome.currentJob.replace(/_/g, ' ') : 'No job selected yet'}
+          />
+          <GameplayStatCard
+            label="Time cost"
+            value={`${BALANCE.REALTIME.MINUTES_PER_UNIT} min / unit`}
+            tone="info"
+            note="Map actions spend time through the daily session rules."
+          />
+        </View>
       </GameplaySummaryCard>
 
       {actionHubForDisplay ? (

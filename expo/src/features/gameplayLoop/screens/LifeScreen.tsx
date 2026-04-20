@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import DailyBriefCard from '@/components/gameplay/DailyBriefCard';
+import { OnboardingHighlight } from '@/components/onboarding';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import SecondaryButton from '@/components/ui/SecondaryButton';
 import { theme } from '@/design/theme';
@@ -13,7 +15,9 @@ import {
   GameplayCompactMetricRows,
   GameplayStickyActionArea,
   GameplaySummaryCard,
+  GameplayTrendChip,
   GameplayWarningBanner,
+  toneFromSignedValue,
 } from '../components/GameplayUIParts';
 import GameplayLoopScaffold from '../GameplayLoopScaffold';
 
@@ -28,11 +32,16 @@ export default function LifeScreen() {
   useScreenTimer('life');
   const loop = useGameplayLoop();
   const onboarding = useOnboarding();
+  const guidedLifeActive = onboarding.isActive && onboarding.currentStep?.route === 'life';
   const stats = loop.dashboard?.stats;
   const cash = stats?.cash_xgp ?? 0;
   const stress = stats?.stress ?? 0;
   const health = stats?.health ?? 100;
   const debt = loop.expenseDebt?.debtAmount ?? stats?.debt_xgp ?? 0;
+  const netFlow = loop.economyState.netCashFlow ?? 0;
+  const currentDay = loop.dashboard?.work_state?.current_game_day ?? loop.dailyActivity?.day ?? loop.dailySession.currentDay;
+  const topOpportunity = loop.dashboard?.top_opportunities?.[0] || null;
+  const topRisk = loop.dashboard?.top_risks?.[0] || null;
   const cashTone: 'positive' | 'neutral' | 'danger' = cash > 0 ? 'positive' : cash < 0 ? 'danger' : 'neutral';
   const currentHousing = (stats?.region_key ?? 'suburban') as 'suburban' | 'downtown';
 
@@ -66,19 +75,74 @@ export default function LifeScreen() {
   return (
     <GameplayLoopScaffold
       title="Life"
-      subtitle="Housing, food, and emergency loans"
+      subtitle="Today, recovery, housing, and personal survival decisions"
       activeNavKey="life"
-      footer={(
+      footer={guidedLifeActive ? null : (
         <GameplayStickyActionArea
-          secondaryLabel="Open Dashboard"
-          onSecondaryPress={() => onboarding.navigateTo('dashboard')}
+          secondaryLabel="Open Portfolio"
+          onSecondaryPress={() => onboarding.navigateTo('portfolio')}
           primaryLabel="Back To Work"
           onPrimaryPress={() => onboarding.navigateTo('work')}
         />
       )}
     >
+      {loop.dashboard ? (
+        <OnboardingHighlight target="life-today-brief">
+          <DailyBriefCard
+            dashboard={loop.dashboard}
+            dayKey={currentDay ?? 1}
+            impactBullets={[
+              topOpportunity?.title || '',
+              topRisk?.title || '',
+              String(loop.endOfDaySummary?.guided_watch_tomorrow || ''),
+            ]}
+          />
+        </OnboardingHighlight>
+      ) : null}
+
+      <GameplaySummaryCard
+        eyebrow="Today"
+        title="Daily Pressure &amp; Momentum"
+        subtitle="Brief content now lives here before the rest of your life lane."
+      >
+        <GameplayCompactMetricRows
+          items={[
+            { label: 'Income', value: formatMoney(loop.dailyActivity?.total_income ?? 0), tone: 'positive' },
+            { label: 'Expense', value: formatMoney(loop.dailyActivity?.total_expense ?? 0), tone: 'danger' },
+            {
+              label: 'Net flow',
+              value: `${netFlow > 0 ? '+' : ''}${formatMoney(netFlow)}`,
+              tone: toneFromSignedValue(netFlow),
+            },
+            {
+              label: 'Time left',
+              value: `${loop.dailySession.remainingTimeUnits}/${loop.dailySession.totalTimeUnits}`,
+              tone: loop.dailySession.remainingTimeUnits <= 2 ? 'warning' : 'info',
+            },
+          ]}
+        />
+        <View style={styles.todayChipRow}>
+          {topOpportunity ? (
+            <GameplayTrendChip label="Opportunity" value={topOpportunity.title} tone="positive" />
+          ) : null}
+          {topRisk ? (
+            <GameplayTrendChip label="Pressure" value={topRisk.title} tone="warning" />
+          ) : null}
+          {loop.dailySession.sessionStatus === 'ended' ? (
+            <GameplayTrendChip label="Day" value="Settlement ready" tone="info" />
+          ) : null}
+        </View>
+        {loop.dailySession.sessionStatus === 'ended' ? (
+          <SecondaryButton
+            label="Open Summary"
+            onPress={() => onboarding.navigateTo('summary')}
+            disabled={busy}
+          />
+        ) : null}
+      </GameplaySummaryCard>
+
       {stats ? (
-        <GameplaySummaryCard eyebrow="Your condition" title="Health &amp; Stress">
+        <GameplaySummaryCard eyebrow="Health / mood" title="How You're Holding Up">
           <GameplayCompactMetricRows
             items={[
               { label: 'Health', value: `${Math.round(health)}`, tone: health >= 65 ? 'positive' : 'warning' },
@@ -91,7 +155,7 @@ export default function LifeScreen() {
       ) : null}
 
       <GameplaySummaryCard
-        eyebrow="Food"
+        eyebrow="Habits / routine"
         title="Meals moved to the map"
         subtitle="Breakfast and lunch now happen at grocery nodes. Dinner now happens at restaurant and food truck nodes."
       >
@@ -113,7 +177,7 @@ export default function LifeScreen() {
       </GameplaySummaryCard>
 
       <GameplaySummaryCard
-        eyebrow="Housing"
+        eyebrow="Personal events"
         title="Where You Live"
         subtitle="Your neighbourhood affects rent, transport costs, and weekly stress."
       >
@@ -201,6 +265,11 @@ const styles = StyleSheet.create({
     ...theme.typography.bodyMd,
     color: theme.color.textSecondary,
     marginBottom: theme.spacing.sm,
+  },
+  todayChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.spacing.sm,
   },
   housingGrid: {
     flexDirection: 'row',

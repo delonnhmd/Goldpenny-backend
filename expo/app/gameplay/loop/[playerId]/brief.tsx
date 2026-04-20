@@ -1,7 +1,7 @@
+import { Redirect, useLocalSearchParams } from 'expo-router';
 import React from 'react';
 
-import BriefScreen from '@/features/gameplayLoop/screens/BriefScreen';
-
 export default function GameplayLoopBriefRoute() {
-  return <BriefScreen />;
+  const { playerId } = useLocalSearchParams<{ playerId: string }>();
+  return <Redirect href={`/gameplay/loop/${playerId}/life`} />;
 }

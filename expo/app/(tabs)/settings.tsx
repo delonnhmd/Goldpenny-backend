@@ -494,10 +494,10 @@ export default function SettingsScreen() {
                   <View style={styles.diagnosticCard}>
                     <Text style={styles.diagnosticLevel}>FUNNEL ({playtestReport.funnelCompletionRate.completionLabel})</Text>
                     <InfoRow label="Session Started" value={playtestReport.funnelCompletionRate.sessionStarted ? '✓' : '—'} />
-                    <InfoRow label="Brief Seen" value={playtestReport.funnelCompletionRate.briefSeen ? '✓' : '—'} />
-                    <InfoRow label="Dashboard Seen" value={playtestReport.funnelCompletionRate.dashboardSeen ? '✓' : '—'} />
+                    <InfoRow label="Life Seen" value={playtestReport.funnelCompletionRate.lifeSeen ? '✓' : '—'} />
+                    <InfoRow label="Work Seen" value={playtestReport.funnelCompletionRate.workSeen ? '✓' : '—'} />
                     <InfoRow label="First Work Action" value={playtestReport.funnelCompletionRate.firstWorkAction ? '✓' : '—'} />
-                    <InfoRow label="Market Seen" value={playtestReport.funnelCompletionRate.marketSeen ? '✓' : '—'} />
+                    <InfoRow label="Portfolio Seen" value={playtestReport.funnelCompletionRate.portfolioSeen ? '✓' : '—'} />
                     <InfoRow label="Summary Seen" value={playtestReport.funnelCompletionRate.summarySeen ? '✓' : '—'} />
                     <InfoRow label="Day Completed" value={playtestReport.funnelCompletionRate.dayCompleted ? '✓' : '—'} />
                     <InfoRow label="Total Events" value={String(playtestReport.totalEventCount)} />
@@ -523,7 +523,7 @@ export default function SettingsScreen() {
                       <Text style={styles.diagnosticLevel}>FRICTION SIGNALS</Text>
                       <InfoRow label="Onboarding Skipped" value={playtestReport.frictionSignals.onboardingSkipped ? '⚠ Yes' : 'No'} />
                       <InfoRow label="No Work Action" value={playtestReport.frictionSignals.noWorkActionTaken ? '⚠ Yes' : 'No'} />
-                      <InfoRow label="No Market Visit" value={playtestReport.frictionSignals.noMarketVisit ? '⚠ Yes' : 'No'} />
+                      <InfoRow label="No Portfolio Visit" value={playtestReport.frictionSignals.noPortfolioVisit ? '⚠ Yes' : 'No'} />
                       <InfoRow label="No Business Visit" value={playtestReport.frictionSignals.noBusinessVisit ? '⚠ Yes' : 'No'} />
                       <InfoRow label="Exited Before Summary" value={playtestReport.frictionSignals.exitedBeforeSummary ? '⚠ Yes' : 'No'} />
                       <InfoRow label="Long Idle Count" value={String(playtestReport.frictionSignals.longIdleCount)} />

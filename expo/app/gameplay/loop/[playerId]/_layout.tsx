@@ -30,7 +30,7 @@ export default function GameplayLoopLayout() {
   }
 
   if (playerId !== linkedPlayerId) {
-    return <Redirect href={`/gameplay/loop/${linkedPlayerId}/brief`} />;
+    return <Redirect href={`/gameplay/loop/${linkedPlayerId}/life`} />;
   }
 
   return (
