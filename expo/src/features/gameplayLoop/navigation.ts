@@ -17,7 +17,7 @@ const gameplayBottomNavConfig: {
   { key: 'life', label: 'Life', icon: 'heart-outline' },
   { key: 'dashboard', label: 'Work', icon: 'view-dashboard-outline' },
   { key: 'business', label: 'Business', icon: 'storefront-outline' },
-  { key: 'market', label: 'Wallet', icon: 'wallet-outline' },
+  { key: 'market', label: 'Portfolio', icon: 'wallet-outline' },
 ];
 
 export function buildGameplayBottomNavItems(
