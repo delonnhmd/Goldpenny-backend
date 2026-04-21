@@ -1,9 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
   PanResponder,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -23,7 +22,6 @@ interface MapDetailSheetProps {
 
 const CLOSE_DISTANCE = 120;
 const CLOSE_VELOCITY = 0.9;
-const TOP_SCROLL_TOLERANCE = 6;
 
 export default function MapDetailSheet({
   visible,
@@ -35,7 +33,6 @@ export default function MapDetailSheet({
   const { height } = useWindowDimensions();
   const [mounted, setMounted] = useState(visible);
   const translateY = useRef(new Animated.Value(420)).current;
-  const scrollOffsetYRef = useRef(0);
 
   const hiddenOffset = useMemo(
     () => Math.max(height * 0.8, 420),
@@ -49,7 +46,6 @@ export default function MapDetailSheet({
   useEffect(() => {
     if (visible) {
       setMounted(true);
-      scrollOffsetYRef.current = 0;
       translateY.setValue(hiddenOffset);
       Animated.spring(translateY, {
         toValue: 0,
@@ -92,25 +88,7 @@ export default function MapDetailSheet({
     springBack();
   };
 
-  const isScrollAtTop = () => scrollOffsetYRef.current <= TOP_SCROLL_TOLERANCE;
-
-  const shouldCaptureDismissDrag = (gesture: { dx: number; dy: number }) => (
-    visible
-    && isScrollAtTop()
-    && gesture.dy > 6
-    && Math.abs(gesture.dy) > Math.abs(gesture.dx)
-  );
-
   const handleHeaderDrag = (_: unknown, gesture: { dy: number }) => {
-    if (gesture.dy <= 0) {
-      translateY.setValue(0);
-      return;
-    }
-    translateY.setValue(Math.min(gesture.dy, hiddenOffset));
-  };
-
-  const handleSheetDrag = (_: unknown, gesture: { dy: number }) => {
-    if (!isScrollAtTop()) return;
     if (gesture.dy <= 0) {
       translateY.setValue(0);
       return;
@@ -120,8 +98,8 @@ export default function MapDetailSheet({
 
   const headerPanResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => visible,
-      onStartShouldSetPanResponderCapture: () => visible,
+      onStartShouldSetPanResponder: () => false,
+      onStartShouldSetPanResponderCapture: () => false,
       onMoveShouldSetPanResponder: (_, gesture) => (
         visible
         && Math.abs(gesture.dy) > 6
@@ -139,65 +117,68 @@ export default function MapDetailSheet({
     }),
   ).current;
 
-  const contentPanResponder = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_, gesture) => shouldCaptureDismissDrag(gesture),
-      onMoveShouldSetPanResponderCapture: (_, gesture) => shouldCaptureDismissDrag(gesture),
-      onPanResponderMove: handleSheetDrag,
-      onPanResponderRelease: handleDismissRelease,
-      onPanResponderTerminate: springBack,
-      onPanResponderTerminationRequest: () => true,
-    }),
-  ).current;
-
-  const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    scrollOffsetYRef.current = Math.max(0, event.nativeEvent.contentOffset.y || 0);
-  };
-
   if (!mounted) return null;
 
   return (
-    <Animated.View
-      style={[
-        styles.sheetShell,
-        {
-          maxHeight,
-          transform: [{ translateY }],
-        },
-      ]}
-    >
-      <View style={styles.handleZone} {...headerPanResponder.panHandlers}>
-        <View style={styles.handle} />
-        <View style={styles.headerRow}>
-          <View style={styles.headerCopy}>
-            <Text style={styles.headerEyebrow}>Slot Detail</Text>
-            <Text style={styles.headerTitle}>{title}</Text>
-            {subtitle ? <Text style={styles.headerSubtitle}>{subtitle}</Text> : null}
+    <View style={styles.portal}>
+      <Pressable style={styles.backdrop} onPress={onClose} />
+
+      <Animated.View
+        style={[
+          styles.sheetShell,
+          {
+            height: maxHeight,
+            transform: [{ translateY }],
+          },
+        ]}
+      >
+        <View style={styles.handleZone} {...headerPanResponder.panHandlers}>
+          <View style={styles.handle} />
+          <View style={styles.headerRow}>
+            <View style={styles.headerCopy}>
+              <Text style={styles.headerEyebrow}>Slot Detail</Text>
+              <Text style={styles.headerTitle}>{title}</Text>
+              {subtitle ? <Text style={styles.headerSubtitle}>{subtitle}</Text> : null}
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Close slot detail"
+              hitSlop={10}
+              onPress={onClose}
+              style={styles.closeButton}
+            >
+              <Text style={styles.closeButtonText}>Close</Text>
+            </Pressable>
           </View>
         </View>
-      </View>
 
-      <View style={styles.scrollShell} {...contentPanResponder.panHandlers}>
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          contentInsetAdjustmentBehavior="automatic"
-          showsVerticalScrollIndicator
-          nestedScrollEnabled
-          bounces={false}
-          overScrollMode="never"
-          keyboardShouldPersistTaps="handled"
-          scrollEventThrottle={16}
-          onScroll={handleScroll}
-        >
-          {children}
-        </ScrollView>
-      </View>
-    </Animated.View>
+        <View style={styles.scrollShell}>
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            contentInsetAdjustmentBehavior="automatic"
+            showsVerticalScrollIndicator
+            nestedScrollEnabled
+            bounces={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            {children}
+          </ScrollView>
+        </View>
+      </Animated.View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  portal: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: alpha(theme.ui.bg.card, 0.2),
+  },
   sheetShell: {
     position: 'absolute',
     left: 0,
@@ -235,9 +216,10 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   headerRow: {
-    flexDirection: 'column',
+    flexDirection: 'row',
     alignItems: 'flex-start',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
   },
   headerCopy: {
     flex: 1,
@@ -257,8 +239,24 @@ const styles = StyleSheet.create({
     ...theme.typography.bodySm,
     color: theme.color.textSecondaryOnLight,
   },
+  closeButton: {
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: alpha(theme.ui.border, 0.4),
+    backgroundColor: alpha(theme.ui.bg.card, 0.55),
+  },
+  closeButtonText: {
+    ...theme.typography.caption,
+    color: theme.color.textPrimaryOnLight,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  },
   scrollShell: {
     flex: 1,
+    minHeight: 0,
   },
   scrollView: {
     flex: 1,
