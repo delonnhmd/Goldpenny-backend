@@ -1179,26 +1179,27 @@ const styles = StyleSheet.create({
   },
   selectionEyebrow: {
     ...theme.typography.caption,
-    color: theme.gameUi.textSecondary,
+    color: theme.ui.action,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
   selectionTitle: {
     marginTop: 3,
     ...theme.typography.headingSm,
-    color: theme.gameUi.textPrimary,
+    color: theme.color.textPrimaryOnLight,
   },
   kindBadge: {
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: theme.ui.bg.sheet,
+    backgroundColor: alpha(theme.ui.action, 0.05),
     borderWidth: 1,
-    borderColor: theme.gameUi.cardBorder,
+    borderColor: alpha(theme.ui.border, 0.44),
   },
   kindBadgeText: {
     ...theme.typography.caption,
-    color: theme.gameUi.textSecondary,
+    color: theme.ui.action,
+    fontWeight: '700',
   },
   selectionBadgeRow: {
     flexDirection: 'row',
@@ -1209,17 +1210,17 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: theme.ui.bg.sheet,
+    backgroundColor: alpha(theme.ui.action, 0.05),
     borderWidth: 1,
-    borderColor: theme.gameUi.cardBorder,
+    borderColor: alpha(theme.ui.border, 0.44),
   },
   detailBadgePrimary: {
-    borderColor: alpha(theme.gameUi.primary, 0.24),
-    backgroundColor: alpha(theme.gameUi.primary, 0.08),
+    borderColor: alpha(theme.gameUi.primary, 0.32),
+    backgroundColor: alpha(theme.gameUi.primary, 0.1),
   },
   detailBadgeText: {
     ...theme.typography.caption,
-    color: theme.gameUi.textPrimary,
+    color: theme.color.textPrimaryOnLight,
     fontWeight: '700',
   },
   selectionStatsRow: {
@@ -1231,25 +1232,25 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 10,
     paddingVertical: 9,
-    backgroundColor: theme.ui.bg.sheet,
+    backgroundColor: alpha(theme.ui.action, 0.04),
     borderWidth: 1,
-    borderColor: theme.gameUi.cardBorder,
+    borderColor: alpha(theme.ui.border, 0.44),
   },
   selectionStatLabel: {
     ...theme.typography.caption,
-    color: theme.gameUi.textSecondary,
+    color: theme.color.textSecondaryOnLight,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
   selectionStatValue: {
     marginTop: 3,
     ...theme.typography.bodySm,
-    color: theme.gameUi.textPrimary,
+    color: theme.color.textPrimaryOnLight,
     fontWeight: '700',
   },
   selectionDescription: {
     ...theme.typography.bodySm,
-    color: theme.gameUi.textSecondary,
+    color: theme.color.textSecondaryOnLight,
   },
   landMetricsBox: {
     gap: 8,
@@ -1265,20 +1266,20 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingHorizontal: 10,
     paddingVertical: 10,
-    backgroundColor: theme.ui.bg.sheet,
+    backgroundColor: alpha(theme.ui.action, 0.04),
     borderWidth: 1,
-    borderColor: theme.gameUi.cardBorder,
+    borderColor: alpha(theme.ui.border, 0.44),
     gap: 4,
   },
   landMetricLabel: {
     ...theme.typography.caption,
-    color: theme.gameUi.textSecondary,
+    color: theme.color.textSecondaryOnLight,
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
   landMetricValue: {
     ...theme.typography.bodySm,
-    color: theme.gameUi.textPrimary,
+    color: theme.color.textPrimaryOnLight,
     fontWeight: '700',
   },
   travelRow: {
@@ -1292,7 +1293,7 @@ const styles = StyleSheet.create({
   },
   travelMetaLine: {
     ...theme.typography.bodySm,
-    color: theme.gameUi.textSecondary,
+    color: theme.color.textSecondaryOnLight,
   },
   actionSection: {
     gap: 10,
@@ -1307,9 +1308,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 12,
-    backgroundColor: theme.ui.bg.sheet,
+    backgroundColor: alpha(theme.ui.action, 0.04),
     borderWidth: 1,
-    borderColor: theme.gameUi.cardBorder,
+    borderColor: alpha(theme.ui.border, 0.44),
     gap: 10,
   },
   actionCopy: {
@@ -1317,12 +1318,12 @@ const styles = StyleSheet.create({
   },
   actionTitle: {
     ...theme.typography.bodyMd,
-    color: theme.gameUi.textPrimary,
+    color: theme.color.textPrimaryOnLight,
     fontWeight: '700',
   },
   actionDetail: {
     ...theme.typography.bodySm,
-    color: theme.gameUi.textSecondary,
+    color: theme.color.textSecondaryOnLight,
   },
   actionButtonWrap: {
     width: '100%',
@@ -1332,9 +1333,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 12,
-    backgroundColor: theme.ui.bg.sheet,
+    backgroundColor: alpha(theme.ui.action, 0.04),
     borderWidth: 1,
-    borderColor: theme.gameUi.cardBorder,
+    borderColor: alpha(theme.ui.border, 0.44),
   },
   landOwnedText: {
     ...theme.typography.bodySm,
@@ -1351,21 +1352,21 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 12,
-    backgroundColor: theme.ui.bg.sheet,
+    backgroundColor: alpha(theme.ui.action, 0.04),
     borderWidth: 1,
-    borderColor: theme.gameUi.cardBorder,
+    borderColor: alpha(theme.ui.border, 0.44),
     gap: 4,
   },
   shiftFocusCardActive: {
-    borderColor: alpha(theme.gameUi.primary, 0.3),
-    backgroundColor: alpha(theme.gameUi.primary, 0.08),
+    borderColor: alpha(theme.gameUi.primary, 0.34),
+    backgroundColor: alpha(theme.gameUi.primary, 0.1),
   },
   shiftFocusCardPressed: {
     opacity: 0.8,
   },
   shiftFocusTitle: {
     ...theme.typography.bodyMd,
-    color: theme.gameUi.textPrimary,
+    color: theme.color.textPrimaryOnLight,
     fontWeight: '700',
   },
   shiftFocusTitleActive: {
@@ -1373,7 +1374,7 @@ const styles = StyleSheet.create({
   },
   shiftFocusDetail: {
     ...theme.typography.bodySm,
-    color: theme.gameUi.textSecondary,
+    color: theme.color.textSecondaryOnLight,
   },
   shiftFocusBonus: {
     ...theme.typography.caption,
@@ -1382,11 +1383,11 @@ const styles = StyleSheet.create({
   },
   hintText: {
     ...theme.typography.caption,
-    color: theme.gameUi.textSecondary,
+    color: theme.color.textSecondaryOnLight,
   },
   guardText: {
     ...theme.typography.caption,
-    color: theme.gameUi.warning,
+    color: theme.ui.danger,
   },
   bottomNav: {
     flexDirection: 'row',

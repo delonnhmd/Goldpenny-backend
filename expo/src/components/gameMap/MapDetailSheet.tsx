@@ -23,6 +23,7 @@ interface MapDetailSheetProps {
 
 const CLOSE_DISTANCE = 120;
 const CLOSE_VELOCITY = 0.9;
+const TOP_SCROLL_TOLERANCE = 6;
 
 export default function MapDetailSheet({
   visible,
@@ -41,13 +42,14 @@ export default function MapDetailSheet({
     [height],
   );
   const maxHeight = useMemo(
-    () => Math.min(Math.max(height * 0.72, 360), 680),
+    () => Math.min(Math.max(height * 0.78, 420), 760),
     [height],
   );
 
   useEffect(() => {
     if (visible) {
       setMounted(true);
+      scrollOffsetYRef.current = 0;
       translateY.setValue(hiddenOffset);
       Animated.spring(translateY, {
         toValue: 0,
@@ -90,6 +92,32 @@ export default function MapDetailSheet({
     springBack();
   };
 
+  const isScrollAtTop = () => scrollOffsetYRef.current <= TOP_SCROLL_TOLERANCE;
+
+  const shouldCaptureDismissDrag = (gesture: { dx: number; dy: number }) => (
+    visible
+    && isScrollAtTop()
+    && gesture.dy > 6
+    && Math.abs(gesture.dy) > Math.abs(gesture.dx)
+  );
+
+  const handleHeaderDrag = (_: unknown, gesture: { dy: number }) => {
+    if (gesture.dy <= 0) {
+      translateY.setValue(0);
+      return;
+    }
+    translateY.setValue(Math.min(gesture.dy, hiddenOffset));
+  };
+
+  const handleSheetDrag = (_: unknown, gesture: { dy: number }) => {
+    if (!isScrollAtTop()) return;
+    if (gesture.dy <= 0) {
+      translateY.setValue(0);
+      return;
+    }
+    translateY.setValue(Math.min(gesture.dy, hiddenOffset));
+  };
+
   const headerPanResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => visible,
@@ -104,36 +132,21 @@ export default function MapDetailSheet({
         && Math.abs(gesture.dy) > 4
         && Math.abs(gesture.dy) > Math.abs(gesture.dx)
       ),
-      onPanResponderMove: (_, gesture) => {
-        if (gesture.dy <= 0) {
-          translateY.setValue(0);
-          return;
-        }
-        translateY.setValue(gesture.dy);
-      },
+      onPanResponderMove: handleHeaderDrag,
       onPanResponderRelease: handleDismissRelease,
       onPanResponderTerminate: springBack,
+      onPanResponderTerminationRequest: () => true,
     }),
   ).current;
 
   const contentPanResponder = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponderCapture: (_, gesture) => (
-        visible
-        && scrollOffsetYRef.current <= 0
-        && gesture.dy > 8
-        && Math.abs(gesture.dy) > Math.abs(gesture.dx)
-      ),
-      onPanResponderMove: (_, gesture) => {
-        if (scrollOffsetYRef.current > 0) return;
-        if (gesture.dy <= 0) {
-          translateY.setValue(0);
-          return;
-        }
-        translateY.setValue(gesture.dy);
-      },
+      onMoveShouldSetPanResponder: (_, gesture) => shouldCaptureDismissDrag(gesture),
+      onMoveShouldSetPanResponderCapture: (_, gesture) => shouldCaptureDismissDrag(gesture),
+      onPanResponderMove: handleSheetDrag,
       onPanResponderRelease: handleDismissRelease,
       onPanResponderTerminate: springBack,
+      onPanResponderTerminationRequest: () => true,
     }),
   ).current;
 
@@ -168,10 +181,12 @@ export default function MapDetailSheet({
         <ScrollView
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
+          contentInsetAdjustmentBehavior="automatic"
+          showsVerticalScrollIndicator
           nestedScrollEnabled
           bounces={false}
           overScrollMode="never"
+          keyboardShouldPersistTaps="handled"
           scrollEventThrottle={16}
           onScroll={handleScroll}
         >
@@ -190,10 +205,10 @@ const styles = StyleSheet.create({
     bottom: 0,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    backgroundColor: alpha(theme.ui.bg.sheet, 0.98),
+    backgroundColor: theme.ui.bg.sheet,
     borderWidth: 1,
     borderBottomWidth: 0,
-    borderColor: alpha(theme.gameUi.primary, 0.18),
+    borderColor: alpha(theme.ui.border, 0.34),
     shadowColor: theme.ui.text.onLight,
     shadowOpacity: 0.16,
     shadowRadius: 24,
@@ -207,16 +222,16 @@ const styles = StyleSheet.create({
     minHeight: 88,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    backgroundColor: alpha(theme.ui.bg.sheet, 0.98),
+    backgroundColor: theme.ui.bg.sheet,
     borderBottomWidth: 1,
-    borderBottomColor: alpha(theme.gameUi.cardBorder, 0.92),
+    borderBottomColor: alpha(theme.ui.border, 0.24),
   },
   handle: {
     alignSelf: 'center',
     width: 52,
     height: 5,
     borderRadius: 999,
-    backgroundColor: alpha(theme.gameUi.textSecondary, 0.32),
+    backgroundColor: alpha(theme.color.textSecondaryOnLight, 0.32),
     marginBottom: 12,
   },
   headerRow: {
@@ -236,11 +251,11 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     ...theme.typography.headingSm,
-    color: theme.gameUi.textPrimary,
+    color: theme.color.textPrimaryOnLight,
   },
   headerSubtitle: {
     ...theme.typography.bodySm,
-    color: theme.gameUi.textSecondary,
+    color: theme.color.textSecondaryOnLight,
   },
   scrollShell: {
     flex: 1,
