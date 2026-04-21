@@ -444,9 +444,12 @@ function GameMapComponent({
   const selectedTile = selectedTileKey ? map.tileByKey[selectedTileKey] || null : null;
   const currentTile = map.currentLocationTileKey ? map.tileByKey[map.currentLocationTileKey] || null : null;
 
-  const fitToWorldScale = useMemo(() => {
+  const minimumScale = useMemo(() => {
     if (viewport.width <= 0 || viewport.height <= 0) return MIN_SCALE;
-    return Math.max(MIN_SCALE, Math.min(viewport.width / map.worldWidth, viewport.height / map.worldHeight) * 0.98);
+    return Math.max(
+      MIN_SCALE,
+      Math.max(viewport.width / map.worldWidth, viewport.height / map.worldHeight) * 1.01,
+    );
   }, [map.worldHeight, map.worldWidth, viewport.height, viewport.width]);
 
   const centerOnTile = useCallback((tile: SandboxMapTile | null, nextScale = scale.value) => {
@@ -464,7 +467,7 @@ function GameMapComponent({
 
   const adjustZoom = useCallback((delta: number) => {
     if (viewport.width <= 0 || viewport.height <= 0) return;
-    const nextScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale.value + delta));
+    const nextScale = Math.min(MAX_SCALE, Math.max(minimumScale, scale.value + delta));
     const focalX = viewport.width / 2;
     const focalY = viewport.height / 2;
     const worldFocalX = (focalX - translateX.value) / scale.value;
@@ -481,17 +484,22 @@ function GameMapComponent({
       clampTranslation(rawTranslateY, viewport.height, map.worldHeight, nextScale),
       { duration: 180 },
     );
-  }, [map.worldHeight, map.worldWidth, scale, translateX, translateY, viewport.height, viewport.width]);
+  }, [map.worldHeight, map.worldWidth, minimumScale, scale, translateX, translateY, viewport.height, viewport.width]);
 
   const fitWorld = useCallback(() => {
     if (viewport.width <= 0 || viewport.height <= 0) return;
-    const nextScale = fitToWorldScale;
+    const nextScale = minimumScale;
+    const focusTile = selectedTile || currentTile;
+    if (focusTile) {
+      centerOnTile(focusTile, nextScale);
+      return;
+    }
     const rawTranslateX = (viewport.width - (map.worldWidth * nextScale)) / 2;
     const rawTranslateY = (viewport.height - (map.worldHeight * nextScale)) / 2;
     scale.value = withTiming(nextScale, { duration: 220 });
     translateX.value = withTiming(rawTranslateX, { duration: 220 });
     translateY.value = withTiming(rawTranslateY, { duration: 220 });
-  }, [fitToWorldScale, map.worldHeight, map.worldWidth, scale, translateX, translateY, viewport.height, viewport.width]);
+  }, [centerOnTile, currentTile, map.worldHeight, map.worldWidth, minimumScale, scale, selectedTile, translateX, translateY, viewport.height, viewport.width]);
 
   // Tap target expansion: snap the tap point to the nearest selectable tile
   // within a small radius. Mobile fingers are wider than 16px so we accept
@@ -548,7 +556,7 @@ function GameMapComponent({
       startTranslateY.value = translateY.value;
     })
     .onUpdate((event) => {
-      const nextScale = clamp(startScale.value * event.scale, MIN_SCALE, MAX_SCALE);
+      const nextScale = clamp(startScale.value * event.scale, minimumScale, MAX_SCALE);
       const worldFocalX = (event.focalX - startTranslateX.value) / startScale.value;
       const worldFocalY = (event.focalY - startTranslateY.value) / startScale.value;
       const rawTranslateX = event.focalX - (worldFocalX * nextScale);
@@ -557,7 +565,7 @@ function GameMapComponent({
       scale.value = nextScale;
       translateX.value = clampTranslation(rawTranslateX, viewportWidth.value, map.worldWidth, nextScale);
       translateY.value = clampTranslation(rawTranslateY, viewportHeight.value, map.worldHeight, nextScale);
-    }), [map.worldHeight, map.worldWidth, scale, startScale, startTranslateX, startTranslateY, translateX, translateY, viewportHeight, viewportWidth]);
+    }), [map.worldHeight, map.worldWidth, minimumScale, scale, startScale, startTranslateX, startTranslateY, translateX, translateY, viewportHeight, viewportWidth]);
 
   const tapGesture = useMemo(() => Gesture.Tap()
     .maxDistance(10)
@@ -600,11 +608,11 @@ function GameMapComponent({
     if (!viewport.width || !viewport.height || initializedRef.current) return;
     initializedRef.current = true;
     if (currentTile || selectedTile) {
-      centerOnTile(currentTile || selectedTile, 1.1);
+      centerOnTile(currentTile || selectedTile, Math.max(minimumScale, 1.1));
     } else {
       fitWorld();
     }
-  }, [centerOnTile, currentTile, fitWorld, selectedTile, viewport.height, viewport.width]);
+  }, [centerOnTile, currentTile, fitWorld, minimumScale, selectedTile, viewport.height, viewport.width]);
 
   const handleLayout = (event: LayoutChangeEvent) => {
     const width = Math.round(event.nativeEvent.layout.width);
@@ -616,6 +624,7 @@ function GameMapComponent({
   };
 
   const mapAnimatedStyle = useAnimatedStyle(() => ({
+    transformOrigin: [0, 0, 0],
     transform: [
       { translateX: translateX.value },
       { translateY: translateY.value },
@@ -673,7 +682,10 @@ function GameMapComponent({
         <Pressable style={styles.controlButtonWide} onPress={fitWorld}>
           <Text style={styles.controlLabelWide}>Fit</Text>
         </Pressable>
-        <Pressable style={styles.controlButtonWide} onPress={() => centerOnTile(currentTile || selectedTile, 1.1)}>
+        <Pressable
+          style={styles.controlButtonWide}
+          onPress={() => centerOnTile(currentTile || selectedTile, Math.max(minimumScale, 1.1))}
+        >
           <Text style={styles.controlLabelWide}>Center</Text>
         </Pressable>
       </View>
