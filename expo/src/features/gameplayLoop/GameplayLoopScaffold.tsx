@@ -49,11 +49,6 @@ const INTERACTION_DIAGNOSTICS_ENABLED =
   || process.env.EXPO_PUBLIC_INTERACTION_DIAGNOSTICS === '1';
 
 const PAGE_IDENTITY: Record<string, { eyebrow: string; mood: string; chips: string[] }> = {
-  brief: {
-    eyebrow: 'Daily intelligence',
-    mood: 'Signals, narrative, and settlement pressure in one premium brief.',
-    chips: ['City signals', 'Narrative', 'Settle day'],
-  },
   dashboard: {
     eyebrow: 'Command center',
     mood: 'Personal cash, pressure, timing, and choices presented like a live game HUD.',
@@ -75,9 +70,9 @@ const PAGE_IDENTITY: Record<string, { eyebrow: string; mood: string; chips: stri
     chips: ['Baskets', 'Volatility', 'Capital'],
   },
   life: {
-    eyebrow: 'Routine lane',
-    mood: 'Housing, meals, stress, and emergency cash now read like survival choices inside the city.',
-    chips: ['Meals', 'Housing', 'Recovery'],
+    eyebrow: 'Daily lane',
+    mood: 'Daily signals, recovery pressure, and home decisions now live together in one survival-focused stop.',
+    chips: ['Daily update', 'Recovery', 'Settlement'],
   },
   summary: {
     eyebrow: 'Closeout',

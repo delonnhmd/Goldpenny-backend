@@ -494,7 +494,7 @@ export default function SettingsScreen() {
                   <View style={styles.diagnosticCard}>
                     <Text style={styles.diagnosticLevel}>FUNNEL ({playtestReport.funnelCompletionRate.completionLabel})</Text>
                     <InfoRow label="Session Started" value={playtestReport.funnelCompletionRate.sessionStarted ? '✓' : '—'} />
-                    <InfoRow label="Brief Seen" value={playtestReport.funnelCompletionRate.briefSeen ? '✓' : '—'} />
+                    <InfoRow label="Life Update Seen" value={playtestReport.funnelCompletionRate.briefSeen ? '✓' : '—'} />
                     <InfoRow label="Dashboard Seen" value={playtestReport.funnelCompletionRate.dashboardSeen ? '✓' : '—'} />
                     <InfoRow label="First Work Action" value={playtestReport.funnelCompletionRate.firstWorkAction ? '✓' : '—'} />
                     <InfoRow label="Market Seen" value={playtestReport.funnelCompletionRate.marketSeen ? '✓' : '—'} />

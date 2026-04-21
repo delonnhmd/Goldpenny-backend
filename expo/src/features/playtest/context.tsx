@@ -157,6 +157,7 @@ export function PlaytestProvider({
       // Emit event
       const eventMap: Record<string, PlaytestEvent['eventName']> = {
         brief: 'brief_viewed',
+        life: 'brief_viewed',
         dashboard: 'dashboard_viewed',
         market: 'market_viewed',
         business: 'business_viewed',
@@ -170,6 +171,7 @@ export function PlaytestProvider({
       // Update funnel
       const funnelMap: Record<string, Parameters<typeof markFunnelCheckpoint>[3]> = {
         brief: 'briefSeenAt',
+        life: 'briefSeenAt',
         dashboard: 'dashboardSeenAt',
         market: 'marketSeenAt',
         summary: 'summarySeenAt',

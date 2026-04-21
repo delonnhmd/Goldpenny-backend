@@ -30,7 +30,7 @@ export type OnboardingRouteKey =
   | 'life'
   | 'summary';
 
-type GuidedRouteKey = Exclude<OnboardingRouteKey, 'business' | 'life' | 'map'>;
+type GuidedRouteKey = Exclude<OnboardingRouteKey, 'business' | 'map'>;
 
 type OnboardingStepRequirement = 'manual_continue' | 'first_work_action' | 'settled_summary';
 
@@ -47,10 +47,10 @@ export interface OnboardingStepDefinition {
 const ONBOARDING_STEPS: OnboardingStepDefinition[] = [
   {
     key: 'brief_daily_economy',
-    route: 'brief',
-    title: 'Read The Daily Economy',
+    route: 'life',
+    title: 'Read The Daily Update',
     body: 'Signals first -> better actions next.',
-    highlightTarget: 'brief-daily-economy',
+    highlightTarget: 'life-daily-economy',
     requirement: 'manual_continue',
     continueLabel: 'Next: Dashboard',
   },
@@ -136,7 +136,7 @@ function stepRoutePath(playerId: string, route: OnboardingRouteKey): string {
 }
 
 function navLabel(route: OnboardingRouteKey): string {
-  if (route === 'brief') return 'Brief';
+  if (route === 'brief') return 'Life';
   if (route === 'dashboard') return 'Dashboard';
   if (route === 'map') return 'Map';
   if (route === 'work') return 'Work';

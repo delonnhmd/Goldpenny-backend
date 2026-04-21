@@ -27,8 +27,8 @@ export default function GameplayPlayerRoute() {
   }
 
   if (playerId !== linkedPlayerId) {
-    return <Redirect href={`/gameplay/loop/${linkedPlayerId}/brief`} />;
+    return <Redirect href={`/gameplay/loop/${linkedPlayerId}/life`} />;
   }
 
-  return <Redirect href={`/gameplay/loop/${playerId}/brief`} />;
+  return <Redirect href={`/gameplay/loop/${playerId}/life`} />;
 }

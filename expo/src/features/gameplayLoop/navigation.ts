@@ -3,12 +3,11 @@ import type { OnboardingRouteKey } from '@/features/onboarding/context';
 
 type GameplayBottomNavKey =
   | 'map'
-  | 'brief'
+  | 'life'
   | 'dashboard'
   | 'work'
   | 'business'
-  | 'market'
-  | 'life';
+  | 'market';
 
 const gameplayBottomNavConfig: {
   key: GameplayBottomNavKey;
@@ -16,12 +15,11 @@ const gameplayBottomNavConfig: {
   icon: AppBottomNavItem['icon'];
 }[] = [
   { key: 'map', label: 'Map', icon: 'map-outline' },
-  { key: 'brief', label: 'Brief', icon: 'file-document-outline' },
+  { key: 'life', label: 'Life', icon: 'heart-outline' },
   { key: 'dashboard', label: 'Dashboard', icon: 'view-dashboard-outline' },
   { key: 'work', label: 'Work', icon: 'briefcase-outline' },
   { key: 'business', label: 'Business', icon: 'storefront-outline' },
   { key: 'market', label: 'Wallet', icon: 'wallet-outline' },
-  { key: 'life', label: 'Life', icon: 'heart-outline' },
 ];
 
 export function buildGameplayBottomNavItems(
