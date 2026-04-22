@@ -1,9 +1,16 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { BackHandler, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import type { DimensionValue } from 'react-native';
-import Svg, { Circle, Defs, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
+import {
+  BackHandler,
+  ImageBackground,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
+import type { DimensionValue, ImageSourcePropType } from 'react-native';
 
 import type { MapTileActionTag } from '@/components/gameMap';
 import { PlayerStatusBar } from '@/components/gameMap';
@@ -33,13 +40,19 @@ import type {
   BusinessLandZoneType,
   BusinessLotSize,
   BusinessSandboxState,
-  BusinessTypeKey,
 } from '@/types/business';
 import type { DailyActionItem, JobMarketJobSnapshot, WorkStateSnapshot } from '@/types/gameplay';
 
 import { useGameplayLoop } from '../context';
 
 type RegionKind = 'suburban' | 'downtown' | 'market' | 'industrial' | 'riverside';
+type WorldMapStage = 'main' | 'selector';
+
+const MAIN_MAP_IMAGE = require('../../../assets/worldMaps/MainMap.png');
+const SUBMAP_SELECTOR_IMAGE = require('../../../assets/worldMaps/SubMap.png');
+const SUBURBAN_MAP_IMAGE = require('../../../assets/worldMaps/SuburbanMap.png');
+const DOWNTOWN_MAP_IMAGE = require('../../../assets/worldMaps/DowntownMap.png');
+const FUTURE_PLAYER_UNLOCK_COPY = 'Locked until more players join the city.';
 
 interface WorldRegionPlacement {
   left: DimensionValue;
@@ -106,20 +119,6 @@ interface WorldRegion {
   defaultCellId?: string;
   cells: DistrictCell[];
 }
-
-const FALLBACK_NODES = [
-  { key: 'home', label: 'Home Base', region: 'Suburban', node_type: 'home', opportunity_tier: 'moderate', is_current_location: true },
-  { key: 'job_center', label: 'Job Center', region: 'Downtown', node_type: 'job_board', opportunity_tier: 'moderate', is_current_location: false },
-  { key: 'work', label: 'Work Tower', region: 'Downtown', node_type: 'work', opportunity_tier: 'moderate', is_current_location: false },
-  { key: 'grocery', label: 'Grocery', region: 'Suburban', node_type: 'grocery', opportunity_tier: 'low', is_current_location: false },
-  { key: 'rideshare_hotspot_downtown', label: 'Ride Hub', region: 'Downtown', node_type: 'rideshare_hotspot', opportunity_tier: 'high', is_current_location: false },
-  { key: 'rideshare_hotspot_suburban', label: 'Pickup Zone', region: 'Suburban', node_type: 'rideshare_hotspot', opportunity_tier: 'moderate', is_current_location: false },
-  { key: 'business_spot', label: 'Business Lane', region: 'Downtown', node_type: 'business', opportunity_tier: 'moderate', is_current_location: false },
-  { key: 'bank', label: 'Bank', region: 'Downtown', node_type: 'bank', opportunity_tier: 'moderate', is_current_location: false },
-  { key: 'stock_center', label: 'Stock Center', region: 'Downtown', node_type: 'stock_center', opportunity_tier: 'moderate', is_current_location: false },
-  { key: 'housing', label: 'Housing Office', region: 'Suburban', node_type: 'housing', opportunity_tier: 'moderate', is_current_location: false },
-  { key: 'clinic', label: 'Clinic', region: 'Suburban', node_type: 'clinic', opportunity_tier: 'moderate', is_current_location: false },
-] as const;
 
 const SHIFT_FOCUS_OPTIONS = [
   {
@@ -268,8 +267,8 @@ const DOWNTOWN_STARTER_CELLS: DistrictCell[] = [
 const WORLD_REGIONS: WorldRegion[] = [
   {
     id: 'suburban_brookside',
-    label: 'Brookside Homes',
-    subtitle: 'Starter suburban sector',
+    label: 'Suburban Area',
+    subtitle: 'Unlocked starter submap',
     summary: 'Safer entry lots, grocery access, rideshare pickup, and stable family demand.',
     kind: 'suburban',
     placement: { left: '6%', top: '10%', width: '26%', height: '18%' },
@@ -279,19 +278,19 @@ const WORLD_REGIONS: WorldRegion[] = [
   },
   {
     id: 'suburban_lakeview',
-    label: 'Lakeview Blocks',
-    subtitle: 'Future suburban expansion',
+    label: 'North Suburbs',
+    subtitle: 'Future suburban unlock',
     summary: 'More suburban housing lanes and bigger family lots.',
     kind: 'suburban',
     placement: { left: '56%', top: '8%', width: '28%', height: '18%' },
     unlocked: false,
-    unlockCopy: 'Next suburban phase',
+    unlockCopy: FUTURE_PLAYER_UNLOCK_COPY,
     cells: [],
   },
   {
     id: 'downtown_exchange',
-    label: 'Exchange Core',
-    subtitle: 'Starter downtown sector',
+    label: 'Downtown City',
+    subtitle: 'Unlocked starter submap',
     summary: 'Work tower, job center, business lane, and higher-value mixed-use lots.',
     kind: 'downtown',
     placement: { left: '28%', top: '34%', width: '38%', height: '22%' },
@@ -302,48 +301,57 @@ const WORLD_REGIONS: WorldRegion[] = [
   {
     id: 'downtown_rivergate',
     label: 'Rivergate Towers',
-    subtitle: 'Future downtown expansion',
+    subtitle: 'Future downtown unlock',
     summary: 'Premium offices and prestige lots across the river.',
     kind: 'downtown',
     placement: { left: '63%', top: '56%', width: '18%', height: '16%' },
     unlocked: false,
-    unlockCopy: 'Late downtown phase',
+    unlockCopy: FUTURE_PLAYER_UNLOCK_COPY,
     cells: [],
   },
   {
     id: 'market_row',
     label: 'Market Row',
-    subtitle: 'Retail district',
+    subtitle: 'Future market unlock',
     summary: 'Daily commerce and trading lane.',
     kind: 'market',
     placement: { left: '8%', top: '70%', width: '22%', height: '14%' },
     unlocked: false,
-    unlockCopy: 'Business milestone',
+    unlockCopy: FUTURE_PLAYER_UNLOCK_COPY,
     cells: [],
   },
   {
     id: 'riverside_grove',
     label: 'Riverside Grove',
-    subtitle: 'Leisure and premium housing',
+    subtitle: 'Future riverside unlock',
     summary: 'High-appeal riverside property and lighter pressure.',
     kind: 'riverside',
     placement: { left: '32%', top: '76%', width: '20%', height: '12%' },
     unlocked: false,
-    unlockCopy: 'Lifestyle milestone',
+    unlockCopy: FUTURE_PLAYER_UNLOCK_COPY,
     cells: [],
   },
   {
     id: 'harbor_works',
     label: 'Harbor Works',
-    subtitle: 'Industrial production zone',
+    subtitle: 'Future industrial unlock',
     summary: 'Production-heavy district with bigger late-game lots.',
     kind: 'industrial',
     placement: { left: '56%', top: '78%', width: '24%', height: '14%' },
     unlocked: false,
-    unlockCopy: 'Industry phase',
+    unlockCopy: FUTURE_PLAYER_UNLOCK_COPY,
     cells: [],
   },
 ];
+
+const UNLOCKED_WORLD_REGION_IDS = ['suburban_brookside', 'downtown_exchange'] as const;
+
+function regionPreviewImage(regionId: string): ImageSourcePropType {
+  if (regionId === 'downtown_exchange') {
+    return DOWNTOWN_MAP_IMAGE;
+  }
+  return SUBURBAN_MAP_IMAGE;
+}
 
 function toneForRegion(kind: RegionKind) {
   if (kind === 'downtown') {
@@ -452,6 +460,7 @@ export default function MapDashboardScreen() {
   const loop = useGameplayLoop();
   const onboarding = useOnboarding();
 
+  const [worldMapStage, setWorldMapStage] = useState<WorldMapStage>('main');
   const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
   const [selectedCellId, setSelectedCellId] = useState<string | null>(null);
   const [openingBusinessType, setOpeningBusinessType] = useState<string | null>(null);
@@ -486,6 +495,23 @@ export default function MapDashboardScreen() {
   const selectedRegion = useMemo(
     () => WORLD_REGIONS.find((region) => region.id === selectedRegionId) || null,
     [selectedRegionId],
+  );
+
+  const unlockedRegions = useMemo(
+    () => WORLD_REGIONS.filter((region) => UNLOCKED_WORLD_REGION_IDS.includes(region.id as (typeof UNLOCKED_WORLD_REGION_IDS)[number])),
+    [],
+  );
+  const lockedRegions = useMemo(
+    () => WORLD_REGIONS.filter((region) => !UNLOCKED_WORLD_REGION_IDS.includes(region.id as (typeof UNLOCKED_WORLD_REGION_IDS)[number])),
+    [],
+  );
+  const suburbanRegion = useMemo(
+    () => unlockedRegions.find((region) => region.id === 'suburban_brookside') || null,
+    [unlockedRegions],
+  );
+  const downtownRegion = useMemo(
+    () => unlockedRegions.find((region) => region.id === 'downtown_exchange') || null,
+    [unlockedRegions],
   );
 
   const regionCells = useMemo(
@@ -594,6 +620,7 @@ export default function MapDashboardScreen() {
       });
       return;
     }
+    setWorldMapStage('selector');
     setSelectedRegionId(region.id);
   }, [loop]);
 
@@ -601,14 +628,28 @@ export default function MapDashboardScreen() {
     setSelectedRegionId(null);
   }, []);
 
+  const openSubmapSelector = useCallback(() => {
+    setWorldMapStage('selector');
+  }, []);
+
+  const closeSubmapSelector = useCallback(() => {
+    setWorldMapStage('main');
+  }, []);
+
   useFocusEffect(useCallback(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (!selectedRegionId) return false;
-      setSelectedRegionId(null);
-      return true;
+      if (selectedRegionId) {
+        setSelectedRegionId(null);
+        return true;
+      }
+      if (worldMapStage === 'selector') {
+        setWorldMapStage('main');
+        return true;
+      }
+      return false;
     });
     return () => subscription.remove();
-  }, [selectedRegionId]));
+  }, [selectedRegionId, worldMapStage]));
 
   const executeMealFromMap = async (mealType: 'breakfast' | 'lunch' | 'dinner') => {
     if (backendShiftActive) {
@@ -965,12 +1006,31 @@ export default function MapDashboardScreen() {
               showsVerticalScrollIndicator={false}
             >
               <View style={styles.sectionHeader}>
-                <SecondaryButton label="Back To World Map" onPress={closeRegion} />
+                <SecondaryButton label="Back To Area Map" onPress={closeRegion} />
                 <View style={styles.sectionHeaderCopy}>
                   <Text style={styles.sectionEyebrow}>{sectionEyebrow(selectedRegion.kind)}</Text>
                   <Text style={styles.sectionTitle}>{selectedRegion.label}</Text>
                   <Text style={styles.sectionSubtitle}>{selectedRegion.summary}</Text>
                 </View>
+              </View>
+
+              <View style={styles.regionHeroCard}>
+                <ImageBackground
+                  source={regionPreviewImage(selectedRegion.id)}
+                  resizeMode="cover"
+                  style={styles.regionHeroImage}
+                  imageStyle={styles.regionHeroImageInner}
+                >
+                  <View style={styles.regionHeroOverlay}>
+                    <Text style={styles.regionHeroEyebrow}>Unlocked Area</Text>
+                    <Text style={styles.regionHeroTitle}>{selectedRegion.label}</Text>
+                    <Text style={styles.regionHeroSubtitle}>
+                      {selectedRegion.kind === 'downtown'
+                        ? 'High-pressure city core with premium frontage.'
+                        : 'Starter suburban lanes with calmer early progression.'}
+                    </Text>
+                  </View>
+                </ImageBackground>
               </View>
 
               <View style={styles.summaryRow}>
@@ -1280,6 +1340,118 @@ export default function MapDashboardScreen() {
                 </View>
               ) : null}
             </ScrollView>
+          ) : worldMapStage === 'selector' ? (
+            <ScrollView
+              style={styles.scroll}
+              contentContainerStyle={styles.worldScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.sectionHeader}>
+                <SecondaryButton label="Back To Main Map" onPress={closeSubmapSelector} />
+                <View style={styles.sectionHeaderCopy}>
+                  <Text style={styles.sectionEyebrow}>Unlocked Submaps</Text>
+                  <Text style={styles.sectionTitle}>Choose An Area</Text>
+                  <Text style={styles.sectionSubtitle}>
+                    Tap Suburban Area or Downtown City to open that submap. Everything else stays locked until more players join.
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.summaryRow}>
+                <MetricPill label="Unlocked now" value="2 areas" />
+                <MetricPill label="Open now" value="Suburban + Downtown" />
+                <MetricPill label="Locked" value={`${lockedRegions.length} areas`} />
+              </View>
+
+              <View style={styles.selectorBoard}>
+                <ImageBackground
+                  source={SUBMAP_SELECTOR_IMAGE}
+                  resizeMode="cover"
+                  style={styles.selectorBoardImage}
+                  imageStyle={styles.selectorBoardImageInner}
+                >
+                  {suburbanRegion ? (
+                    <Pressable
+                      onPress={() => openWorldRegion(suburbanRegion)}
+                      style={({ pressed }) => [
+                        styles.selectorHotspot,
+                        styles.selectorHotspotTop,
+                        pressed ? styles.selectorHotspotPressed : null,
+                      ]}
+                    >
+                      <View style={styles.selectorHotspotCard}>
+                        <View style={styles.selectorHotspotHead}>
+                          <View style={[
+                            styles.selectorHotspotIconWrap,
+                            { backgroundColor: alpha(toneForRegion(suburbanRegion.kind).accent, 0.16) },
+                          ]}>
+                            <MaterialCommunityIcons
+                              name={regionIcon(suburbanRegion.kind)}
+                              size={18}
+                              color={toneForRegion(suburbanRegion.kind).accent}
+                            />
+                          </View>
+                          <View style={styles.selectorHotspotCopy}>
+                            <Text style={styles.selectorHotspotTitle}>{suburbanRegion.label}</Text>
+                            <Text style={styles.selectorHotspotMeta}>{suburbanRegion.subtitle}</Text>
+                          </View>
+                        </View>
+                        <Text style={styles.selectorHotspotAction}>
+                          {regionOwnedCounts[suburbanRegion.id] > 0
+                            ? `Owned lots ${regionOwnedCounts[suburbanRegion.id]}`
+                            : 'Open submap'}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  ) : null}
+
+                  {downtownRegion ? (
+                    <Pressable
+                      onPress={() => openWorldRegion(downtownRegion)}
+                      style={({ pressed }) => [
+                        styles.selectorHotspot,
+                        styles.selectorHotspotBottom,
+                        pressed ? styles.selectorHotspotPressed : null,
+                      ]}
+                    >
+                      <View style={styles.selectorHotspotCard}>
+                        <View style={styles.selectorHotspotHead}>
+                          <View style={[
+                            styles.selectorHotspotIconWrap,
+                            { backgroundColor: alpha(toneForRegion(downtownRegion.kind).accent, 0.16) },
+                          ]}>
+                            <MaterialCommunityIcons
+                              name={regionIcon(downtownRegion.kind)}
+                              size={18}
+                              color={toneForRegion(downtownRegion.kind).accent}
+                            />
+                          </View>
+                          <View style={styles.selectorHotspotCopy}>
+                            <Text style={styles.selectorHotspotTitle}>{downtownRegion.label}</Text>
+                            <Text style={styles.selectorHotspotMeta}>{downtownRegion.subtitle}</Text>
+                          </View>
+                        </View>
+                        <Text style={styles.selectorHotspotAction}>
+                          {regionOwnedCounts[downtownRegion.id] > 0
+                            ? `Owned lots ${regionOwnedCounts[downtownRegion.id]}`
+                            : 'Open submap'}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  ) : null}
+                </ImageBackground>
+              </View>
+
+              <View style={styles.lockedRegionGrid}>
+                {lockedRegions.map((region) => (
+                  <View key={region.id} style={styles.lockedRegionCard}>
+                    <MaterialCommunityIcons name="lock-outline" size={18} color={theme.ui.warning} />
+                    <Text style={styles.lockedRegionLabel}>{region.label}</Text>
+                    <Text style={styles.lockedRegionCopy}>{region.unlockCopy || FUTURE_PLAYER_UNLOCK_COPY}</Text>
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
           ) : (
             <ScrollView
               style={styles.scroll}
@@ -1289,124 +1461,43 @@ export default function MapDashboardScreen() {
               <View style={styles.sectionHeader}>
                 <View style={styles.sectionHeaderCopy}>
                   <Text style={styles.sectionEyebrow}>Main World Map</Text>
-                  <Text style={styles.sectionTitle}>District Expansion Map</Text>
+                  <Text style={styles.sectionTitle}>City Expansion Overview</Text>
                   <Text style={styles.sectionSubtitle}>
-                    Start with one suburban area and one downtown area. Tap an unlocked region to open its submap.
+                    Tap the main map to open the available submaps. Suburban Area and Downtown City are unlocked now.
                   </Text>
                 </View>
               </View>
 
               <View style={styles.summaryRow}>
-                <MetricPill label="Unlocked now" value="2 regions" />
-                <MetricPill label="Starter path" value="Suburban + Downtown" />
+                <MetricPill label="Unlocked now" value="2 areas" />
+                <MetricPill label="Locked next" value={`${lockedRegions.length} areas`} />
                 <MetricPill label="Cash" value={formatMoney(cash)} />
               </View>
 
-              <View style={styles.worldMapBoard}>
-                <Svg style={StyleSheet.absoluteFillObject} viewBox="0 0 100 100" preserveAspectRatio="none">
-                  <Defs>
-                    <LinearGradient id="mapGrass" x1="0" y1="0" x2="1" y2="1">
-                      <Stop offset="0%" stopColor={alpha(theme.gameUi.success, 0.28)} />
-                      <Stop offset="100%" stopColor={alpha(theme.gameUi.success, 0.1)} />
-                    </LinearGradient>
-                    <LinearGradient id="mapRiver" x1="0" y1="0" x2="0" y2="1">
-                      <Stop offset="0%" stopColor={alpha(theme.ui.info, 0.85)} />
-                      <Stop offset="100%" stopColor={alpha(theme.gameUi.primary, 0.95)} />
-                    </LinearGradient>
-                  </Defs>
-                  <Rect x="0" y="0" width="100" height="100" rx="6" fill="url(#mapGrass)" />
-                  <Path
-                    d="M 55 2 C 62 14, 49 22, 53 34 C 57 48, 72 57, 66 71 C 61 83, 44 89, 47 98"
-                    stroke={alpha(theme.ui.info, 0.18)}
-                    strokeWidth="14"
-                    strokeLinecap="round"
-                    fill="none"
-                  />
-                  <Path
-                    d="M 55 2 C 62 14, 49 22, 53 34 C 57 48, 72 57, 66 71 C 61 83, 44 89, 47 98"
-                    stroke="url(#mapRiver)"
-                    strokeWidth="9"
-                    strokeLinecap="round"
-                    fill="none"
-                  />
-                  <Path
-                    d="M 8 22 L 42 40 L 74 31"
-                    stroke={alpha(theme.ui.border, 0.72)}
-                    strokeWidth="2.6"
-                    strokeLinecap="round"
-                    fill="none"
-                  />
-                  <Path
-                    d="M 16 67 L 40 58 L 68 83"
-                    stroke={alpha(theme.ui.border, 0.72)}
-                    strokeWidth="2.6"
-                    strokeLinecap="round"
-                    fill="none"
-                  />
-                  <Path
-                    d="M 26 14 L 36 78"
-                    stroke={alpha(theme.ui.border, 0.54)}
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    fill="none"
-                  />
-                  <Path
-                    d="M 68 10 L 62 80"
-                    stroke={alpha(theme.ui.border, 0.54)}
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    fill="none"
-                  />
-                  <Circle cx="46" cy="43" r="9" fill={alpha(theme.ui.action, 0.16)} />
-                  <Circle cx="46" cy="43" r="5.8" fill={alpha(theme.ui.action, 0.24)} />
-                </Svg>
-
-                <View style={styles.worldCityCluster}>
-                  <View style={[styles.worldTower, styles.worldTowerTall]} />
-                  <View style={[styles.worldTower, styles.worldTowerMid]} />
-                  <View style={[styles.worldTower, styles.worldTowerWide]} />
-                  <View style={[styles.worldTower, styles.worldTowerSmall]} />
-                </View>
-
-                {WORLD_REGIONS.map((region) => {
-                  const tone = toneForRegion(region.kind);
-                  const ownedCount = regionOwnedCounts[region.id] || 0;
-                  return (
-                    <Pressable
-                      key={region.id}
-                      onPress={() => openWorldRegion(region)}
-                      disabled={!region.unlocked}
-                      style={({ pressed }) => [
-                        styles.worldRegionCard,
-                        region.placement,
-                        {
-                          backgroundColor: region.unlocked ? alpha(theme.ui.bg.card, 0.94) : alpha(theme.ui.bg.cardRaised, 0.88),
-                          borderColor: region.unlocked ? alpha(tone.accent, 0.44) : alpha(theme.ui.border, 0.34),
-                        },
-                        pressed && region.unlocked ? styles.worldRegionCardPressed : null,
-                      ]}
-                    >
-                      <View style={styles.worldRegionHead}>
-                        <View style={[styles.worldRegionIconWrap, { backgroundColor: alpha(tone.accent, 0.12) }]}>
-                          <MaterialCommunityIcons
-                            name={region.unlocked ? regionIcon(region.kind) : 'lock-outline'}
-                            size={18}
-                            color={region.unlocked ? tone.accent : theme.ui.text.onDarkMuted}
-                          />
-                        </View>
-                        <View style={styles.worldRegionCopy}>
-                          <Text style={styles.worldRegionTitle}>{region.label}</Text>
-                          <Text style={styles.worldRegionSubtitle}>{region.subtitle}</Text>
-                        </View>
-                      </View>
-                      <Text style={styles.worldRegionMeta}>
-                        {region.unlocked
-                          ? (ownedCount > 0 ? `Owned lots ${ownedCount}` : 'Open submap')
-                          : (region.unlockCopy || 'Locked')}
+              <Pressable style={styles.mainMapBoard} onPress={openSubmapSelector}>
+                <ImageBackground
+                  source={MAIN_MAP_IMAGE}
+                  resizeMode="cover"
+                  style={styles.mainMapBoardImage}
+                  imageStyle={styles.mainMapBoardImageInner}
+                >
+                  <View style={styles.mainMapOverlay}>
+                    <View style={styles.mainMapCallout}>
+                      <Text style={styles.mainMapCalloutEyebrow}>Tap Main Map</Text>
+                      <Text style={styles.mainMapCalloutTitle}>Open unlocked areas</Text>
+                      <Text style={styles.mainMapCalloutSubtitle}>
+                        Suburban Area and Downtown City are live now. The rest stays locked until more players arrive.
                       </Text>
-                    </Pressable>
-                  );
-                })}
+                    </View>
+                  </View>
+                </ImageBackground>
+              </Pressable>
+
+              <View style={styles.mainMapLockedNotice}>
+                <MaterialCommunityIcons name="lock-outline" size={18} color={theme.ui.warning} />
+                <Text style={styles.mainMapLockedNoticeText}>
+                  Future regions stay locked until more players join the city.
+                </Text>
               </View>
             </ScrollView>
           )}
@@ -1539,96 +1630,207 @@ const styles = StyleSheet.create({
     color: theme.ui.text.onDark,
     fontWeight: '800',
   },
-  worldMapBoard: {
+  mainMapBoard: {
     position: 'relative',
-    height: 620,
     borderRadius: theme.radius.xl,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: alpha(theme.ui.border, 0.3),
     backgroundColor: alpha(theme.ui.bg.cardRaised, 0.96),
+    aspectRatio: 1086 / 1448,
   },
-  worldCityCluster: {
-    position: 'absolute',
-    left: '38%',
-    top: '38%',
-    width: '22%',
-    height: '16%',
-    alignItems: 'center',
-    justifyContent: 'center',
+  mainMapBoardImage: {
+    flex: 1,
   },
-  worldTower: {
-    position: 'absolute',
-    bottom: 0,
-    borderRadius: 10,
-    backgroundColor: alpha(theme.ui.bg.card, 0.95),
-    borderWidth: 1,
-    borderColor: alpha(theme.ui.border, 0.36),
+  mainMapBoardImageInner: {
+    borderRadius: theme.radius.xl,
   },
-  worldTowerTall: {
-    width: 26,
-    height: 88,
-    left: 46,
+  mainMapOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    padding: theme.spacing.md,
+    backgroundColor: alpha(theme.ui.bg.app, 0.18),
   },
-  worldTowerMid: {
-    width: 24,
-    height: 72,
-    left: 20,
-  },
-  worldTowerWide: {
-    width: 34,
-    height: 62,
-    left: 76,
-  },
-  worldTowerSmall: {
-    width: 20,
-    height: 48,
-    left: 6,
-  },
-  worldRegionCard: {
-    position: 'absolute',
+  mainMapCallout: {
     borderRadius: theme.radius.lg,
+    backgroundColor: alpha(theme.ui.bg.app, 0.76),
     borderWidth: 1,
-    paddingHorizontal: theme.spacing.sm,
+    borderColor: alpha(theme.ui.info, 0.34),
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.md,
+    gap: theme.spacing.xs,
+  },
+  mainMapCalloutEyebrow: {
+    ...theme.typography.caption,
+    color: theme.ui.info,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  mainMapCalloutTitle: {
+    ...theme.typography.headingSm,
+    color: theme.ui.text.onDark,
+    fontWeight: '800',
+  },
+  mainMapCalloutSubtitle: {
+    ...theme.typography.bodySm,
+    color: theme.ui.text.onDarkMuted,
+  },
+  mainMapLockedNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+    borderRadius: theme.radius.lg,
+    backgroundColor: alpha(theme.ui.bg.cardRaised, 0.94),
+    borderWidth: 1,
+    borderColor: alpha(theme.ui.warning, 0.26),
+    paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.sm,
-    justifyContent: 'space-between',
-    minHeight: 94,
+  },
+  mainMapLockedNoticeText: {
+    flex: 1,
+    ...theme.typography.bodySm,
+    color: theme.ui.text.onDarkMuted,
+    fontWeight: '700',
+  },
+  selectorBoard: {
+    borderRadius: theme.radius.xl,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: alpha(theme.ui.border, 0.3),
+    backgroundColor: alpha(theme.ui.bg.cardRaised, 0.96),
+    aspectRatio: 1024 / 1536,
+  },
+  selectorBoardImage: {
+    flex: 1,
+  },
+  selectorBoardImageInner: {
+    borderRadius: theme.radius.xl,
+  },
+  selectorHotspot: {
+    position: 'absolute',
+    left: '4%',
+    width: '92%',
+    borderRadius: theme.radius.xl,
+    justifyContent: 'flex-end',
+  },
+  selectorHotspotTop: {
+    top: '3%',
+    height: '44%',
+  },
+  selectorHotspotBottom: {
+    bottom: '3%',
+    height: '44%',
+  },
+  selectorHotspotPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.985 }],
+  },
+  selectorHotspotCard: {
+    margin: theme.spacing.md,
+    borderRadius: theme.radius.lg,
+    backgroundColor: alpha(theme.ui.bg.app, 0.76),
+    borderWidth: 1,
+    borderColor: alpha(theme.ui.info, 0.28),
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.sm,
+    gap: theme.spacing.sm,
     ...theme.shadow.md,
   },
-  worldRegionCardPressed: {
-    opacity: 0.92,
-    transform: [{ scale: 0.98 }],
-  },
-  worldRegionHead: {
+  selectorHotspotHead: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: theme.spacing.sm,
   },
-  worldRegionIconWrap: {
-    width: 34,
-    height: 34,
+  selectorHotspotIconWrap: {
+    width: 36,
+    height: 36,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  worldRegionCopy: {
+  selectorHotspotCopy: {
     flex: 1,
     gap: 2,
   },
-  worldRegionTitle: {
+  selectorHotspotTitle: {
     ...theme.typography.bodyMd,
     color: theme.ui.text.onDark,
     fontWeight: '800',
   },
-  worldRegionSubtitle: {
+  selectorHotspotMeta: {
     ...theme.typography.caption,
     color: theme.ui.text.onDarkMuted,
     fontWeight: '700',
   },
-  worldRegionMeta: {
+  selectorHotspotAction: {
+    ...theme.typography.caption,
+    color: theme.ui.text.onDarkMuted,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  lockedRegionGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.spacing.sm,
+  },
+  lockedRegionCard: {
+    minWidth: 140,
+    flexGrow: 1,
+    borderRadius: theme.radius.lg,
+    backgroundColor: alpha(theme.ui.bg.cardRaised, 0.92),
+    borderWidth: 1,
+    borderColor: alpha(theme.ui.border, 0.28),
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.sm,
+    gap: theme.spacing.xs,
+  },
+  lockedRegionLabel: {
+    ...theme.typography.bodySm,
+    color: theme.ui.text.onDark,
+    fontWeight: '800',
+  },
+  lockedRegionCopy: {
     ...theme.typography.caption,
     color: theme.ui.text.onDarkMuted,
     fontWeight: '700',
+  },
+  regionHeroCard: {
+    borderRadius: theme.radius.xl,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: alpha(theme.ui.border, 0.3),
+    backgroundColor: alpha(theme.ui.bg.cardRaised, 0.96),
+    aspectRatio: 1024 / 768,
+  },
+  regionHeroImage: {
+    flex: 1,
+  },
+  regionHeroImageInner: {
+    borderRadius: theme.radius.xl,
+  },
+  regionHeroOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    padding: theme.spacing.md,
+    backgroundColor: alpha(theme.ui.bg.app, 0.18),
+  },
+  regionHeroEyebrow: {
+    ...theme.typography.caption,
+    color: theme.ui.info,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  regionHeroTitle: {
+    ...theme.typography.headingSm,
+    color: theme.ui.text.onDark,
+    fontWeight: '800',
+  },
+  regionHeroSubtitle: {
+    ...theme.typography.bodySm,
+    color: theme.ui.text.onDarkMuted,
   },
   districtBoard: {
     flexDirection: 'row',
