@@ -72,6 +72,12 @@ from app.services.player_onboarding_service import (
     is_day_one_survival_window,
 )
 from app.services.player_daily_state_service import ensure_player_daily_state
+from app.services.business_daily_operations_service import (
+    BusinessNotFoundError,
+    BusinessOperationsError,
+    BusinessValidationError,
+    run_business_operations_for_player,
+)
 from app.services.job_progress_service import (
     JOB_COMPANY_MAP,
     SHIFT_PROFILES,
@@ -170,11 +176,11 @@ def _raise_gameplay_http_error(exc: Exception) -> None:
         raise exc
     if isinstance(exc, ValueError):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
-    if isinstance(exc, (OnboardingNotFoundError, SettlementNotFoundError, DailyBriefNotFoundError, JobMarketNotFoundError)):
+    if isinstance(exc, (OnboardingNotFoundError, SettlementNotFoundError, DailyBriefNotFoundError, JobMarketNotFoundError, BusinessNotFoundError)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
-    if isinstance(exc, (SettlementValidationError, CareerValidationError, JobMarketValidationError)):
+    if isinstance(exc, (SettlementValidationError, CareerValidationError, JobMarketValidationError, BusinessValidationError)):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
-    if isinstance(exc, (DailySettlementError, OnboardingError, DailyBriefError, CareerError, JobMarketError)):
+    if isinstance(exc, (DailySettlementError, OnboardingError, DailyBriefError, CareerError, JobMarketError, BusinessOperationsError)):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
     detail = str(exc).strip() or "Unexpected gameplay service error."
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=detail)
@@ -2774,6 +2780,62 @@ def execute_gameplay_action(
                     "player_id": str(player.id),
                     "job_name": job_name,
                     "hours_worked": hours_worked,
+                    "action_payload": params,
+                },
+            )
+            _raise_gameplay_http_error(exc)
+
+    if action_key == "operate_business":
+        raw_as_of_date = params.get("as_of_date")
+        as_of_date: date | None = None
+        if isinstance(raw_as_of_date, date):
+            as_of_date = raw_as_of_date
+        elif raw_as_of_date not in (None, ""):
+            try:
+                as_of_date = date.fromisoformat(str(raw_as_of_date))
+            except ValueError:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="as_of_date must be a valid YYYY-MM-DD date.",
+                )
+
+        try:
+            result = run_business_operations_for_player(
+                db=db,
+                player_id=player.id,
+                as_of_date=as_of_date,
+            )
+            db.commit()
+            db.refresh(player)
+            cash_delta = _safe_float(
+                result.get("cash_delta_business_net_xgp"),
+                _safe_float(result.get("business_net_profit_xgp"), 0.0),
+            )
+            business_count = _safe_int(result.get("business_count_run"), 0)
+            noun = "business" if business_count == 1 else "businesses"
+            detailed_result = {
+                **result,
+                "cash_delta_xgp": cash_delta,
+                "work_state": build_work_state_payload(db, player),
+            }
+            return _successful_action_response(
+                db,
+                player=player,
+                action_key=action_key,
+                message="Business operation completed.",
+                result_summary=f"Business operation completed: {business_count} {noun}, {cash_delta:+.2f} XGP net.",
+                time_cost_units=_safe_float(params.get("time_cost_units"), 2.0),
+                cash_delta_xgp=cash_delta,
+                raw_result=detailed_result,
+                result=detailed_result,
+            )
+        except Exception as exc:
+            db.rollback()
+            logger.exception(
+                "gameplay.actions.execute operate_business failed.",
+                extra={
+                    "player_id": str(player.id),
+                    "requested_player_id": player_id,
                     "action_payload": params,
                 },
             )

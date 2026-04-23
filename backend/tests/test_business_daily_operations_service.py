@@ -17,6 +17,8 @@ from app.models.daily_brief_log import DailyBriefLog
 from app.models.debt_credit_log import DebtCreditLog
 from app.models.daily_settlement_log import DailySettlementLog
 from app.models.enums import BasketType
+from app.models.game_state import GameState
+from app.models.gameplay_transaction import GameplayTransaction
 from app.models.housing_daily_log import HousingDailyLog
 from app.models.macro_daily_state import MacroDailyState
 from app.models.player import Player
@@ -25,9 +27,12 @@ from app.models.player_daily_state import PlayerDailyState
 from app.models.player_employment_state import PlayerEmploymentState
 from app.models.player_housing_state import PlayerHousingState
 from app.models.player_net_worth_snapshot import PlayerNetWorthSnapshot
+from app.models.player_progression_state import PlayerProgressionState
 from app.models.player_stock_holding import PlayerStockHolding
+from app.models.player_transaction_log import PlayerTransactionLog
 from app.models.stock_daily_price import StockDailyPrice
 from app.models.user import User
+from app.api.gameplay import GameplayActionRequest, execute_gameplay_action
 from app.services.business_daily_operations_service import (
     create_player_business,
     run_business_day,
@@ -65,6 +70,8 @@ class BusinessDailyOperationsServiceTests(unittest.TestCase):
             tables=[
                 User.__table__,
                 Player.__table__,
+                GameState.__table__,
+                GameplayTransaction.__table__,
                 PlayerBusiness.__table__,
                 BusinessDailyLog.__table__,
                 BusinessLedgerEntry.__table__,
@@ -72,10 +79,12 @@ class BusinessDailyOperationsServiceTests(unittest.TestCase):
                 BasketDailyPrice.__table__,
                 BasketConsumptionLog.__table__,
                 PlayerDailyState.__table__,
+                PlayerTransactionLog.__table__,
                 DailySettlementLog.__table__,
                 DailyBriefLog.__table__,
                 DebtCreditLog.__table__,
                 PlayerEmploymentState.__table__,
+                PlayerProgressionState.__table__,
                 StockDailyPrice.__table__,
                 PlayerHousingState.__table__,
                 PlayerStockHolding.__table__,
@@ -94,7 +103,7 @@ class BusinessDailyOperationsServiceTests(unittest.TestCase):
         self.db.flush()
 
         player = Player(
-            user_id=user.id,
+            user_id=str(user.id),
             display_name="Business Test Player",
             cash=Decimal("2000.00"),
             stress=20,
@@ -105,6 +114,13 @@ class BusinessDailyOperationsServiceTests(unittest.TestCase):
         self.db.add(player)
         self.db.flush()
         self.player = player
+
+        self.db.add(
+            GameState(
+                current_day=1,
+                day_status="open",
+            )
+        )
 
         self.db.add(
             MacroDailyState(
@@ -311,6 +327,31 @@ class BusinessDailyOperationsServiceTests(unittest.TestCase):
 
         cash_after = float(self.player.cash_xgp)
         self.assertNotEqual(cash_before, cash_after)
+
+    def test_gameplay_execute_supports_operate_business_action_key(self) -> None:
+        create_player_business(self.db, str(self.player.id), "fruit_shop", "suburban", 1)
+
+        result = execute_gameplay_action(
+            str(self.player.id),
+            GameplayActionRequest(action_key="operate_business", parameters={}),
+            self.db,
+        )
+        self.db.refresh(self.player)
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["action_key"], "operate_business")
+        self.assertEqual(result["time_cost_units"], 2.0)
+        self.assertIn("Business operation completed", result["result_summary"])
+        self.assertEqual(result["result"]["business_count_run"], 1)
+        self.assertEqual(result["cash_delta_xgp"], result["result"]["cash_delta_business_net_xgp"])
+        self.assertEqual(result["updated_state"]["player_state"]["cash"], round(float(self.player.cash_xgp), 2))
+
+        log_count = (
+            self.db.query(BusinessDailyLog)
+            .filter(BusinessDailyLog.player_id == self.player.id, BusinessDailyLog.day == 1)
+            .count()
+        )
+        self.assertEqual(log_count, 1)
 
     def test_business_can_lose_money_on_bad_day(self) -> None:
         business = create_player_business(self.db, str(self.player.id), "food_truck", "rural", 1)
