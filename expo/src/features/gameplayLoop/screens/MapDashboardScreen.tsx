@@ -47,6 +47,7 @@ import { useGameplayLoop } from '../context';
 
 type RegionKind = 'suburban' | 'downtown' | 'market' | 'industrial' | 'riverside';
 type WorldMapStage = 'main' | 'selector';
+type LotOpportunityTier = 'normal' | 'strong' | 'hot';
 
 const MAIN_MAP_IMAGE = require('../../../assets/worldMaps/MainMap.png');
 const SUBMAP_SELECTOR_IMAGE = require('../../../assets/worldMaps/SubMap.png');
@@ -243,6 +244,18 @@ const SUBURBAN_STARTER_CELLS: DistrictCell[] = [
   createScenery('brook_fountain', 3, 1, 'Community Fountain', 'Raises neighborhood appeal.', 'fountain'),
   createLot('brook_lot_07', 3, 2, 'Riverbend Lot', 248, 48, 72, 'large', 'residential_edge', 'Premium suburban parcel.'),
   createLot('brook_lot_08', 3, 3, 'Starter Duplex Lot', 172, 30, 54, 'small', 'residential_edge', 'Cheaper first buy.'),
+  createLot('brook_lot_09', 4, 0, 'Side Street Lot', 188, 36, 59, 'small', 'residential_edge', 'Affordable infill land.'),
+  createLot('brook_lot_10', 4, 1, 'Transit Bend Lot', 246, 52, 72, 'medium', 'mixed_use', 'Busier frontage near a bend.'),
+  createNode('brook_service_lane', 4, 2, 'Service Lane', 'Future maintenance and vendor support.', 'business', ['business_open']),
+  createLot('brook_lot_11', 4, 3, 'Family Market Pad', 260, 56, 75, 'medium', 'mixed_use', 'Family errands create steady demand.'),
+  createLot('brook_lot_12', 5, 0, 'Creekside Infill', 198, 39, 62, 'small', 'residential_edge', 'Narrow but cheap expansion.'),
+  createScenery('brook_greenway', 5, 1, 'Greenway', 'Neighborhood walking path.', 'park'),
+  createLot('brook_lot_13', 5, 2, 'Park Front Lot', 268, 58, 78, 'medium', 'residential_edge', 'Park frontage lifts desirability.'),
+  createLot('brook_lot_14', 5, 3, 'West Gate Lot', 284, 61, 80, 'large', 'mixed_use', 'Gateway parcel for stronger businesses.'),
+  createLot('brook_lot_15', 6, 0, 'Quiet Backlot', 162, 28, 51, 'micro', 'residential_edge', 'Lowest-cost extra capacity.'),
+  createLot('brook_lot_16', 6, 1, 'Corner Grocer Pad', 292, 65, 82, 'medium', 'mixed_use', 'Strong convenience stop potential.'),
+  createLot('brook_lot_17', 6, 2, 'Canal Crossing Lot', 306, 67, 84, 'large', 'mixed_use', 'Bridge traffic and neighborhood access.'),
+  createLocked('brook_locked_02', 6, 3, 'North Infill Reserve', 'Future suburban reserve kept for later expansion.'),
 ];
 
 const DOWNTOWN_STARTER_CELLS: DistrictCell[] = [
@@ -262,6 +275,56 @@ const DOWNTOWN_STARTER_CELLS: DistrictCell[] = [
   createLot('exchange_lot_07', 3, 1, 'Executive Lot', 470, 84, 92, 'medium', 'commercial_core', 'Late-game growth lot.'),
   createScenery('exchange_plaza', 3, 2, 'Central Plaza', 'Prestige landmark for this core.', 'plaza'),
   createLot('exchange_lot_08', 3, 3, 'Marina Lot', 410, 76, 85, 'small', 'mixed_use', 'Strong after-work demand.'),
+  createLot('exchange_lot_09', 4, 0, 'Alley Infill Lot', 332, 64, 76, 'micro', 'mixed_use', 'Small but central side-street pad.'),
+  createLot('exchange_lot_10', 4, 1, 'Station Frontage', 492, 88, 91, 'medium', 'commercial_core', 'Commuter station frontage.'),
+  createLot('exchange_lot_11', 4, 2, 'Market Steps Lot', 438, 79, 87, 'small', 'commercial_core', 'Near lunch and evening foot traffic.'),
+  createNode('exchange_afterwork_food', 4, 3, 'Afterwork Meals', 'Dinner and recovery node.', 'grocery', ['meal_dinner']),
+  createLot('exchange_lot_12', 5, 0, 'Courier Corner', 372, 73, 80, 'small', 'service_flex', 'Fast handoff lane for service businesses.'),
+  createLot('exchange_lot_13', 5, 1, 'Skywalk Lot', 520, 90, 94, 'medium', 'commercial_core', 'Premium skywalk demand corridor.'),
+  createScenery('exchange_waterfront', 5, 2, 'Waterfront Walk', 'Prestige waterfront foot traffic.', 'waterfront'),
+  createLot('exchange_lot_14', 5, 3, 'Pier Retail Lot', 458, 83, 89, 'medium', 'commercial_core', 'Food and retail demand near the pier.'),
+  createLot('exchange_lot_15', 6, 0, 'Back Office Pad', 318, 60, 72, 'small', 'service_flex', 'Cheaper downtown service-flex land.'),
+  createLot('exchange_lot_16', 6, 1, 'Civic Corner', 506, 86, 93, 'large', 'commercial_core', 'Civic traffic makes this a hot anchor.'),
+  createLot('exchange_lot_17', 6, 2, 'Late Night Lot', 430, 81, 84, 'small', 'mixed_use', 'Evening business potential.'),
+  createLot('exchange_lot_18', 6, 3, 'Warehouse Edge', 350, 68, 77, 'medium', 'service_flex', 'Useful overflow near the core.'),
+];
+
+const RIVERSIDE_EXPANSION_CELLS: DistrictCell[] = [
+  createNode('riverside_trailhead', 0, 0, 'Trailhead', 'Low-pressure recovery path.', 'recovery', ['recovery']),
+  createLot('river_lot_01', 0, 1, 'Trail Front Lot', 214, 42, 66, 'small', 'residential_edge', 'Affordable open-area frontage.'),
+  createLot('river_lot_02', 0, 2, 'Ferry Bend Lot', 298, 62, 79, 'medium', 'mixed_use', 'Ferry traffic creates a strong corner.'),
+  createLot('river_lot_03', 0, 3, 'River Market Pad', 322, 68, 82, 'medium', 'mixed_use', 'Small market potential near the water.'),
+  createLot('river_lot_04', 1, 0, 'Orchard Edge', 176, 31, 58, 'small', 'residential_edge', 'Cheaper rural-adjacent land.'),
+  createScenery('river_grove', 1, 1, 'Grove Park', 'Scenery and district appeal.', 'park'),
+  createLot('river_lot_05', 1, 2, 'Picnic Corner', 246, 52, 72, 'small', 'residential_edge', 'Weekend demand and light traffic.'),
+  createLot('river_lot_06', 1, 3, 'Waterfront Pad', 356, 74, 86, 'large', 'mixed_use', 'High-appeal river frontage.'),
+  createLot('river_lot_07', 2, 0, 'Farm Road Lot', 154, 26, 50, 'micro', 'residential_edge', 'Very cheap future-development parcel.'),
+  createLot('river_lot_08', 2, 1, 'Bridge Market Lot', 334, 70, 84, 'medium', 'mixed_use', 'Bridge traffic and open expansion land.'),
+  createNode('river_pickup', 2, 2, 'Rural Pickup', 'Rideshare pickup for longer trips.', 'rideshare', ['rideshare']),
+  createLot('river_lot_09', 2, 3, 'Vista Lot', 280, 56, 78, 'large', 'residential_edge', 'Roomy parcel with good development upside.'),
+  createLot('river_lot_10', 3, 0, 'Reserve Parcel', 168, 29, 54, 'small', 'residential_edge', 'Low-cost land bank slot.'),
+  createLot('river_lot_11', 3, 1, 'Gateway Field Lot', 302, 64, 80, 'large', 'mixed_use', 'Gateway expansion parcel.'),
+  createLot('river_lot_12', 3, 2, 'Creek Market Lot', 238, 48, 70, 'medium', 'service_flex', 'Flexible rural service pad.'),
+  createLocked('river_locked_01', 3, 3, 'Far Ridge Reserve', 'Held for a later rural expansion phase.'),
+];
+
+const HARBOR_WORKS_CELLS: DistrictCell[] = [
+  createNode('harbor_shift_gate', 0, 0, 'Shift Gate', 'Industrial work frontage.', 'work', ['work_shift']),
+  createLot('harbor_lot_01', 0, 1, 'Loading Bay Lot', 260, 58, 70, 'medium', 'logistics', 'Low-prestige but useful logistics space.'),
+  createLot('harbor_lot_02', 0, 2, 'Dock Corner', 338, 72, 82, 'medium', 'logistics', 'Strong shift-change traffic.'),
+  createLot('harbor_lot_03', 0, 3, 'Union Lunch Pad', 370, 76, 86, 'small', 'service_flex', 'Food demand around shift changes.'),
+  createLot('harbor_lot_04', 1, 0, 'Cheap Yard Lot', 188, 34, 56, 'large', 'logistics', 'Large but lower-demand yard capacity.'),
+  createNode('harbor_ride_loop', 1, 1, 'Ride Loop', 'Industrial rideshare queue.', 'rideshare', ['rideshare']),
+  createLot('harbor_lot_05', 1, 2, 'Service Frontage', 286, 62, 76, 'medium', 'service_flex', 'Balanced service-business slot.'),
+  createLot('harbor_lot_06', 1, 3, 'Port View Lot', 420, 82, 88, 'large', 'logistics', 'Premium harbor throughput lane.'),
+  createLot('harbor_lot_07', 2, 0, 'Warehouse Infill', 226, 46, 64, 'small', 'logistics', 'Affordable industrial infill.'),
+  createLot('harbor_lot_08', 2, 1, 'Truck Stop Pad', 312, 69, 78, 'medium', 'service_flex', 'Service traffic throughout the day.'),
+  createScenery('harbor_waterfront', 2, 2, 'Canal Edge', 'Working waterfront landmark.', 'waterfront'),
+  createLot('harbor_lot_09', 2, 3, 'Harbor Gateway', 452, 86, 90, 'large', 'logistics', 'Hot gateway for logistics and food.'),
+  createLot('harbor_lot_10', 3, 0, 'Back Dock Lot', 198, 39, 60, 'small', 'logistics', 'Budget back-dock expansion.'),
+  createLot('harbor_lot_11', 3, 1, 'Fleet Corner', 344, 74, 80, 'medium', 'service_flex', 'Corner traffic from fleet routes.'),
+  createLot('harbor_lot_12', 3, 2, 'Industrial Plaza', 390, 78, 84, 'large', 'service_flex', 'High-capacity business parcel.'),
+  createLocked('harbor_locked_01', 3, 3, 'Outer Port Reserve', 'Future industrial capacity for later players.'),
 ];
 
 const WORLD_REGIONS: WorldRegion[] = [
@@ -323,28 +386,28 @@ const WORLD_REGIONS: WorldRegion[] = [
   {
     id: 'riverside_grove',
     label: 'Riverside Grove',
-    subtitle: 'Future riverside unlock',
-    summary: 'High-appeal riverside property and lighter pressure.',
+    subtitle: 'Unlocked open expansion',
+    summary: 'Cheaper open land, rural-adjacent parcels, and a few premium waterfront slots.',
     kind: 'riverside',
     placement: { left: '32%', top: '76%', width: '20%', height: '12%' },
-    unlocked: false,
-    unlockCopy: FUTURE_PLAYER_UNLOCK_COPY,
-    cells: [],
+    unlocked: true,
+    defaultCellId: 'river_lot_07',
+    cells: RIVERSIDE_EXPANSION_CELLS,
   },
   {
     id: 'harbor_works',
     label: 'Harbor Works',
-    subtitle: 'Future industrial unlock',
-    summary: 'Production-heavy district with bigger late-game lots.',
+    subtitle: 'Unlocked service expansion',
+    summary: 'Large logistics parcels, service-flex slots, and shift-change business demand.',
     kind: 'industrial',
     placement: { left: '56%', top: '78%', width: '24%', height: '14%' },
-    unlocked: false,
-    unlockCopy: FUTURE_PLAYER_UNLOCK_COPY,
-    cells: [],
+    unlocked: true,
+    defaultCellId: 'harbor_lot_04',
+    cells: HARBOR_WORKS_CELLS,
   },
 ];
 
-const UNLOCKED_WORLD_REGION_IDS = ['suburban_brookside', 'downtown_exchange'] as const;
+const UNLOCKED_WORLD_REGION_IDS = ['suburban_brookside', 'downtown_exchange', 'riverside_grove', 'harbor_works'] as const;
 
 function regionPreviewImage(regionId: string): ImageSourcePropType {
   if (regionId === 'downtown_exchange') {
@@ -455,6 +518,156 @@ function sectionEyebrow(kind: RegionKind): string {
   return 'Suburban Sector';
 }
 
+type RegionTone = ReturnType<typeof toneForRegion>;
+
+function lotOpportunityScore(cell: DistrictLotCell, regionKind: RegionKind): number {
+  const districtBonus = regionKind === 'downtown'
+    ? 12
+    : regionKind === 'riverside'
+      ? 8
+      : regionKind === 'industrial'
+        ? 5
+        : 0;
+  const zoneBonus = cell.zoneType === 'commercial_core'
+    ? 10
+    : cell.zoneType === 'mixed_use'
+      ? 6
+      : cell.zoneType === 'logistics'
+        ? 4
+        : 0;
+  const frontageBonus = /corner|frontage|gateway|plaza|water|bridge|station|harbor|metro/i.test(`${cell.title} ${cell.subtitle || ''}`) ? 8 : 0;
+  const sizeBonus = cell.size === 'large' ? 6 : cell.size === 'medium' ? 3 : 0;
+  return cell.trafficScore + cell.developmentPotential + districtBonus + zoneBonus + frontageBonus + sizeBonus;
+}
+
+function lotOpportunityTier(cell: DistrictLotCell, regionKind: RegionKind): LotOpportunityTier {
+  const score = lotOpportunityScore(cell, regionKind);
+  if (score >= 176 || (cell.trafficScore >= 82 && cell.developmentPotential >= 86)) return 'hot';
+  if (score >= 148 || cell.trafficScore >= 70 || cell.developmentPotential >= 76) return 'strong';
+  return 'normal';
+}
+
+function lotOpportunityLabel(tier: LotOpportunityTier): string {
+  if (tier === 'hot') return 'Hot Slot';
+  if (tier === 'strong') return 'Strong Slot';
+  return 'Normal Slot';
+}
+
+function primaryLotStatusLabel(
+  cell: DistrictCell,
+  ownership: BusinessSandboxState['owned_lots'][number] | null,
+  tier?: LotOpportunityTier,
+): string {
+  if (cell.type === 'locked') return 'Locked';
+  if (cell.type === 'node') return 'Service Building';
+  if (cell.type === 'scenery') return 'Special Node';
+  if (ownership?.placed_business_id) return 'Active Site';
+  if (ownership) return 'Owned';
+  if (tier === 'hot') return 'Hot Slot';
+  return 'Buyable';
+}
+
+const DistrictGridCell = React.memo(function DistrictGridCell({
+  cell,
+  regionId,
+  tone,
+  ownership,
+  isSelected,
+  opportunity,
+  onSelect,
+}: {
+  cell: DistrictCell;
+  regionId: string;
+  tone: RegionTone;
+  ownership: BusinessSandboxState['owned_lots'][number] | null;
+  isSelected: boolean;
+  opportunity: LotOpportunityTier | null;
+  onSelect: (cellId: string) => void;
+}) {
+  const handlePress = useCallback(() => {
+    onSelect(cell.id);
+  }, [cell.id, onSelect]);
+  const statusLabel = cell.type === 'lot'
+    ? primaryLotStatusLabel(cell, ownership, opportunity || 'normal')
+    : primaryLotStatusLabel(cell, null);
+  const tileMeta = cell.type === 'lot'
+    ? ownership?.placed_business_id
+      ? 'Built'
+      : ownership
+        ? 'Held Land'
+        : `${cell.trafficScore} traffic`
+    : null;
+
+  return (
+    <Pressable
+      key={`${regionId}:${cell.id}`}
+      onPress={handlePress}
+      style={[
+        styles.gridCell,
+        { backgroundColor: tone.muted, borderColor: alpha(theme.ui.border, 0.44) },
+        cell.type === 'node' ? styles.gridCellNode : null,
+        cell.type === 'scenery' ? styles.gridCellScenery : null,
+        cell.type === 'locked' ? styles.gridCellLocked : null,
+        cell.type === 'lot' && !ownership ? styles.gridCellLotOpen : null,
+        cell.type === 'lot' && opportunity === 'strong' && !ownership ? styles.gridCellStrong : null,
+        cell.type === 'lot' && opportunity === 'hot' && !ownership ? styles.gridCellHot : null,
+        ownership ? styles.gridCellOwned : null,
+        ownership?.placed_business_id ? styles.gridCellBuilt : null,
+        isSelected ? { borderColor: tone.accent, backgroundColor: alpha(tone.accent, 0.18) } : null,
+      ]}
+    >
+      {cell.type === 'node' ? (
+        <>
+          <MaterialCommunityIcons name={nodeIcon(cell.nodeKind)} size={20} color={tone.accent} />
+          <Text style={styles.gridNodeTitle}>{cell.title}</Text>
+          <Text style={styles.gridNodeMeta}>Open</Text>
+        </>
+      ) : cell.type === 'lot' ? (
+        <>
+          <View style={styles.gridLotTopRow}>
+            {opportunity === 'hot' ? <View style={styles.gridHotSpark} /> : null}
+            <Text style={[styles.gridLotStatus, opportunity === 'hot' && !ownership ? styles.gridLotStatusHot : null]}>
+              {statusLabel}
+            </Text>
+          </View>
+          <Text style={styles.gridLotPrice}>{tileMeta}</Text>
+        </>
+      ) : cell.type === 'locked' ? (
+        <>
+          <MaterialCommunityIcons name="lock-outline" size={20} color={theme.ui.warning} />
+          <Text style={styles.gridLockedTitle}>Locked</Text>
+          <Text style={styles.gridLockedMeta}>Later</Text>
+        </>
+      ) : (
+        <>
+          <MaterialCommunityIcons name={sceneryIcon(cell.sceneryKind)} size={18} color={theme.ui.info} />
+          <Text style={styles.gridNodeTitle}>{cell.title}</Text>
+        </>
+      )}
+    </Pressable>
+  );
+});
+
+function StatusChip({
+  label,
+  tone = 'default',
+}: {
+  label: string;
+  tone?: 'default' | 'hot' | 'owned' | 'built' | 'locked';
+}) {
+  return (
+    <View style={[
+      styles.statusChip,
+      tone === 'hot' ? styles.statusChipHot : null,
+      tone === 'owned' ? styles.statusChipOwned : null,
+      tone === 'built' ? styles.statusChipBuilt : null,
+      tone === 'locked' ? styles.statusChipLocked : null,
+    ]}>
+      <Text style={styles.statusChipText}>{label}</Text>
+    </View>
+  );
+}
+
 export default function MapDashboardScreen() {
   useScreenTimer('map');
   const loop = useGameplayLoop();
@@ -496,6 +709,10 @@ export default function MapDashboardScreen() {
     () => WORLD_REGIONS.find((region) => region.id === selectedRegionId) || null,
     [selectedRegionId],
   );
+  const selectedRegionTone = useMemo(
+    () => toneForRegion(selectedRegion?.kind || 'suburban'),
+    [selectedRegion?.kind],
+  );
 
   const unlockedRegions = useMemo(
     () => WORLD_REGIONS.filter((region) => UNLOCKED_WORLD_REGION_IDS.includes(region.id as (typeof UNLOCKED_WORLD_REGION_IDS)[number])),
@@ -511,6 +728,10 @@ export default function MapDashboardScreen() {
   );
   const downtownRegion = useMemo(
     () => unlockedRegions.find((region) => region.id === 'downtown_exchange') || null,
+    [unlockedRegions],
+  );
+  const expansionRegions = useMemo(
+    () => unlockedRegions.filter((region) => !['suburban_brookside', 'downtown_exchange'].includes(region.id)),
     [unlockedRegions],
   );
 
@@ -536,6 +757,17 @@ export default function MapDashboardScreen() {
     () => regionCells.find((cell) => cell.id === selectedCellId) || null,
     [regionCells, selectedCellId],
   );
+  const selectedCellOpportunity = useMemo(
+    () => (
+      selectedRegion && selectedCell?.type === 'lot'
+        ? lotOpportunityTier(selectedCell, selectedRegion.kind)
+        : null
+    ),
+    [selectedCell, selectedRegion],
+  );
+  const handleSelectCell = useCallback((cellId: string) => {
+    setSelectedCellId(cellId);
+  }, []);
 
   const ownedLotsByTileKey = useMemo(
     () => new Map(sandboxBusinessState.owned_lots.map((lot) => [lot.tile_key, lot])),
@@ -602,6 +834,11 @@ export default function MapDashboardScreen() {
       loop.businesses?.profit_snapshot.trailing_7d_profit_xgp,
       sandboxBusinessState,
     ],
+  );
+  const selectedLotHasActiveBusiness = Boolean(
+    selectedLotOwnership?.placed_business_id
+    && activeBusiness
+    && selectedLotOwnership.placed_business_id === activeBusiness.business_id,
   );
 
   const persistSandboxState = async (
@@ -955,6 +1192,16 @@ export default function MapDashboardScreen() {
     () => selectedRegionLotCells.filter((cell) => !ownedLotsByTileKey.has(cellTileKey(selectedRegion?.id || '', cell.id))).length,
     [ownedLotsByTileKey, selectedRegion?.id, selectedRegionLotCells],
   );
+  const districtHotLots = useMemo(
+    () => selectedRegion
+      ? selectedRegionLotCells.filter((cell) => lotOpportunityTier(cell, selectedRegion.kind) === 'hot').length
+      : 0,
+    [selectedRegion, selectedRegionLotCells],
+  );
+  const totalUnlockedLotCapacity = useMemo(
+    () => unlockedRegions.reduce((sum, region) => sum + region.cells.filter((cell) => cell.type === 'lot').length, 0),
+    [unlockedRegions],
+  );
 
   const selectedNodeActionTags = selectedCell && selectedCell.type === 'node' ? selectedCell.actionTags : [];
   const jobBoardActive = selectedNodeActionTags.includes('job_board');
@@ -966,6 +1213,22 @@ export default function MapDashboardScreen() {
   const operatedToday = loop.dailySession.actionsTakenToday.some(
     (entry) => canonicalMapActionKey(String(entry.action_key || '')) === 'operate_business' && entry.success,
   );
+  const selectedPrimaryStatus = selectedCell
+    ? primaryLotStatusLabel(
+      selectedCell,
+      selectedCell.type === 'lot' ? selectedLotOwnership : null,
+      selectedCellOpportunity || undefined,
+    )
+    : '';
+  const selectedPrimaryStatusTone: 'default' | 'hot' | 'owned' | 'built' | 'locked' = selectedPrimaryStatus === 'Hot Slot'
+    ? 'hot'
+    : selectedPrimaryStatus === 'Owned'
+      ? 'owned'
+      : selectedPrimaryStatus === 'Active Site'
+        ? 'built'
+        : selectedPrimaryStatus === 'Locked'
+          ? 'locked'
+          : 'default';
 
   const bottomTabs = useMemo(
     () => buildGameplayBottomNavItems(onboarding.navigateTo),
@@ -1036,97 +1299,74 @@ export default function MapDashboardScreen() {
               <View style={styles.summaryRow}>
                 <MetricPill label="Owned lots" value={String(selectedRegionOwnedLots.length)} />
                 <MetricPill label="Available lots" value={String(districtAvailableLots)} />
+                <MetricPill label="Hot slots" value={String(districtHotLots)} />
                 <MetricPill label="Cash" value={formatMoney(cash)} />
               </View>
 
               <View style={styles.districtBoard}>
                 {regionCells.map((cell) => {
                   const isSelected = selectedCell?.id === cell.id;
-                  const tone = toneForRegion(selectedRegion.kind);
                   const ownership = cell.type === 'lot'
                     ? ownedLotsByTileKey.get(cellTileKey(selectedRegion.id, cell.id)) || null
                     : null;
+                  const opportunity = cell.type === 'lot'
+                    ? lotOpportunityTier(cell, selectedRegion.kind)
+                    : null;
                   return (
-                    <Pressable
+                    <DistrictGridCell
                       key={cell.id}
-                      onPress={() => setSelectedCellId(cell.id)}
-                      style={[
-                        styles.gridCell,
-                        { backgroundColor: tone.muted, borderColor: alpha(theme.ui.border, 0.44) },
-                        cell.type === 'node' ? styles.gridCellNode : null,
-                        cell.type === 'scenery' ? styles.gridCellScenery : null,
-                        cell.type === 'locked' ? styles.gridCellLocked : null,
-                        cell.type === 'lot' && !ownership ? styles.gridCellLotOpen : null,
-                        ownership ? styles.gridCellOwned : null,
-                        ownership?.placed_business_id ? styles.gridCellBuilt : null,
-                        isSelected ? { borderColor: tone.accent, backgroundColor: alpha(tone.accent, 0.18) } : null,
-                      ]}
-                    >
-                      {cell.type === 'node' ? (
-                        <>
-                          <MaterialCommunityIcons name={nodeIcon(cell.nodeKind)} size={20} color={tone.accent} />
-                          <Text style={styles.gridNodeTitle}>{cell.title}</Text>
-                          <Text style={styles.gridNodeMeta}>Open</Text>
-                        </>
-                      ) : cell.type === 'lot' ? (
-                        <>
-                          <Text style={styles.gridLotStatus}>
-                            {ownership?.placed_business_id
-                              ? 'Built'
-                              : ownership
-                                ? 'Owned'
-                                : 'Buy'}
-                          </Text>
-                          <Text style={styles.gridLotPrice}>
-                            {ownership
-                              ? (ownership.placed_business_id ? 'Active Site' : 'Held Land')
-                              : formatMoney(cell.priceXgp)}
-                          </Text>
-                        </>
-                      ) : cell.type === 'locked' ? (
-                        <>
-                          <MaterialCommunityIcons name="lock-outline" size={20} color={theme.ui.warning} />
-                          <Text style={styles.gridLockedTitle}>Locked</Text>
-                          <Text style={styles.gridLockedMeta}>Later</Text>
-                        </>
-                      ) : (
-                        <>
-                          <MaterialCommunityIcons name={sceneryIcon(cell.sceneryKind)} size={18} color={theme.ui.info} />
-                          <Text style={styles.gridNodeTitle}>{cell.title}</Text>
-                        </>
-                      )}
-                    </Pressable>
+                      cell={cell}
+                      regionId={selectedRegion.id}
+                      tone={selectedRegionTone}
+                      ownership={ownership}
+                      isSelected={isSelected}
+                      opportunity={opportunity}
+                      onSelect={handleSelectCell}
+                    />
                   );
                 })}
               </View>
 
               {selectedCell ? (
                 <View style={styles.detailCard}>
+                  <View style={styles.sheetGrabber} />
                   <View style={styles.detailHeader}>
                     <View style={styles.detailHeaderCopy}>
-                      <Text style={styles.detailEyebrow}>Selected Area</Text>
+                      <Text style={styles.detailEyebrow}>Slot Details</Text>
                       <Text style={styles.detailTitle}>{selectedCell.title}</Text>
                       <Text style={styles.detailSubtitle}>{selectedCell.subtitle || 'Inspect this district surface.'}</Text>
                     </View>
-                    <View style={[styles.detailBadge, { borderColor: alpha(toneForRegion(selectedRegion.kind).accent, 0.36) }]}>
-                      <Text style={styles.detailBadgeText}>
-                        {selectedCell.type === 'node'
-                          ? 'Node'
-                          : selectedCell.type === 'lot'
-                            ? selectedLotOwnership?.placed_business_id
-                              ? 'Built'
-                              : selectedLotOwnership
-                                ? 'Owned'
-                                : 'Lot'
-                            : selectedCell.type === 'locked'
-                              ? 'Locked'
-                              : 'Scenery'}
-                      </Text>
+                    <View style={styles.statusChipColumn}>
+                      <StatusChip label={selectedPrimaryStatus} tone={selectedPrimaryStatusTone} />
+                      {selectedCell.type === 'lot' && selectedCellOpportunity && selectedPrimaryStatus !== lotOpportunityLabel(selectedCellOpportunity) ? (
+                        <StatusChip
+                          label={lotOpportunityLabel(selectedCellOpportunity)}
+                          tone={selectedCellOpportunity === 'hot' ? 'hot' : 'default'}
+                        />
+                      ) : null}
                     </View>
                   </View>
 
                   {selectedCell.type === 'lot' ? (
                     <>
+                      <View style={styles.landStatePanel}>
+                        <View style={styles.landStateRow}>
+                          <Text style={styles.landStateLabel}>Land ownership</Text>
+                          <Text style={styles.landStateValue}>{selectedLotOwnership ? 'Owned by you' : 'Unowned land'}</Text>
+                        </View>
+                        <View style={styles.landStateRow}>
+                          <Text style={styles.landStateLabel}>Business state</Text>
+                          <Text style={styles.landStateValue}>
+                            {selectedLotOwnership?.placed_business_id
+                              ? selectedLotHasActiveBusiness
+                                ? 'Active business site'
+                                : 'Built site'
+                              : selectedLotOwnership
+                                ? 'Empty owned land'
+                                : 'No business placed'}
+                          </Text>
+                        </View>
+                      </View>
                       <View style={styles.summaryRow}>
                         <MetricPill label="Price" value={formatMoney(selectedCell.priceXgp)} />
                         <MetricPill label="Traffic" value={`${selectedCell.trafficScore}/100`} />
@@ -1146,10 +1386,42 @@ export default function MapDashboardScreen() {
                               : 'This land is owned and ready for development.'}
                           </Text>
                           {selectedLotOwnership.placed_business_id ? (
-                            <SecondaryButton label="Business Placed" disabled />
+                            <>
+                              {selectedLotHasActiveBusiness && activeBusinessProfile ? (
+                                <View style={styles.businessPanel}>
+                                  <Text style={styles.actionSectionTitle}>Built Business</Text>
+                                  <View style={styles.summaryRow}>
+                                    <MetricPill label="Business" value={activeBusinessProfile.growth_phase_label} />
+                                    <MetricPill label="Traffic" value={`${activeBusinessProfile.traffic_score}/100`} />
+                                    <MetricPill label="Demand" value={`${activeBusinessProfile.demand_score}/100`} />
+                                  </View>
+                                  <Text style={styles.supportingCopy}>
+                                    {activeBusinessProfile.display_name} is operating from this site.
+                                  </Text>
+                                </View>
+                              ) : null}
+                              <PrimaryButton
+                                label={operatedToday ? 'Operated Today' : 'Run Business'}
+                                disabled={!selectedLotHasActiveBusiness || operatedToday || loop.dailySession.sessionStatus !== 'active'}
+                                onPress={() => { void loop.operateBusiness(); }}
+                              />
+                              <SecondaryButton
+                                label="Restock Inventory"
+                                disabled={!inventoryAction || loop.executingAction || loop.dailySession.canExecuteAction(inventoryAction).allowed === false}
+                                onPress={() => { void executeMapAction(inventoryAction, 'Inventory restock is unavailable right now.'); }}
+                              />
+                              {activeBusinessProfile && getNextGrowthPhase(activeBusinessProfile.growth_phase_key) ? (
+                                <SecondaryButton
+                                  label={`Manage Site: Advance To ${getNextGrowthPhase(activeBusinessProfile.growth_phase_key)?.label || 'Next Phase'}`}
+                                  onPress={() => { void advanceActiveBusinessPhase(); }}
+                                />
+                              ) : (
+                                <SecondaryButton label="Manage Site" disabled />
+                              )}
+                            </>
                           ) : activeBusiness ? (
                             <PrimaryButton
-                              label={`Place ${activeBusinessProfile?.growth_phase_label || businessLabel(activeBusiness.business_type)} Here`}
+                              label={`Build Here: Place ${activeBusinessProfile?.growth_phase_label || businessLabel(activeBusiness.business_type)}`}
                               onPress={() => { void placeActiveBusinessOnLot(); }}
                             />
                           ) : (
@@ -1162,7 +1434,7 @@ export default function MapDashboardScreen() {
                             Secure this lot now, then place your active business later when you are ready to expand.
                           </Text>
                           <PrimaryButton
-                            label={`Purchase ${formatMoney(selectedCell.priceXgp)}`}
+                            label={`Buy Lot ${formatMoney(selectedCell.priceXgp)}`}
                             onPress={() => { void purchaseSelectedLot(); }}
                           />
                         </View>
@@ -1221,6 +1493,14 @@ export default function MapDashboardScreen() {
                           label="Buy Lunch"
                           disabled={loop.executingAction || cash < 6}
                           onPress={() => { void executeMealFromMap('lunch'); }}
+                        />
+                      ) : null}
+
+                      {selectedNodeActionTags.includes('meal_dinner') ? (
+                        <SecondaryButton
+                          label="Buy Dinner"
+                          disabled={loop.executingAction || cash < 6 || dinnerResolvedToday || daySettled}
+                          onPress={() => { void executeMealFromMap('dinner'); }}
                         />
                       ) : null}
 
@@ -1317,6 +1597,7 @@ export default function MapDashboardScreen() {
                       {!workNodeActive
                         && !selectedNodeActionTags.includes('meal_breakfast')
                         && !selectedNodeActionTags.includes('meal_lunch')
+                        && !selectedNodeActionTags.includes('meal_dinner')
                         && !selectedNodeActionTags.includes('rideshare')
                         && !selectedNodeActionTags.includes('recovery')
                         && !businessNodeActive
@@ -1352,14 +1633,14 @@ export default function MapDashboardScreen() {
                   <Text style={styles.sectionEyebrow}>Unlocked Submaps</Text>
                   <Text style={styles.sectionTitle}>Choose An Area</Text>
                   <Text style={styles.sectionSubtitle}>
-                    Tap Suburban Area or Downtown City to open that submap. Everything else stays locked until more players join.
+                    Tap a district to inspect its land. Downtown and starter suburbs are joined by open expansion areas for extra capacity.
                   </Text>
                 </View>
               </View>
 
               <View style={styles.summaryRow}>
-                <MetricPill label="Unlocked now" value="2 areas" />
-                <MetricPill label="Open now" value="Suburban + Downtown" />
+                <MetricPill label="Unlocked now" value={`${unlockedRegions.length} areas`} />
+                <MetricPill label="Lot capacity" value={`${totalUnlockedLotCapacity} lots`} />
                 <MetricPill label="Locked" value={`${lockedRegions.length} areas`} />
               </View>
 
@@ -1442,6 +1723,40 @@ export default function MapDashboardScreen() {
                 </ImageBackground>
               </View>
 
+              {expansionRegions.length > 0 ? (
+                <View style={styles.expansionRegionGrid}>
+                  {expansionRegions.map((region) => {
+                    const tone = toneForRegion(region.kind);
+                    const lotCount = region.cells.filter((cell) => cell.type === 'lot').length;
+                    const hotCount = region.cells.filter((cell) => cell.type === 'lot' && lotOpportunityTier(cell, region.kind) === 'hot').length;
+                    return (
+                      <Pressable
+                        key={region.id}
+                        onPress={() => openWorldRegion(region)}
+                        style={({ pressed }) => [
+                          styles.expansionRegionCard,
+                          { borderColor: alpha(tone.accent, 0.34), backgroundColor: alpha(tone.accent, 0.1) },
+                          pressed ? styles.selectorHotspotPressed : null,
+                        ]}
+                      >
+                        <View style={[styles.selectorHotspotIconWrap, { backgroundColor: alpha(tone.accent, 0.16) }]}>
+                          <MaterialCommunityIcons name={regionIcon(region.kind)} size={18} color={tone.accent} />
+                        </View>
+                        <View style={styles.expansionRegionCopy}>
+                          <Text style={styles.expansionRegionLabel}>{region.label}</Text>
+                          <Text style={styles.expansionRegionMeta}>{region.subtitle}</Text>
+                          <Text style={styles.expansionRegionCopyText}>{region.summary}</Text>
+                        </View>
+                        <View style={styles.expansionRegionStats}>
+                          <StatusChip label={`${lotCount} lots`} />
+                          {hotCount > 0 ? <StatusChip label={`${hotCount} hot`} tone="hot" /> : null}
+                        </View>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : null}
+
               <View style={styles.lockedRegionGrid}>
                 {lockedRegions.map((region) => (
                   <View key={region.id} style={styles.lockedRegionCard}>
@@ -1463,15 +1778,15 @@ export default function MapDashboardScreen() {
                   <Text style={styles.sectionEyebrow}>Main World Map</Text>
                   <Text style={styles.sectionTitle}>City Expansion Overview</Text>
                   <Text style={styles.sectionSubtitle}>
-                    Tap the main map to open the available submaps. Suburban Area and Downtown City are unlocked now.
+                    Tap the main map to open available submaps. More unlocked land is available now across city, open, and service districts.
                   </Text>
                 </View>
               </View>
 
               <View style={styles.summaryRow}>
-                <MetricPill label="Unlocked now" value="2 areas" />
+                <MetricPill label="Unlocked now" value={`${unlockedRegions.length} areas`} />
+                <MetricPill label="Lot capacity" value={`${totalUnlockedLotCapacity} lots`} />
                 <MetricPill label="Locked next" value={`${lockedRegions.length} areas`} />
-                <MetricPill label="Cash" value={formatMoney(cash)} />
               </View>
 
               <Pressable style={styles.mainMapBoard} onPress={openSubmapSelector}>
@@ -1486,7 +1801,7 @@ export default function MapDashboardScreen() {
                       <Text style={styles.mainMapCalloutEyebrow}>Tap Main Map</Text>
                       <Text style={styles.mainMapCalloutTitle}>Open unlocked areas</Text>
                       <Text style={styles.mainMapCalloutSubtitle}>
-                        Suburban Area and Downtown City are live now. The rest stays locked until more players arrive.
+                        Suburban, Downtown, Riverside, and Harbor Works are live now. Remaining districts stay locked for future city phases.
                       </Text>
                     </View>
                   </View>
@@ -1775,6 +2090,43 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: theme.spacing.sm,
   },
+  expansionRegionGrid: {
+    gap: theme.spacing.sm,
+  },
+  expansionRegionCard: {
+    borderRadius: theme.radius.xl,
+    borderWidth: 1,
+    paddingHorizontal: theme.spacing.md,
+    paddingVertical: theme.spacing.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+  },
+  expansionRegionCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  expansionRegionLabel: {
+    ...theme.typography.bodyMd,
+    color: theme.ui.text.onDark,
+    fontWeight: '900',
+  },
+  expansionRegionMeta: {
+    ...theme.typography.caption,
+    color: theme.ui.text.onDarkMuted,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  expansionRegionCopyText: {
+    ...theme.typography.caption,
+    color: theme.ui.text.onDarkMuted,
+    fontWeight: '700',
+  },
+  expansionRegionStats: {
+    alignItems: 'flex-end',
+    gap: theme.spacing.xs,
+  },
   lockedRegionCard: {
     minWidth: 140,
     flexGrow: 1,
@@ -1861,6 +2213,14 @@ const styles = StyleSheet.create({
   gridCellLotOpen: {
     backgroundColor: alpha(theme.ui.positive, 0.08),
   },
+  gridCellStrong: {
+    borderColor: alpha(theme.ui.info, 0.55),
+    backgroundColor: alpha(theme.ui.info, 0.12),
+  },
+  gridCellHot: {
+    borderColor: alpha(theme.ui.warning, 0.86),
+    backgroundColor: alpha(theme.ui.warning, 0.16),
+  },
   gridCellOwned: {
     backgroundColor: alpha(theme.ui.info, 0.1),
   },
@@ -1876,6 +2236,19 @@ const styles = StyleSheet.create({
     ...theme.typography.caption,
     color: theme.ui.text.onDarkMuted,
   },
+  gridLotTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  gridHotSpark: {
+    width: 7,
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: theme.ui.warning,
+    borderWidth: 1,
+    borderColor: alpha(theme.ui.info, 0.72),
+  },
   gridLotStatus: {
     ...theme.typography.caption,
     color: theme.ui.text.onDarkMuted,
@@ -1883,8 +2256,11 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
+  gridLotStatusHot: {
+    color: theme.ui.warning,
+  },
   gridLotPrice: {
-    ...theme.typography.bodySm,
+    ...theme.typography.caption,
     color: theme.ui.text.onDark,
     fontWeight: '800',
   },
@@ -1905,6 +2281,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.md,
     paddingVertical: theme.spacing.md,
     gap: theme.spacing.sm,
+  },
+  sheetGrabber: {
+    alignSelf: 'center',
+    width: 48,
+    height: 4,
+    borderRadius: 999,
+    backgroundColor: alpha(theme.ui.text.onDarkMuted, 0.38),
+    marginBottom: theme.spacing.xs,
   },
   detailHeader: {
     flexDirection: 'row',
@@ -1944,6 +2328,69 @@ const styles = StyleSheet.create({
     color: theme.ui.text.onDark,
     fontWeight: '800',
     textTransform: 'uppercase',
+  },
+  statusChipColumn: {
+    alignItems: 'flex-end',
+    gap: theme.spacing.xs,
+  },
+  statusChip: {
+    borderRadius: 999,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: alpha(theme.ui.border, 0.36),
+    backgroundColor: alpha(theme.ui.bg.cardRaised, 0.96),
+  },
+  statusChipHot: {
+    borderColor: alpha(theme.ui.warning, 0.76),
+    backgroundColor: alpha(theme.ui.warning, 0.18),
+  },
+  statusChipOwned: {
+    borderColor: alpha(theme.ui.info, 0.52),
+    backgroundColor: alpha(theme.ui.info, 0.14),
+  },
+  statusChipBuilt: {
+    borderColor: alpha(theme.ui.positive, 0.52),
+    backgroundColor: alpha(theme.ui.positive, 0.14),
+  },
+  statusChipLocked: {
+    borderColor: alpha(theme.ui.warning, 0.46),
+    backgroundColor: alpha(theme.ui.bg.cardRaised, 0.92),
+  },
+  statusChipText: {
+    ...theme.typography.caption,
+    color: theme.ui.text.onDark,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  landStatePanel: {
+    borderRadius: theme.radius.lg,
+    borderWidth: 1,
+    borderColor: alpha(theme.ui.border, 0.28),
+    backgroundColor: alpha(theme.ui.bg.cardRaised, 0.92),
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.sm,
+    gap: theme.spacing.xs,
+  },
+  landStateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: theme.spacing.sm,
+  },
+  landStateLabel: {
+    ...theme.typography.caption,
+    color: theme.ui.text.onDarkMuted,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  landStateValue: {
+    ...theme.typography.caption,
+    color: theme.ui.text.onDark,
+    fontWeight: '900',
+    textAlign: 'right',
   },
   selectionStack: {
     gap: theme.spacing.sm,
