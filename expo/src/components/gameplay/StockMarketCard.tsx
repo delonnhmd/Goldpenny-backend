@@ -5,6 +5,17 @@ import { alpha, theme } from '@/design/theme';
 import { formatMoney } from '@/lib/gameplayFormatters';
 import { StockMarketItem, StockMarketSnapshotResponse } from '@/types/stocks';
 
+interface PortfolioMetrics {
+  currentCashXgp: number;
+  ownedSlotCount: number;
+  builtSlotCount: number;
+  slotValueXgp: number;
+  slotCostXgp: number;
+  latestBusinessIncomeXgp: number;
+  trailingBusinessIncomeXgp: number;
+  activeBusinessCount: number;
+}
+
 function changeTone(changePct: number): string {
   if (changePct > 0) return theme.ui.positive;
   if (changePct < 0) return theme.ui.danger;
@@ -53,6 +64,7 @@ function TradeButton({
 
 export default function StockMarketCard({
   market,
+  portfolioMetrics,
   sessionActive,
   pendingTradeStockId,
   pendingTradeSide,
@@ -61,6 +73,7 @@ export default function StockMarketCard({
   onSellAll,
 }: {
   market: StockMarketSnapshotResponse;
+  portfolioMetrics?: PortfolioMetrics;
   sessionActive: boolean;
   pendingTradeStockId: string | null;
   pendingTradeSide: 'buy' | 'sell' | null;
@@ -92,9 +105,59 @@ export default function StockMarketCard({
         <Text style={styles.guidanceText}>Optional upside only. Prices move once per day, every trade costs a fee, and weak cash discipline matters more than a missed stock gain.</Text>
       </View>
 
+      {portfolioMetrics ? (
+        <View style={styles.assetSnapshot}>
+          <View style={styles.assetSnapshotHeader}>
+            <View>
+              <Text style={styles.assetSnapshotKicker}>Portfolio snapshot</Text>
+              <Text style={styles.assetSnapshotTitle}>Cash, land, and business income</Text>
+            </View>
+            <View style={styles.assetBadge}>
+              <Text style={styles.assetBadgeValue}>{portfolioMetrics.ownedSlotCount}</Text>
+              <Text style={styles.assetBadgeLabel}>Slots</Text>
+            </View>
+          </View>
+
+          <View style={styles.portfolioGrid}>
+            <View style={styles.portfolioTile}>
+              <Text style={styles.tileLabel}>Current XGP</Text>
+              <Text style={styles.tileValue}>{formatMoney(portfolioMetrics.currentCashXgp)}</Text>
+            </View>
+            <View style={styles.portfolioTile}>
+              <Text style={styles.tileLabel}>Owned Slots</Text>
+              <Text style={styles.tileValue}>{portfolioMetrics.ownedSlotCount}</Text>
+            </View>
+            <View style={styles.portfolioTile}>
+              <Text style={styles.tileLabel}>Slot Value</Text>
+              <Text style={styles.tileValue}>{formatMoney(portfolioMetrics.slotValueXgp)}</Text>
+            </View>
+            <View style={styles.portfolioTile}>
+              <Text style={styles.tileLabel}>Built Sites</Text>
+              <Text style={styles.tileValue}>{portfolioMetrics.builtSlotCount}</Text>
+            </View>
+            <View style={styles.portfolioTile}>
+              <Text style={styles.tileLabel}>Business Income</Text>
+              <Text style={[styles.tileValue, { color: changeTone(portfolioMetrics.latestBusinessIncomeXgp) }]}>
+                {formatMoney(portfolioMetrics.latestBusinessIncomeXgp)}
+              </Text>
+            </View>
+            <View style={styles.portfolioTile}>
+              <Text style={styles.tileLabel}>7D Business</Text>
+              <Text style={[styles.tileValue, { color: changeTone(portfolioMetrics.trailingBusinessIncomeXgp) }]}>
+                {formatMoney(portfolioMetrics.trailingBusinessIncomeXgp)}
+              </Text>
+            </View>
+          </View>
+
+          <Text style={styles.assetSnapshotHint}>
+            Active businesses {portfolioMetrics.activeBusinessCount}. Land cost basis {formatMoney(portfolioMetrics.slotCostXgp)}.
+          </Text>
+        </View>
+      ) : null}
+
       <View style={styles.portfolioGrid}>
         <View style={styles.portfolioTile}>
-          <Text style={styles.tileLabel}>Available Cash</Text>
+          <Text style={styles.tileLabel}>Stock Cash</Text>
           <Text style={styles.tileValue}>{formatMoney(market.portfolio.available_cash_xgp)}</Text>
         </View>
         <View style={styles.portfolioTile}>
@@ -302,6 +365,58 @@ const styles = StyleSheet.create({
   guidanceText: {
     ...theme.typography.bodySm,
     color: theme.color.textPrimary,
+  },
+  assetSnapshot: {
+    borderWidth: 1,
+    borderColor: alpha(theme.ui.info, 0.32),
+    borderRadius: theme.radius.xl,
+    backgroundColor: alpha(theme.ui.info, 0.08),
+    padding: theme.spacing.md,
+    gap: theme.spacing.sm,
+  },
+  assetSnapshotHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: theme.spacing.sm,
+  },
+  assetSnapshotKicker: {
+    ...theme.typography.caption,
+    color: theme.ui.info,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.7,
+  },
+  assetSnapshotTitle: {
+    ...theme.typography.bodyMd,
+    color: theme.color.textPrimary,
+    fontWeight: '800',
+  },
+  assetBadge: {
+    minWidth: 62,
+    borderWidth: 1,
+    borderColor: alpha(theme.ui.info, 0.36),
+    borderRadius: theme.radius.md,
+    backgroundColor: alpha(theme.ui.bg.cardRaised, 0.92),
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: theme.spacing.xs,
+    alignItems: 'center',
+  },
+  assetBadgeValue: {
+    ...theme.typography.bodyMd,
+    color: theme.color.textPrimary,
+    fontWeight: '900',
+  },
+  assetBadgeLabel: {
+    ...theme.typography.caption,
+    color: theme.color.textSecondary,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  assetSnapshotHint: {
+    ...theme.typography.caption,
+    color: theme.color.textSecondary,
+    fontWeight: '700',
   },
   neutralHint: {
     ...theme.typography.bodySm,

@@ -1,4 +1,5 @@
-import React from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import React, { useCallback, useMemo, useState } from 'react';
 
 import MarketOverviewCard from '@/components/gameplay/MarketOverviewCard';
 import PriceTrendsCard from '@/components/gameplay/PriceTrendsCard';
@@ -7,6 +8,8 @@ import { OnboardingHighlight } from '@/components/onboarding';
 import EmptyStateView from '@/components/ui/EmptyStateView';
 import { useOnboarding } from '@/features/onboarding';
 import { useScreenTimer } from '@/hooks/useScreenTimer';
+import { createEmptyBusinessSandboxState } from '@/lib/businessSandbox';
+import { readBusinessSandboxState } from '@/lib/businessSandboxPersistence';
 
 import { useGameplayLoop } from '../context';
 import {
@@ -21,6 +24,50 @@ export default function MarketScreen() {
   const onboarding = useOnboarding();
   const guidedMarketActive = onboarding.isActive && onboarding.currentStep?.route === 'market';
   const simplified = onboarding.isSimplifiedMode;
+  const [sandboxBusinessState, setSandboxBusinessState] = useState(() => createEmptyBusinessSandboxState(loop.playerId));
+
+  useFocusEffect(useCallback(() => {
+    let active = true;
+    void readBusinessSandboxState(loop.playerId).then((state) => {
+      if (active) setSandboxBusinessState(state);
+    });
+    return () => {
+      active = false;
+    };
+  }, [loop.playerId]));
+
+  const portfolioMetrics = useMemo(() => {
+    const ownedSlots = sandboxBusinessState.owned_lots || [];
+    const businessSnapshot = loop.businesses?.profit_snapshot || {};
+    const activeBusinessCount = Number(
+      businessSnapshot.active_businesses
+      ?? loop.businesses?.businesses?.filter((business) => business.is_active).length
+      ?? 0,
+    );
+
+    return {
+      currentCashXgp: Number(
+        loop.authoritativeState?.player_state.cash
+        ?? loop.dashboard?.stats.cash_xgp
+        ?? loop.stockMarket?.portfolio.available_cash_xgp
+        ?? 0,
+      ),
+      ownedSlotCount: ownedSlots.length,
+      builtSlotCount: ownedSlots.filter((lot) => Boolean(lot.placed_business_id)).length,
+      slotValueXgp: ownedSlots.reduce((sum, lot) => sum + Number(lot.value_xgp || lot.purchase_price_xgp || 0), 0),
+      slotCostXgp: ownedSlots.reduce((sum, lot) => sum + Number(lot.purchase_price_xgp || 0), 0),
+      latestBusinessIncomeXgp: Number(businessSnapshot.latest_daily_profit_xgp || 0),
+      trailingBusinessIncomeXgp: Number(businessSnapshot.trailing_7d_profit_xgp || 0),
+      activeBusinessCount,
+    };
+  }, [
+    loop.authoritativeState?.player_state.cash,
+    loop.businesses?.businesses,
+    loop.businesses?.profit_snapshot,
+    loop.dashboard?.stats.cash_xgp,
+    loop.stockMarket?.portfolio.available_cash_xgp,
+    sandboxBusinessState.owned_lots,
+  ]);
 
   return (
     <GameplayLoopScaffold
@@ -54,6 +101,7 @@ export default function MarketScreen() {
         <GameplaySummaryCard eyebrow="Stocks" title="Stock Lane">
           <StockMarketCard
             market={loop.stockMarket}
+            portfolioMetrics={portfolioMetrics}
             sessionActive={loop.dailySession.sessionStatus === 'active'}
             pendingTradeStockId={loop.pendingTrade?.stockId || null}
             pendingTradeSide={loop.pendingTrade?.side || null}
