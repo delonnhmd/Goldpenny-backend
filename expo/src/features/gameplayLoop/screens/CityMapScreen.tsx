@@ -3,14 +3,12 @@ import { Animated, LayoutChangeEvent, Pressable, StyleSheet, Text, View } from '
 
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import { theme } from '@/design/theme';
-import { useOnboarding } from '@/features/onboarding';
 import { useScreenTimer } from '@/hooks/useScreenTimer';
 import { formatMoney } from '@/lib/gameplayFormatters';
 
 import { useGameplayLoop } from '../context';
 import {
   GameplayCompactMetricRows,
-  GameplayStickyActionArea,
   GameplaySummaryCard,
   GameplayWarningBanner,
 } from '../components/GameplayUIParts';
@@ -62,7 +60,6 @@ function actionsForNode(nodeType: string): string {
 export default function CityMapScreen() {
   useScreenTimer('map');
   const loop = useGameplayLoop();
-  const onboarding = useOnboarding();
   const workState = loop.dashboard?.work_state || loop.actionHub?.work_state || null;
   const cityMap = workState?.city_map || null;
   const currentLocationKey = String(
@@ -233,15 +230,6 @@ export default function CityMapScreen() {
       title="City Map"
       subtitle="Travel strategically to trade time for better opportunities"
       activeNavKey="map"
-      footer={(
-        <GameplayStickyActionArea
-          summary={`Current location: ${currentLocationLabel}`}
-          secondaryLabel="Back To Dashboard"
-          onSecondaryPress={() => { onboarding.navigateTo('dashboard'); }}
-          primaryLabel="Open Work"
-          onPrimaryPress={() => { onboarding.navigateTo('work'); }}
-        />
-      )}
     >
       <GameplaySummaryCard eyebrow="Position" title="Current Location">
         <GameplayCompactMetricRows

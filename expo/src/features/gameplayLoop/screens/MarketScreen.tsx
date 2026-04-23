@@ -12,17 +12,13 @@ import { createEmptyBusinessSandboxState } from '@/lib/businessSandbox';
 import { readBusinessSandboxState } from '@/lib/businessSandboxPersistence';
 
 import { useGameplayLoop } from '../context';
-import {
-  GameplayStickyActionArea,
-  GameplaySummaryCard,
-} from '../components/GameplayUIParts';
+import { GameplaySummaryCard } from '../components/GameplayUIParts';
 import GameplayLoopScaffold from '../GameplayLoopScaffold';
 
 export default function MarketScreen() {
   useScreenTimer('market');
   const loop = useGameplayLoop();
   const onboarding = useOnboarding();
-  const guidedMarketActive = onboarding.isActive && onboarding.currentStep?.route === 'market';
   const simplified = onboarding.isSimplifiedMode;
   const [sandboxBusinessState, setSandboxBusinessState] = useState(() => createEmptyBusinessSandboxState(loop.playerId));
 
@@ -74,14 +70,6 @@ export default function MarketScreen() {
       title="Market"
       subtitle="Read basket signals, then evaluate optional stock exposure"
       activeNavKey="market"
-      footer={guidedMarketActive ? null : (
-        <GameplayStickyActionArea
-          secondaryLabel="Open Business"
-          onSecondaryPress={() => { onboarding.navigateTo('business'); }}
-          primaryLabel="Back To Dashboard"
-          onPrimaryPress={() => { onboarding.navigateTo('dashboard'); }}
-        />
-      )}
     >
       {loop.economySummary ? (
         <OnboardingHighlight target="market-price-movement">
