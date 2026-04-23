@@ -21,6 +21,7 @@ GET  /business/op-history       — Business operation log, newest first
 
 import logging
 from datetime import date
+from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -59,8 +60,10 @@ from app.services.business_daily_operations_service import (
     get_player_businesses,
     get_player_business_logs,
     get_player_business_summary,
+    get_supplier_market_items,
     purchase_business_upgrade,
     purchase_business_inventory,
+    purchase_business_inventory_items,
     run_business_operations_for_player,
     run_player_businesses_for_day,
     set_business_operating_mode,
@@ -418,7 +421,17 @@ def open_business(
     pb = PlayerBusiness(
         player_id=player.id,
         business_id=body.business_id,
+        region=(player.region or "suburban"),
+        level_key="starter",
         business_level=1,
+        reputation=50,
+        cash_invested_xgp=Decimal(str(startup_cost)),
+        inventory_produce_units=Decimal("0"),
+        inventory_essentials_units=Decimal("0"),
+        inventory_protein_units=Decimal("0"),
+        inventory_items_json="{}",
+        fruit_markup_pct=Decimal("0.20"),
+        operating_mode="normal_pricing" if body.business_id == "fruit_shop" else "standard_menu",
         created_day=current_day,
         is_active=True,
     )
@@ -931,6 +944,16 @@ class BusinessInventoryPurchaseRequest(BaseModel):
     as_of_date: date | None = None
 
 
+class SupplierInventoryLineRequest(BaseModel):
+    item_id: str
+    quantity: float = Field(..., gt=0.0)
+
+
+class SupplierInventoryPurchaseRequest(BaseModel):
+    items: list[SupplierInventoryLineRequest] = Field(..., min_length=1)
+    as_of_date: date | None = None
+
+
 class BusinessOperateRequest(BaseModel):
     as_of_date: date | None = None
 
@@ -963,6 +986,23 @@ class BusinessUpgradeResponse(BaseModel):
     applied: bool
     expected_effects: dict = Field(default_factory=dict)
     debug_meta: dict = Field(default_factory=dict)
+
+
+@router.get("/supplier/items")
+def get_supplier_items_route(
+    business_type: str = Query(..., description="fruit_shop or food_truck"),
+    as_of_date: date | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Return current supplier catalog items for a business type."""
+    try:
+        return get_supplier_market_items(
+            db=db,
+            business_type=business_type,
+            as_of_date=as_of_date,
+        )
+    except Exception as exc:
+        _raise_business_service_http_error(exc)
 
 
 @router.post("/player/{player_id}/starter/create")
@@ -1003,6 +1043,29 @@ def purchase_business_inventory_for_player(
             produce_units=body.produce_units,
             essentials_units=body.essentials_units,
             protein_units=body.protein_units,
+            as_of_date=body.as_of_date,
+        )
+        db.commit()
+        return payload
+    except Exception as exc:
+        db.rollback()
+        _raise_business_service_http_error(exc)
+
+
+@router.post("/player/{player_id}/business/{business_id}/buy-inventory")
+def purchase_itemized_business_inventory_for_player(
+    player_id: str,
+    business_id: str,
+    body: SupplierInventoryPurchaseRequest,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Purchase itemized supplier inventory for a specific business."""
+    try:
+        payload = purchase_business_inventory_items(
+            db=db,
+            player_id=player_id,
+            business_id=business_id,
+            items=[item.model_dump() if hasattr(item, "model_dump") else item.dict() for item in body.items],
             as_of_date=body.as_of_date,
         )
         db.commit()

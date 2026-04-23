@@ -34,7 +34,10 @@ from app.models.stock_daily_price import StockDailyPrice
 from app.models.user import User
 from app.api.gameplay import GameplayActionRequest, execute_gameplay_action
 from app.services.business_daily_operations_service import (
+    BusinessValidationError,
     create_player_business,
+    get_supplier_market_items,
+    purchase_business_inventory_items,
     run_business_day,
     run_player_businesses_for_day,
 )
@@ -206,6 +209,19 @@ class BusinessDailyOperationsServiceTests(unittest.TestCase):
         self.db.close()
         self.engine.dispose()
 
+    def _create_business(self, business_type: str, region: str = "suburban", tier: int = 1) -> dict:
+        return create_player_business(self.db, str(self.player.id), business_type, region, tier)
+
+    def _buy_inventory(self, business_id: str, items: list[dict[str, object]]) -> dict:
+        payload = purchase_business_inventory_items(
+            self.db,
+            str(self.player.id),
+            business_id,
+            items=items,
+        )
+        self.db.flush()
+        return payload
+
     def test_create_fruit_shop(self) -> None:
         result = create_player_business(self.db, str(self.player.id), "fruit_shop", "suburban", 1)
         self.assertEqual(result["business_type"], "fruit_shop")
@@ -219,12 +235,85 @@ class BusinessDailyOperationsServiceTests(unittest.TestCase):
         count = self.db.query(PlayerBusiness).filter(PlayerBusiness.player_id == self.player.id).count()
         self.assertEqual(count, 2)
 
+    def test_supplier_item_list_is_filtered_by_business_type(self) -> None:
+        fruit_items = get_supplier_market_items(self.db, "fruit_shop", day_number=1)
+        truck_items = get_supplier_market_items(self.db, "food_truck", day_number=1)
+
+        self.assertEqual(fruit_items["business_type"], "fruit_shop")
+        self.assertEqual(truck_items["business_type"], "food_truck")
+        self.assertEqual({item["item_id"] for item in fruit_items["items"]}, {"mango", "orange", "apple", "grape", "banana", "strawberry"})
+        self.assertEqual({item["item_id"] for item in truck_items["items"]}, {"bread", "rice", "chicken", "beef", "egg", "cooking_oil"})
+
+    def test_buy_fruit_shop_inventory_updates_cash_and_itemized_inventory(self) -> None:
+        business = self._create_business("fruit_shop", "suburban", 1)
+        cash_before = float(self.player.cash_xgp)
+
+        purchase = self._buy_inventory(
+            business["business_id"],
+            [
+                {"item_id": "mango", "quantity": 20},
+                {"item_id": "orange", "quantity": 30},
+            ],
+        )
+        self.db.refresh(self.player)
+
+        self.assertEqual(purchase["business_type"], "fruit_shop")
+        self.assertGreater(purchase["total_purchase_cost_xgp"], 0.0)
+        self.assertLess(float(self.player.cash_xgp), cash_before)
+        self.assertEqual({item["item_id"] for item in purchase["inventory_items"]}, {"mango", "orange"})
+        self.assertGreater(purchase["inventory_total_units"], 0.0)
+
+    def test_buy_food_truck_inventory_updates_cash_and_itemized_inventory(self) -> None:
+        business = self._create_business("food_truck", "downtown", 1)
+
+        purchase = self._buy_inventory(
+            business["business_id"],
+            [
+                {"item_id": "bread", "quantity": 24},
+                {"item_id": "chicken", "quantity": 16},
+                {"item_id": "cooking_oil", "quantity": 8},
+            ],
+        )
+
+        self.assertEqual(purchase["business_type"], "food_truck")
+        self.assertEqual({item["item_id"] for item in purchase["inventory_items"]}, {"bread", "chicken", "cooking_oil"})
+        self.assertGreater(purchase["inventory_estimated_value_xgp"], 0.0)
+
+    def test_inventory_purchase_rejects_insufficient_cash_and_incompatible_items(self) -> None:
+        business = self._create_business("fruit_shop", "suburban", 1)
+
+        with self.assertRaises(BusinessValidationError):
+            self._buy_inventory(
+                business["business_id"],
+                [{"item_id": "beef", "quantity": 10}],
+            )
+
+        self.player.cash_xgp = Decimal("5.00")
+        self.db.flush()
+
+        with self.assertRaises(BusinessValidationError):
+            self._buy_inventory(
+                business["business_id"],
+                [{"item_id": "mango", "quantity": 100}],
+            )
+
     def test_run_fruit_shop_day_creates_log_and_ledger(self) -> None:
-        business = create_player_business(self.db, str(self.player.id), "fruit_shop", "suburban", 1)
+        business = self._create_business("fruit_shop", "suburban", 1)
+        self._buy_inventory(
+            business["business_id"],
+            [
+                {"item_id": "mango", "quantity": 18},
+                {"item_id": "orange", "quantity": 24},
+                {"item_id": "banana", "quantity": 18},
+            ],
+        )
         run_result = run_business_day(self.db, business["business_id"], 1)
         self.db.commit()
 
         self.assertEqual(run_result["status"], "ran")
+        self.assertGreater(run_result["labor_cost_xgp"], 0.0)
+        self.assertIn("units_sold_by_item", run_result)
+        self.assertIn("remaining_inventory_by_item", run_result)
 
         log = (
             self.db.query(BusinessDailyLog)
@@ -232,20 +321,33 @@ class BusinessDailyOperationsServiceTests(unittest.TestCase):
             .first()
         )
         self.assertIsNotNone(log)
+        self.assertGreater(float(log.labor_cost_xgp), 0.0)
 
         ledger_count = (
             self.db.query(BusinessLedgerEntry)
             .filter(BusinessLedgerEntry.business_id == uuid.UUID(business["business_id"]), BusinessLedgerEntry.day == 1)
             .count()
         )
-        self.assertGreaterEqual(ledger_count, 3)
+        self.assertGreaterEqual(ledger_count, 4)
 
     def test_run_food_truck_day_creates_log_and_ledger(self) -> None:
-        business = create_player_business(self.db, str(self.player.id), "food_truck", "downtown", 1)
+        business = self._create_business("food_truck", "downtown", 1)
+        self._buy_inventory(
+            business["business_id"],
+            [
+                {"item_id": "bread", "quantity": 30},
+                {"item_id": "rice", "quantity": 16},
+                {"item_id": "chicken", "quantity": 18},
+                {"item_id": "egg", "quantity": 12},
+                {"item_id": "cooking_oil", "quantity": 10},
+            ],
+        )
         run_result = run_business_day(self.db, business["business_id"], 1)
         self.db.commit()
 
         self.assertEqual(run_result["status"], "ran")
+        self.assertGreater(run_result["fuel_cost_xgp"], 0.0)
+        self.assertGreater(run_result["labor_cost_xgp"], 0.0)
 
         ledger_rows = (
             self.db.query(BusinessLedgerEntry)
@@ -255,11 +357,16 @@ class BusinessDailyOperationsServiceTests(unittest.TestCase):
         categories = {row.category for row in ledger_rows}
         self.assertIn("revenue", categories)
         self.assertIn("input_cost", categories)
+        self.assertIn("labor_cost", categories)
         self.assertIn("overhead_cost", categories)
         self.assertIn("fuel_cost", categories)
 
     def test_running_same_business_day_twice_does_not_duplicate(self) -> None:
-        business = create_player_business(self.db, str(self.player.id), "fruit_shop", "suburban", 1)
+        business = self._create_business("fruit_shop", "suburban", 1)
+        self._buy_inventory(
+            business["business_id"],
+            [{"item_id": "apple", "quantity": 40}],
+        )
         business_uuid = uuid.UUID(business["business_id"])
 
         first = run_business_day(self.db, business["business_id"], 1)
@@ -301,8 +408,27 @@ class BusinessDailyOperationsServiceTests(unittest.TestCase):
         self.assertEqual(logs_after_second, 1)
         self.assertEqual(ledger_after_first, ledger_after_second)
 
+    def test_no_inventory_blocks_business_operation_with_restock_message(self) -> None:
+        self._create_business("fruit_shop", "suburban", 1)
+
+        result = execute_gameplay_action(
+            str(self.player.id),
+            GameplayActionRequest(action_key="operate_business", parameters={}),
+            self.db,
+        )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["result"]["business_count_ran"], 0)
+        self.assertEqual(result["result"]["blocked_business_count"], 1)
+        self.assertEqual(result["result_summary"], "You need to buy inventory before operating.")
+        self.assertEqual(result["cash_delta_xgp"], 0.0)
+
     def test_day_progression_includes_business_result(self) -> None:
-        create_player_business(self.db, str(self.player.id), "fruit_shop", "suburban", 1)
+        business = self._create_business("fruit_shop", "suburban", 1)
+        self._buy_inventory(
+            business["business_id"],
+            [{"item_id": "orange", "quantity": 25}],
+        )
 
         result = run_player_next_day(self.db, str(self.player.id))
 
@@ -319,7 +445,15 @@ class BusinessDailyOperationsServiceTests(unittest.TestCase):
         self.assertIn("business_summary", result["summary_json"])
 
     def test_player_cash_changes_after_business_run(self) -> None:
-        create_player_business(self.db, str(self.player.id), "food_truck", "suburban", 1)
+        business = self._create_business("food_truck", "suburban", 1)
+        self._buy_inventory(
+            business["business_id"],
+            [
+                {"item_id": "bread", "quantity": 20},
+                {"item_id": "beef", "quantity": 10},
+                {"item_id": "cooking_oil", "quantity": 8},
+            ],
+        )
         cash_before = float(self.player.cash_xgp)
 
         run_player_businesses_for_day(self.db, str(self.player.id), 1, commit=True)
@@ -329,7 +463,11 @@ class BusinessDailyOperationsServiceTests(unittest.TestCase):
         self.assertNotEqual(cash_before, cash_after)
 
     def test_gameplay_execute_supports_operate_business_action_key(self) -> None:
-        create_player_business(self.db, str(self.player.id), "fruit_shop", "suburban", 1)
+        business = self._create_business("fruit_shop", "suburban", 1)
+        self._buy_inventory(
+            business["business_id"],
+            [{"item_id": "grape", "quantity": 28}],
+        )
 
         result = execute_gameplay_action(
             str(self.player.id),
@@ -342,7 +480,7 @@ class BusinessDailyOperationsServiceTests(unittest.TestCase):
         self.assertEqual(result["action_key"], "operate_business")
         self.assertEqual(result["time_cost_units"], 2.0)
         self.assertIn("Business operation completed", result["result_summary"])
-        self.assertEqual(result["result"]["business_count_run"], 1)
+        self.assertEqual(result["result"]["business_count_ran"], 1)
         self.assertEqual(result["cash_delta_xgp"], result["result"]["cash_delta_business_net_xgp"])
         self.assertEqual(result["updated_state"]["player_state"]["cash"], round(float(self.player.cash_xgp), 2))
 
@@ -353,8 +491,34 @@ class BusinessDailyOperationsServiceTests(unittest.TestCase):
         )
         self.assertEqual(log_count, 1)
 
+    def test_restock_warning_appears_when_inventory_is_low(self) -> None:
+        business = self._create_business("fruit_shop", "suburban", 1)
+        self._buy_inventory(
+            business["business_id"],
+            [{"item_id": "strawberry", "quantity": 4}],
+        )
+
+        run_result = run_business_day(self.db, business["business_id"], 1)
+
+        self.assertIn(run_result["restock_warning"], {
+            "Urgent: restock before next business day",
+            "Low inventory: restock soon",
+            "Business cannot operate normally without inventory",
+        })
+        self.assertLessEqual(float(run_result["estimated_days_of_stock_left"] or 0), 3.0)
+
     def test_business_can_lose_money_on_bad_day(self) -> None:
-        business = create_player_business(self.db, str(self.player.id), "food_truck", "rural", 1)
+        business = self._create_business("food_truck", "rural", 1)
+        self._buy_inventory(
+            business["business_id"],
+            [
+                {"item_id": "bread", "quantity": 18},
+                {"item_id": "rice", "quantity": 12},
+                {"item_id": "beef", "quantity": 10},
+                {"item_id": "egg", "quantity": 8},
+                {"item_id": "cooking_oil", "quantity": 6},
+            ],
+        )
 
         self.db.add(
             MacroDailyState(
@@ -403,6 +567,7 @@ class BusinessDailyOperationsServiceTests(unittest.TestCase):
         self.db.commit()
 
         self.assertLess(run_result["net_profit_xgp"], 0.0)
+        self.assertGreaterEqual(run_result["labor_cost_xgp"], 65.0)
 
 
 if __name__ == "__main__":

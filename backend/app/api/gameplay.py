@@ -2811,8 +2811,14 @@ def execute_gameplay_action(
                 result.get("cash_delta_business_net_xgp"),
                 _safe_float(result.get("business_net_profit_xgp"), 0.0),
             )
-            business_count = _safe_int(result.get("business_count_run"), 0)
+            business_count = _safe_int(result.get("business_count_ran"), _safe_int(result.get("business_count_run"), 0))
+            blocked_count = _safe_int(result.get("blocked_business_count"), 0)
             noun = "business" if business_count == 1 else "businesses"
+            message = "Business operation completed."
+            result_summary = f"Business operation completed: {business_count} {noun}, {cash_delta:+.2f} XGP net."
+            if business_count == 0 and blocked_count > 0:
+                message = "You need to buy inventory before operating."
+                result_summary = "You need to buy inventory before operating."
             detailed_result = {
                 **result,
                 "cash_delta_xgp": cash_delta,
@@ -2822,8 +2828,8 @@ def execute_gameplay_action(
                 db,
                 player=player,
                 action_key=action_key,
-                message="Business operation completed.",
-                result_summary=f"Business operation completed: {business_count} {noun}, {cash_delta:+.2f} XGP net.",
+                message=message,
+                result_summary=result_summary,
                 time_cost_units=_safe_float(params.get("time_cost_units"), 2.0),
                 cash_delta_xgp=cash_delta,
                 raw_result=detailed_result,

@@ -8,6 +8,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.engine.business_service import get_business_profit_snapshot
 from app.models.basket_daily_price import BasketDailyPrice
 from app.models.business_daily_log import BusinessDailyLog
 from app.models.enums import BasketType
@@ -188,6 +189,7 @@ def _allocation_payload(
     savings_xgp: Decimal,
     stock_value_xgp: Decimal,
     business_value_xgp: Decimal,
+    inventory_value_xgp: Decimal,
     debt_xgp: Decimal,
     total_assets_xgp: Decimal,
     net_worth_xgp: Decimal,
@@ -197,17 +199,20 @@ def _allocation_payload(
         savings_pct = float(_q4(savings_xgp / total_assets_xgp))
         stocks_pct = float(_q4(stock_value_xgp / total_assets_xgp))
         business_pct = float(_q4(business_value_xgp / total_assets_xgp))
+        inventory_pct = float(_q4(inventory_value_xgp / total_assets_xgp))
     else:
         cash_pct = 0.0
         savings_pct = 0.0
         stocks_pct = 0.0
         business_pct = 0.0
+        inventory_pct = 0.0
 
     return {
         "cash": float(cash_xgp),
         "savings": float(savings_xgp),
         "stocks": float(stock_value_xgp),
         "business": float(business_value_xgp),
+        "inventory": float(inventory_value_xgp),
         "debt": float(debt_xgp),
         "total_assets": float(total_assets_xgp),
         "net_worth": float(net_worth_xgp),
@@ -216,6 +221,7 @@ def _allocation_payload(
             "savings_pct": savings_pct,
             "stocks_pct": stocks_pct,
             "business_pct": business_pct,
+            "inventory_pct": inventory_pct,
         },
     }
 
@@ -238,6 +244,7 @@ def _serialize_snapshot(row: PlayerNetWorthSnapshot, *, already_processed: bool 
         "bank_savings_xgp": float(_money(_d(row.bank_savings_xgp))),
         "stock_market_value_xgp": float(_money(_d(row.stock_market_value_xgp))),
         "business_value_xgp": float(_money(_d(row.business_value_xgp))),
+        "inventory_value_xgp": float(_money(_d(getattr(row, "inventory_value_xgp", 0)))),
         "total_assets_xgp": float(_money(_d(row.total_assets_xgp))),
         "debt_xgp": float(_money(_d(row.debt_xgp))),
         "net_worth_xgp": float(_money(_d(row.net_worth_xgp))),
@@ -270,8 +277,16 @@ def compute_player_net_worth_snapshot(
         savings_xgp = _money(_d(player.bank_savings_xgp))
         debt_xgp = _money(_d(player.debt_xgp))
         stock_market_value_xgp = _compute_stock_market_value(db, player, int(day))
-        business_value_xgp = _compute_business_value_proxy(db, player, int(day))
-        total_assets_xgp = _money(cash_xgp + savings_xgp + stock_market_value_xgp + business_value_xgp)
+        business_snapshot = get_business_profit_snapshot(db=db, player_id=player.id, day_number=int(day))
+        business_value_xgp = _money(_d(business_snapshot.get("business_estimated_value_xgp", 0)))
+        inventory_value_xgp = _money(_d(business_snapshot.get("inventory_estimated_value_xgp", 0)))
+        total_assets_xgp = _money(
+            cash_xgp
+            + savings_xgp
+            + stock_market_value_xgp
+            + business_value_xgp
+            + inventory_value_xgp
+        )
         net_worth_xgp = _money(total_assets_xgp - debt_xgp)
 
         allocation = _allocation_payload(
@@ -279,6 +294,7 @@ def compute_player_net_worth_snapshot(
             savings_xgp=savings_xgp,
             stock_value_xgp=stock_market_value_xgp,
             business_value_xgp=business_value_xgp,
+            inventory_value_xgp=inventory_value_xgp,
             debt_xgp=debt_xgp,
             total_assets_xgp=total_assets_xgp,
             net_worth_xgp=net_worth_xgp,
@@ -303,6 +319,7 @@ def compute_player_net_worth_snapshot(
                 bank_savings_xgp=savings_xgp,
                 stock_market_value_xgp=stock_market_value_xgp,
                 business_value_xgp=business_value_xgp,
+                inventory_value_xgp=inventory_value_xgp,
                 total_assets_xgp=total_assets_xgp,
                 debt_xgp=debt_xgp,
                 net_worth_xgp=net_worth_xgp,
@@ -314,6 +331,7 @@ def compute_player_net_worth_snapshot(
             row.bank_savings_xgp = savings_xgp
             row.stock_market_value_xgp = stock_market_value_xgp
             row.business_value_xgp = business_value_xgp
+            row.inventory_value_xgp = inventory_value_xgp
             row.total_assets_xgp = total_assets_xgp
             row.debt_xgp = debt_xgp
             row.net_worth_xgp = net_worth_xgp
@@ -383,6 +401,7 @@ def get_player_asset_allocation(db: Session, player_id: str | UUID) -> dict:
         "bank_savings_xgp": latest["bank_savings_xgp"],
         "stock_market_value_xgp": latest["stock_market_value_xgp"],
         "business_value_xgp": latest["business_value_xgp"],
+        "inventory_value_xgp": latest["inventory_value_xgp"],
         "debt_xgp": latest["debt_xgp"],
         "total_assets_xgp": latest["total_assets_xgp"],
         "net_worth_xgp": latest["net_worth_xgp"],

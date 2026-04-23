@@ -31,6 +31,7 @@ class NetWorthSnapshotResponse(BaseModel):
     bank_savings_xgp: float
     stock_market_value_xgp: float
     business_value_xgp: float
+    inventory_value_xgp: float
     total_assets_xgp: float
     debt_xgp: float
     net_worth_xgp: float
@@ -52,6 +53,7 @@ class AllocationResponse(BaseModel):
     bank_savings_xgp: float
     stock_market_value_xgp: float
     business_value_xgp: float
+    inventory_value_xgp: float
     debt_xgp: float
     total_assets_xgp: float
     net_worth_xgp: float

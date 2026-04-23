@@ -1,6 +1,7 @@
 import os
 import unittest
 import uuid
+import json
 from decimal import Decimal
 
 from sqlalchemy import create_engine
@@ -24,6 +25,8 @@ from app.models.daily_brief_log import DailyBriefLog
 from app.models.daily_settlement_log import DailySettlementLog
 from app.models.debt_credit_log import DebtCreditLog
 from app.models.enums import BasketType
+from app.models.gameplay_transaction import GameplayTransaction
+from app.models.game_state import GameState
 from app.models.housing_daily_log import HousingDailyLog
 from app.models.job_definition_db import JobDefinition as JobDefinitionDB
 from app.models.macro_daily_state import MacroDailyState
@@ -34,9 +37,9 @@ from app.models.player_employment_state import PlayerEmploymentState
 from app.models.player_housing_state import PlayerHousingState
 from app.models.player_net_worth_snapshot import PlayerNetWorthSnapshot
 from app.models.player_stock_holding import PlayerStockHolding
+from app.models.player_transaction_log import PlayerTransactionLog
 from app.models.stock_daily_price import StockDailyPrice
 from app.models.user import User
-from app.services.day_progression_service import run_player_next_day
 from app.services.net_worth_service import (
     compute_player_net_worth_snapshot,
     get_player_net_worth_history,
@@ -85,12 +88,15 @@ class NetWorthServiceTests(unittest.TestCase):
                 MacroDailyState.__table__,
                 BasketDailyPrice.__table__,
                 BasketConsumptionLog.__table__,
+                GameplayTransaction.__table__,
+                GameState.__table__,
                 StockDailyPrice.__table__,
                 PlayerBusiness.__table__,
                 BusinessDailyLog.__table__,
                 BusinessLedgerEntry.__table__,
                 PlayerHousingState.__table__,
                 PlayerStockHolding.__table__,
+                PlayerTransactionLog.__table__,
                 HousingDailyLog.__table__,
                 PlayerNetWorthSnapshot.__table__,
             ],
@@ -113,7 +119,7 @@ class NetWorthServiceTests(unittest.TestCase):
         self.db.flush()
 
         player = Player(
-            user_id=user.id,
+            user_id=str(user.id),
             display_name="Net Worth Test Player",
             cash=Decimal("1000.00"),
             bank_savings_xgp=Decimal("200.00"),
@@ -169,6 +175,12 @@ class NetWorthServiceTests(unittest.TestCase):
                 event_summary="Seeded baseline for tests.",
             )
         )
+        self.db.add(
+            GameState(
+                current_day=1,
+                day_status="open",
+            )
+        )
 
         for basket_type, price in {
             BasketType.essentials: Decimal("10.0000"),
@@ -221,6 +233,44 @@ class NetWorthServiceTests(unittest.TestCase):
                 business_level=1,
                 reputation=52,
                 cash_reserve_xgp=Decimal("150.00"),
+                cash_invested_xgp=Decimal("1200.00"),
+                inventory_essentials_units=Decimal("12.0000"),
+                inventory_protein_units=Decimal("8.0000"),
+                inventory_items_json=json.dumps({
+                    "bread": {
+                        "quantity": 12,
+                        "avg_unit_cost": 0.48,
+                        "retail_price": 1.20,
+                        "suggested_retail_price": 1.20,
+                        "spoilage_rate": 0.05,
+                        "demand_weight": 1.0,
+                        "basket_link": "essentials",
+                        "unit_label": "pack",
+                        "economy_sensitivity": 0.8,
+                    },
+                    "chicken": {
+                        "quantity": 8,
+                        "avg_unit_cost": 1.35,
+                        "retail_price": 3.00,
+                        "suggested_retail_price": 3.00,
+                        "spoilage_rate": 0.07,
+                        "demand_weight": 1.12,
+                        "basket_link": "protein",
+                        "unit_label": "tray",
+                        "economy_sensitivity": 1.08,
+                    },
+                    "cooking_oil": {
+                        "quantity": 5,
+                        "avg_unit_cost": 0.82,
+                        "retail_price": 1.60,
+                        "suggested_retail_price": 1.60,
+                        "spoilage_rate": 0.02,
+                        "demand_weight": 0.72,
+                        "basket_link": "convenience",
+                        "unit_label": "bottle",
+                        "economy_sensitivity": 1.12,
+                    },
+                }),
                 created_day=1,
                 is_active=True,
             )
@@ -268,6 +318,16 @@ class NetWorthServiceTests(unittest.TestCase):
     def test_business_value_contributes_when_business_logs_exist(self) -> None:
         snapshot = compute_player_net_worth_snapshot(self.db, str(self.player.id), day=1)
         self.assertGreater(snapshot["business_value_xgp"], 0.0)
+        self.assertGreater(snapshot["inventory_value_xgp"], 0.0)
+        self.assertAlmostEqual(
+            snapshot["total_assets_xgp"],
+            snapshot["cash_xgp"]
+            + snapshot["bank_savings_xgp"]
+            + snapshot["stock_market_value_xgp"]
+            + snapshot["business_value_xgp"]
+            + snapshot["inventory_value_xgp"],
+            places=2,
+        )
 
     def test_rerun_same_player_day_does_not_duplicate_snapshot(self) -> None:
         first = compute_player_net_worth_snapshot(self.db, str(self.player.id), day=1)
@@ -308,19 +368,22 @@ class NetWorthServiceTests(unittest.TestCase):
         self.assertEqual(history["snapshots"][1]["day"], 1)
 
     def test_day_run_and_portfolio_routes_include_snapshot_fields(self) -> None:
-        run_result = run_player_next_day(self.db, str(self.player.id))
-        self.assertIn("net_worth_xgp", run_result)
-        self.assertIn("total_assets_xgp", run_result)
-        self.assertIn("stock_market_value_xgp", run_result)
-        self.assertIn("business_value_xgp", run_result)
-        self.assertIn("debt_xgp", run_result)
-        self.assertIn("allocation_json", run_result)
+        computed_snapshot = compute_player_net_worth_snapshot(self.db, str(self.player.id), day=1)
+        self.assertIn("net_worth_xgp", computed_snapshot)
+        self.assertIn("total_assets_xgp", computed_snapshot)
+        self.assertIn("stock_market_value_xgp", computed_snapshot)
+        self.assertIn("business_value_xgp", computed_snapshot)
+        self.assertIn("inventory_value_xgp", computed_snapshot)
+        self.assertIn("debt_xgp", computed_snapshot)
+        self.assertIn("allocation_json", computed_snapshot)
 
         computed = compute_player_snapshot_route(player_id=str(self.player.id), day=None, db=self.db)
         self.assertEqual(computed.player_id, str(self.player.id))
+        self.assertGreater(computed.inventory_value_xgp, 0.0)
 
         latest = get_latest_player_snapshot_route(player_id=str(self.player.id), db=self.db)
         self.assertEqual(latest.player_id, str(self.player.id))
+        self.assertGreater(latest.inventory_value_xgp, 0.0)
 
         history = get_player_snapshot_history_route(player_id=str(self.player.id), limit=30, db=self.db)
         self.assertGreaterEqual(history.count, 1)
@@ -331,6 +394,7 @@ class NetWorthServiceTests(unittest.TestCase):
         self.assertIn("savings", allocation.allocation_json)
         self.assertIn("stocks", allocation.allocation_json)
         self.assertIn("business", allocation.allocation_json)
+        self.assertIn("inventory", allocation.allocation_json)
         self.assertIn("debt", allocation.allocation_json)
         self.assertIn("net_worth", allocation.allocation_json)
 

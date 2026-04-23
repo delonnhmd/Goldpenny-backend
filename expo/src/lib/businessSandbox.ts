@@ -243,8 +243,109 @@ const MARKET_BLUEPRINTS: {
   },
 ];
 
+const SLOT_ADDRESS_BOOK: Record<string, {
+  baseNumber: number;
+  streetNames: string[];
+  suffixes: string[];
+}> = {
+  suburban_brookside: {
+    baseNumber: 200,
+    streetNames: ['Oak Garden', 'Greenfield', 'Maple Creek', 'Willow Bend', 'Cedar Hollow', 'Brookside'],
+    suffixes: ['Ln', 'Way', 'Dr'],
+  },
+  downtown_exchange: {
+    baseNumber: 900,
+    streetNames: ['Market Line', 'Riverfront', 'Central Trade', 'Station Row', 'Skywalk', 'Pier Exchange'],
+    suffixes: ['Ave', 'Plaza', 'St'],
+  },
+  riverside_grove: {
+    baseNumber: 300,
+    streetNames: ['Riverbend', 'Ferry View', 'Grove Trail', 'Maple Creek', 'Canal Vista', 'Waterline'],
+    suffixes: ['Dr', 'Way', 'Rd'],
+  },
+  harbor_works: {
+    baseNumber: 500,
+    streetNames: ['Dockside', 'Union Freight', 'Canal Works', 'Fleet Harbor', 'Shipyard', 'Port Gate'],
+    suffixes: ['St', 'Plaza', 'Ave'],
+  },
+};
+
+const DISTRICT_GROWTH_MODIFIERS: Record<string, number> = {
+  suburban_brookside: 0.05,
+  downtown_exchange: 0.14,
+  riverside_grove: 0.08,
+  harbor_works: 0.1,
+};
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
+}
+
+function stableHash(value: string): number {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) - hash) + value.charCodeAt(index);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function slotAddressProfile(regionId: string | null | undefined) {
+  if (regionId && SLOT_ADDRESS_BOOK[regionId]) return SLOT_ADDRESS_BOOK[regionId];
+  return SLOT_ADDRESS_BOOK.suburban_brookside;
+}
+
+export function buildSlotAddress(
+  regionId: string | null | undefined,
+  lotLabel: string | null | undefined,
+  row: number,
+  col: number,
+): string {
+  const profile = slotAddressProfile(regionId);
+  const seed = stableHash(`${regionId || 'unknown'}:${lotLabel || 'lot'}:${row}:${col}`);
+  const streetName = profile.streetNames[seed % profile.streetNames.length];
+  const suffix = profile.suffixes[Math.floor(seed / profile.streetNames.length) % profile.suffixes.length];
+  const number = profile.baseNumber + ((row + 1) * 87) + ((col + 1) * 19) + (seed % 23);
+  return `${number} ${streetName} ${suffix}`;
+}
+
+export function estimateSlotDemandScore(
+  trafficScore: number,
+  developmentPotential: number,
+  regionId?: string | null,
+  zoneType?: string | null,
+): number {
+  const regionBonus = String(regionId || '').includes('downtown')
+    ? 8
+    : String(regionId || '').includes('harbor')
+      ? 6
+      : String(regionId || '').includes('river')
+        ? 4
+        : 2;
+  const zoneBonus = zoneType === 'commercial_core'
+    ? 7
+    : zoneType === 'mixed_use'
+      ? 4
+      : zoneType === 'service_flex'
+        ? 3
+        : 1;
+  return clamp(
+    Math.round((Number(trafficScore || 0) * 0.58) + (Number(developmentPotential || 0) * 0.42) + regionBonus + zoneBonus),
+    10,
+    100,
+  );
+}
+
+export function estimateSlotCurrentValue(
+  purchasePriceXgp: number,
+  demandScore: number,
+  regionId?: string | null,
+): number {
+  const price = Math.max(0, Number(purchasePriceXgp || 0));
+  if (!price) return 0;
+  const districtGrowthModifier = DISTRICT_GROWTH_MODIFIERS[String(regionId || '')] ?? 0.04;
+  const demandScoreModifier = clamp((Number(demandScore || 0) - 45) / 220, 0, 0.28);
+  return Math.round(price * (1 + districtGrowthModifier + demandScoreModifier));
 }
 
 export function createEmptyBusinessSandboxState(playerId: string): BusinessSandboxState {
@@ -388,7 +489,9 @@ export function deriveBusinessMarketListings(options: {
 }
 
 function linkedLotForBusiness(state: BusinessSandboxState, businessId: string): SandboxOwnedLot | null {
-  return state.owned_lots.find((lot) => lot.placed_business_id === businessId) || null;
+  return state.owned_lots.find(
+    (lot) => lot.linked_business_id === businessId || lot.placed_business_id === businessId,
+  ) || null;
 }
 
 function marketLinkForBusiness(state: BusinessSandboxState, businessId: string) {
@@ -442,7 +545,7 @@ export function deriveActiveBusinessProfile(options: {
   const playerEmployees = clamp(Math.round(employees * realPlayerShare), 0, Math.max(0, employees - 1));
   const npcEmployees = Math.max(0, employees - playerEmployees);
   const locationLabel = linkedLot
-    ? `${linkedLot.district_label || 'Owned lot'} (${linkedLot.x},${linkedLot.y})`
+    ? linkedLot.address || `${linkedLot.district_label || 'Owned lot'} (${linkedLot.x},${linkedLot.y})`
     : marketLink?.location_label || (activeBusiness.region_key ? `${activeBusiness.region_key} market` : 'City market');
 
   return {

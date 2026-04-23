@@ -6,11 +6,17 @@ import { formatMoney } from '@/lib/gameplayFormatters';
 import { StockMarketItem, StockMarketSnapshotResponse } from '@/types/stocks';
 
 interface PortfolioMetrics {
-  currentCashXgp: number;
+  cashXgp: number;
+  stockValueXgp: number;
   ownedSlotCount: number;
   builtSlotCount: number;
-  slotValueXgp: number;
-  slotCostXgp: number;
+  landValueXgp: number;
+  landCostBasisXgp: number;
+  businessValueXgp: number;
+  inventoryValueXgp: number;
+  debtXgp: number;
+  totalAssetsXgp: number;
+  netWorthXgp: number;
   latestBusinessIncomeXgp: number;
   trailingBusinessIncomeXgp: number;
   activeBusinessCount: number;
@@ -110,33 +116,54 @@ export default function StockMarketCard({
           <View style={styles.assetSnapshotHeader}>
             <View>
               <Text style={styles.assetSnapshotKicker}>Portfolio snapshot</Text>
-              <Text style={styles.assetSnapshotTitle}>Cash, land, and business income</Text>
+              <Text style={styles.assetSnapshotTitle}>Total assets across cash, land, business, and inventory</Text>
             </View>
             <View style={styles.assetBadge}>
-              <Text style={styles.assetBadgeValue}>{portfolioMetrics.ownedSlotCount}</Text>
-              <Text style={styles.assetBadgeLabel}>Slots</Text>
+              <Text
+                style={[
+                  styles.assetBadgeValue,
+                  { color: changeTone(portfolioMetrics.netWorthXgp) },
+                ]}
+              >
+                {formatMoney(portfolioMetrics.netWorthXgp)}
+              </Text>
+              <Text style={styles.assetBadgeLabel}>Net Worth</Text>
             </View>
           </View>
 
           <View style={styles.portfolioGrid}>
             <View style={styles.portfolioTile}>
-              <Text style={styles.tileLabel}>Current XGP</Text>
-              <Text style={styles.tileValue}>{formatMoney(portfolioMetrics.currentCashXgp)}</Text>
+              <Text style={styles.tileLabel}>Cash</Text>
+              <Text style={styles.tileValue}>{formatMoney(portfolioMetrics.cashXgp)}</Text>
             </View>
             <View style={styles.portfolioTile}>
-              <Text style={styles.tileLabel}>Owned Slots</Text>
-              <Text style={styles.tileValue}>{portfolioMetrics.ownedSlotCount}</Text>
+              <Text style={styles.tileLabel}>Stocks</Text>
+              <Text style={styles.tileValue}>{formatMoney(portfolioMetrics.stockValueXgp)}</Text>
             </View>
             <View style={styles.portfolioTile}>
-              <Text style={styles.tileLabel}>Slot Value</Text>
-              <Text style={styles.tileValue}>{formatMoney(portfolioMetrics.slotValueXgp)}</Text>
+              <Text style={styles.tileLabel}>Land / Slots</Text>
+              <Text style={styles.tileValue}>{formatMoney(portfolioMetrics.landValueXgp)}</Text>
             </View>
             <View style={styles.portfolioTile}>
-              <Text style={styles.tileLabel}>Built Sites</Text>
-              <Text style={styles.tileValue}>{portfolioMetrics.builtSlotCount}</Text>
+              <Text style={styles.tileLabel}>Businesses</Text>
+              <Text style={styles.tileValue}>{formatMoney(portfolioMetrics.businessValueXgp)}</Text>
             </View>
             <View style={styles.portfolioTile}>
-              <Text style={styles.tileLabel}>Business Income</Text>
+              <Text style={styles.tileLabel}>Inventory</Text>
+              <Text style={styles.tileValue}>{formatMoney(portfolioMetrics.inventoryValueXgp)}</Text>
+            </View>
+            <View style={styles.portfolioTile}>
+              <Text style={styles.tileLabel}>Debt</Text>
+              <Text style={[styles.tileValue, { color: changeTone(-portfolioMetrics.debtXgp) }]}>
+                {formatMoney(portfolioMetrics.debtXgp)}
+              </Text>
+            </View>
+            <View style={styles.portfolioTile}>
+              <Text style={styles.tileLabel}>Total Assets</Text>
+              <Text style={styles.tileValue}>{formatMoney(portfolioMetrics.totalAssetsXgp)}</Text>
+            </View>
+            <View style={styles.portfolioTile}>
+              <Text style={styles.tileLabel}>Latest Business</Text>
               <Text style={[styles.tileValue, { color: changeTone(portfolioMetrics.latestBusinessIncomeXgp) }]}>
                 {formatMoney(portfolioMetrics.latestBusinessIncomeXgp)}
               </Text>
@@ -150,18 +177,18 @@ export default function StockMarketCard({
           </View>
 
           <Text style={styles.assetSnapshotHint}>
-            Active businesses {portfolioMetrics.activeBusinessCount}. Land cost basis {formatMoney(portfolioMetrics.slotCostXgp)}.
+            Slots {portfolioMetrics.ownedSlotCount}, built sites {portfolioMetrics.builtSlotCount}, active businesses {portfolioMetrics.activeBusinessCount}. Land cost basis {formatMoney(portfolioMetrics.landCostBasisXgp)}.
           </Text>
         </View>
       ) : null}
 
       <View style={styles.portfolioGrid}>
         <View style={styles.portfolioTile}>
-          <Text style={styles.tileLabel}>Stock Cash</Text>
+          <Text style={styles.tileLabel}>Trade Cash</Text>
           <Text style={styles.tileValue}>{formatMoney(market.portfolio.available_cash_xgp)}</Text>
         </View>
         <View style={styles.portfolioTile}>
-          <Text style={styles.tileLabel}>Market Value</Text>
+          <Text style={styles.tileLabel}>Held Market Value</Text>
           <Text style={styles.tileValue}>{formatMoney(market.portfolio.total_market_value_xgp)}</Text>
         </View>
         <View style={styles.portfolioTile}>
@@ -393,7 +420,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   assetBadge: {
-    minWidth: 62,
+    minWidth: 112,
     borderWidth: 1,
     borderColor: alpha(theme.ui.info, 0.36),
     borderRadius: theme.radius.md,

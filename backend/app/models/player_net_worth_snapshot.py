@@ -32,6 +32,7 @@ class PlayerNetWorthSnapshot(Base):
     bank_savings_xgp = Column(Numeric(14, 2), nullable=False, default=0)
     stock_market_value_xgp = Column(Numeric(14, 2), nullable=False, default=0)
     business_value_xgp = Column(Numeric(14, 2), nullable=False, default=0)
+    inventory_value_xgp = Column(Numeric(14, 2), nullable=False, default=0)
     total_assets_xgp = Column(Numeric(14, 2), nullable=False, default=0)
     debt_xgp = Column(Numeric(14, 2), nullable=False, default=0)
     net_worth_xgp = Column(Numeric(14, 2), nullable=False, default=0)

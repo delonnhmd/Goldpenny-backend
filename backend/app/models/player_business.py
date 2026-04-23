@@ -52,6 +52,7 @@ class PlayerBusiness(Base):
     inventory_produce_units = Column(Numeric(14, 4), nullable=False, default=0)
     inventory_essentials_units = Column(Numeric(14, 4), nullable=False, default=0)
     inventory_protein_units = Column(Numeric(14, 4), nullable=False, default=0)
+    inventory_items_json = Column(Text, nullable=True, default="{}")
 
     # Fruit shop pricing control. Enforced by service guardrails.
     fruit_markup_pct = Column(Numeric(8, 4), nullable=False, default=0.20)

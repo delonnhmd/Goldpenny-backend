@@ -20,10 +20,12 @@ from app.engine.business_service import (
     get_business_daily_history,
     get_business_profit_snapshot,
     get_player_businesses,
+    get_supplier_market_items,
     operate_food_truck,
     operate_fruit_shop,
     purchase_business_upgrade,
     purchase_business_inventory,
+    purchase_business_inventory_items,
     run_business_operations_for_player,
     set_business_operating_mode,
 )
@@ -172,7 +174,9 @@ __all__ = [
     "get_player_businesses",
     "get_business_daily_history",
     "get_business_profit_snapshot",
+    "get_supplier_market_items",
     "run_business_operations_for_player",
+    "purchase_business_inventory_items",
     # Backward-compatible exports
     "create_player_business",
     "run_business_day",

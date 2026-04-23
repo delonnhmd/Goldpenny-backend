@@ -40,6 +40,7 @@ class BusinessDailyLog(Base):
 
     gross_revenue_xgp = Column(Numeric(14, 4), nullable=False)
     input_cost_xgp = Column(Numeric(14, 4), nullable=False)
+    labor_cost_xgp = Column(Numeric(14, 4), nullable=False, default=0)
     fuel_cost_xgp = Column(Numeric(14, 4), nullable=True)
     maintenance_cost_xgp = Column(Numeric(14, 4), nullable=False, default=0)
     spoilage_cost_xgp = Column(Numeric(14, 4), nullable=True)

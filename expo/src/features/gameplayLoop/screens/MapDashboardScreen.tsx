@@ -24,10 +24,13 @@ import { buildGameplayBottomNavItems } from '@/features/gameplayLoop/navigation'
 import JobMarketPanel from '@/features/gameplayLoop/components/JobMarketPanel';
 import { useScreenTimer } from '@/hooks/useScreenTimer';
 import {
+  buildSlotAddress,
   businessLabel,
   createEmptyBusinessSandboxState,
   defaultGrowthPhaseForBusinessType,
   deriveActiveBusinessProfile,
+  estimateSlotCurrentValue,
+  estimateSlotDemandScore,
   getNextGrowthPhase,
 } from '@/lib/businessSandbox';
 import {
@@ -561,7 +564,7 @@ function primaryLotStatusLabel(
   if (cell.type === 'locked') return 'Locked';
   if (cell.type === 'node') return 'Service Building';
   if (cell.type === 'scenery') return 'Special Node';
-  if (ownership?.placed_business_id) return 'Active Site';
+  if (ownership?.linked_business_id || ownership?.placed_business_id) return 'Active Site';
   if (ownership) return 'Owned';
   if (tier === 'hot') return 'Hot Slot';
   return 'Buyable';
@@ -591,7 +594,7 @@ const DistrictGridCell = React.memo(function DistrictGridCell({
     ? primaryLotStatusLabel(cell, ownership, opportunity || 'normal')
     : primaryLotStatusLabel(cell, null);
   const tileMeta = cell.type === 'lot'
-    ? ownership?.placed_business_id
+    ? (ownership?.linked_business_id || ownership?.placed_business_id)
       ? 'Built'
       : ownership
         ? 'Held Land'
@@ -612,7 +615,7 @@ const DistrictGridCell = React.memo(function DistrictGridCell({
         cell.type === 'lot' && opportunity === 'strong' && !ownership ? styles.gridCellStrong : null,
         cell.type === 'lot' && opportunity === 'hot' && !ownership ? styles.gridCellHot : null,
         ownership ? styles.gridCellOwned : null,
-        ownership?.placed_business_id ? styles.gridCellBuilt : null,
+        (ownership?.linked_business_id || ownership?.placed_business_id) ? styles.gridCellBuilt : null,
         isSelected ? { borderColor: tone.accent, backgroundColor: alpha(tone.accent, 0.18) } : null,
       ]}
     >
@@ -836,9 +839,9 @@ export default function MapDashboardScreen() {
     ],
   );
   const selectedLotHasActiveBusiness = Boolean(
-    selectedLotOwnership?.placed_business_id
+    (selectedLotOwnership?.linked_business_id || selectedLotOwnership?.placed_business_id)
     && activeBusiness
-    && selectedLotOwnership.placed_business_id === activeBusiness.business_id,
+    && (selectedLotOwnership.linked_business_id || selectedLotOwnership.placed_business_id) === activeBusiness.business_id,
   );
 
   const persistSandboxState = async (
@@ -1066,6 +1069,14 @@ export default function MapDashboardScreen() {
   const purchaseSelectedLot = async () => {
     if (!selectedRegion || !selectedCell || selectedCell.type !== 'lot' || selectedLotOwnership) return;
     const tileKey = cellTileKey(selectedRegion.id, selectedCell.id);
+    const demandScore = estimateSlotDemandScore(
+      selectedCell.trafficScore,
+      selectedCell.developmentPotential,
+      selectedRegion.id,
+      selectedCell.zoneType,
+    );
+    const slotAddress = buildSlotAddress(selectedRegion.id, selectedCell.title, selectedCell.row, selectedCell.col);
+    const currentValue = estimateSlotCurrentValue(selectedCell.priceXgp, demandScore, selectedRegion.id);
     await persistSandboxState((current) => ({
       ...current,
       owned_lots: [
@@ -1074,15 +1085,20 @@ export default function MapDashboardScreen() {
           tile_key: tileKey,
           x: selectedCell.col,
           y: selectedCell.row,
+          address: slotAddress,
           district_key: selectedRegion.id,
           district_label: selectedRegion.label,
+          region: selectedRegion.kind,
           zone_type: selectedCell.zoneType,
           size: selectedCell.size,
-          value_xgp: selectedCell.priceXgp,
+          value_xgp: currentValue,
           purchase_price_xgp: selectedCell.priceXgp,
           traffic_score: selectedCell.trafficScore,
           development_potential: selectedCell.developmentPotential,
+          demand_score: demandScore,
+          owner_player_id: loop.playerId,
           planned_business_type: null,
+          linked_business_id: null,
           placed_business_id: null,
           development_stage: 'land',
           purchased_at: new Date().toISOString(),
@@ -1098,13 +1114,16 @@ export default function MapDashboardScreen() {
   const placeActiveBusinessOnLot = async () => {
     if (!selectedRegion || !selectedCell || selectedCell.type !== 'lot' || !selectedLotOwnership || !activeBusiness) return;
     const tileKey = cellTileKey(selectedRegion.id, selectedCell.id);
+    const slotAddress = selectedLotOwnership.address
+      || buildSlotAddress(selectedRegion.id, selectedCell.title, selectedCell.row, selectedCell.col);
     await persistSandboxState((current) => ({
       ...current,
       owned_lots: current.owned_lots.map((lot) => {
-        if (lot.placed_business_id === activeBusiness.business_id && lot.tile_key !== tileKey) {
+        if ((lot.linked_business_id === activeBusiness.business_id || lot.placed_business_id === activeBusiness.business_id) && lot.tile_key !== tileKey) {
           return {
             ...lot,
             planned_business_type: null,
+            linked_business_id: null,
             placed_business_id: null,
             development_stage: 'land',
           };
@@ -1113,6 +1132,7 @@ export default function MapDashboardScreen() {
         return {
           ...lot,
           planned_business_type: String(activeBusiness.business_type),
+          linked_business_id: activeBusiness.business_id,
           placed_business_id: activeBusiness.business_id,
           development_stage: 'built',
         };
@@ -1127,7 +1147,7 @@ export default function MapDashboardScreen() {
           tile_key: tileKey,
           district_key: selectedRegion.id,
           district_label: selectedRegion.label,
-          location_label: `${selectedRegion.label} / ${selectedCell.title}`,
+          location_label: slotAddress,
           growth_phase_key: current.business_market_links.find((link) => link.business_id === activeBusiness.business_id)?.growth_phase_key
             || defaultGrowthPhaseForBusinessType(String(activeBusiness.business_type)),
         },
@@ -1357,13 +1377,37 @@ export default function MapDashboardScreen() {
                         <View style={styles.landStateRow}>
                           <Text style={styles.landStateLabel}>Business state</Text>
                           <Text style={styles.landStateValue}>
-                            {selectedLotOwnership?.placed_business_id
+                            {(selectedLotOwnership?.linked_business_id || selectedLotOwnership?.placed_business_id)
                               ? selectedLotHasActiveBusiness
                                 ? 'Active business site'
                                 : 'Built site'
                               : selectedLotOwnership
                                 ? 'Empty owned land'
                                 : 'No business placed'}
+                          </Text>
+                        </View>
+                        <View style={styles.landStateRow}>
+                          <Text style={styles.landStateLabel}>Address</Text>
+                          <Text style={styles.landStateValue}>
+                            {selectedLotOwnership?.address || buildSlotAddress(selectedRegion.id, selectedCell.title, selectedCell.row, selectedCell.col)}
+                          </Text>
+                        </View>
+                        <View style={styles.landStateRow}>
+                          <Text style={styles.landStateLabel}>Current value</Text>
+                          <Text style={styles.landStateValue}>
+                            {formatMoney(
+                              selectedLotOwnership?.value_xgp
+                              || estimateSlotCurrentValue(
+                                selectedCell.priceXgp,
+                                estimateSlotDemandScore(
+                                  selectedCell.trafficScore,
+                                  selectedCell.developmentPotential,
+                                  selectedRegion.id,
+                                  selectedCell.zoneType,
+                                ),
+                                selectedRegion.id,
+                              ),
+                            )}
                           </Text>
                         </View>
                       </View>
@@ -1381,11 +1425,11 @@ export default function MapDashboardScreen() {
                       {selectedLotOwnership ? (
                         <View style={styles.selectionStack}>
                           <Text style={styles.supportingCopy}>
-                            {selectedLotOwnership.placed_business_id
+                            {(selectedLotOwnership.linked_business_id || selectedLotOwnership.placed_business_id)
                               ? 'This lot already hosts your active business footprint.'
                               : 'This land is owned and ready for development.'}
                           </Text>
-                          {selectedLotOwnership.placed_business_id ? (
+                          {(selectedLotOwnership.linked_business_id || selectedLotOwnership.placed_business_id) ? (
                             <>
                               {selectedLotHasActiveBusiness && activeBusinessProfile ? (
                                 <View style={styles.businessPanel}>

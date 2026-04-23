@@ -8,7 +8,7 @@ import { OnboardingHighlight } from '@/components/onboarding';
 import EmptyStateView from '@/components/ui/EmptyStateView';
 import { useOnboarding } from '@/features/onboarding';
 import { useScreenTimer } from '@/hooks/useScreenTimer';
-import { createEmptyBusinessSandboxState } from '@/lib/businessSandbox';
+import { createEmptyBusinessSandboxState, estimateSlotCurrentValue } from '@/lib/businessSandbox';
 import { readBusinessSandboxState } from '@/lib/businessSandboxPersistence';
 
 import { useGameplayLoop } from '../context';
@@ -35,33 +35,63 @@ export default function MarketScreen() {
   const portfolioMetrics = useMemo(() => {
     const ownedSlots = sandboxBusinessState.owned_lots || [];
     const businessSnapshot = loop.businesses?.profit_snapshot || {};
+    const stockMarketValueXgp = Number(loop.stockMarket?.portfolio.total_market_value_xgp || 0);
+    const cashXgp = Number(
+      loop.authoritativeState?.player_state.cash
+      ?? loop.dashboard?.stats.cash_xgp
+      ?? 0,
+    );
+    const debtXgp = Number(
+      loop.authoritativeState?.player_state.debt
+      ?? loop.dashboard?.stats.debt_xgp
+      ?? 0,
+    );
+    const landValueXgp = ownedSlots.reduce(
+      (sum, lot) => sum + Number(
+        lot.value_xgp
+        || estimateSlotCurrentValue(
+          lot.purchase_price_xgp,
+          lot.demand_score || 0,
+          lot.district_key,
+        )
+        || 0,
+      ),
+      0,
+    );
+    const businessValueXgp = Number(businessSnapshot.business_estimated_value_xgp || 0);
+    const inventoryValueXgp = Number(businessSnapshot.inventory_estimated_value_xgp || 0);
     const activeBusinessCount = Number(
       businessSnapshot.active_businesses
       ?? loop.businesses?.businesses?.filter((business) => business.is_active).length
       ?? 0,
     );
+    const totalAssetsXgp = cashXgp + stockMarketValueXgp + landValueXgp + businessValueXgp + inventoryValueXgp;
+    const netWorthXgp = totalAssetsXgp - debtXgp;
 
     return {
-      currentCashXgp: Number(
-        loop.authoritativeState?.player_state.cash
-        ?? loop.dashboard?.stats.cash_xgp
-        ?? loop.stockMarket?.portfolio.available_cash_xgp
-        ?? 0,
-      ),
+      cashXgp,
       ownedSlotCount: ownedSlots.length,
-      builtSlotCount: ownedSlots.filter((lot) => Boolean(lot.placed_business_id)).length,
-      slotValueXgp: ownedSlots.reduce((sum, lot) => sum + Number(lot.value_xgp || lot.purchase_price_xgp || 0), 0),
-      slotCostXgp: ownedSlots.reduce((sum, lot) => sum + Number(lot.purchase_price_xgp || 0), 0),
+      builtSlotCount: ownedSlots.filter((lot) => Boolean(lot.linked_business_id || lot.placed_business_id)).length,
+      landValueXgp,
+      landCostBasisXgp: ownedSlots.reduce((sum, lot) => sum + Number(lot.purchase_price_xgp || 0), 0),
+      stockValueXgp: stockMarketValueXgp,
+      businessValueXgp,
+      inventoryValueXgp,
+      debtXgp,
+      totalAssetsXgp,
+      netWorthXgp,
       latestBusinessIncomeXgp: Number(businessSnapshot.latest_daily_profit_xgp || 0),
       trailingBusinessIncomeXgp: Number(businessSnapshot.trailing_7d_profit_xgp || 0),
       activeBusinessCount,
     };
   }, [
     loop.authoritativeState?.player_state.cash,
+    loop.authoritativeState?.player_state.debt,
     loop.businesses?.businesses,
     loop.businesses?.profit_snapshot,
     loop.dashboard?.stats.cash_xgp,
-    loop.stockMarket?.portfolio.available_cash_xgp,
+    loop.dashboard?.stats.debt_xgp,
+    loop.stockMarket?.portfolio.total_market_value_xgp,
     sandboxBusinessState.owned_lots,
   ]);
 
