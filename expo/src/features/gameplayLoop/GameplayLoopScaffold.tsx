@@ -81,6 +81,8 @@ const PAGE_IDENTITY: Record<string, { eyebrow: string; mood: string; chips: stri
   },
 };
 
+const HIDDEN_TOP_CHROME_NAV_KEYS = new Set(['life', 'work', 'dashboard', 'business']);
+
 export default function GameplayLoopScaffold({
   title,
   subtitle,
@@ -129,6 +131,11 @@ export default function GameplayLoopScaffold({
     mood: subtitle,
     chips: ['Gameplay'],
   };
+  const showTopBar = !HIDDEN_TOP_CHROME_NAV_KEYS.has(activeNavKey);
+  const showPageHero = !HIDDEN_TOP_CHROME_NAV_KEYS.has(activeNavKey);
+  const headerRight = activeNavKey === 'market'
+    ? <TextButton label="Account" onPress={() => router.push('/account')} />
+    : undefined;
 
   useEffect(() => {
     ensureRoute(activeNavKey as OnboardingRouteKey);
@@ -315,7 +322,8 @@ export default function GameplayLoopScaffold({
     <AppShell
       title={title}
       subtitle={subtitle}
-      headerRight={<TextButton label="Account" onPress={() => router.push('/account')} />}
+      headerRight={headerRight}
+      showTopBar={showTopBar}
       topStatusBar={(
         <PlayerStatusBar
           cash={Number(stats?.cash_xgp ?? 0)}
@@ -344,18 +352,20 @@ export default function GameplayLoopScaffold({
           )}
         >
           <ContentStack gap={theme.spacing.md} onLayout={handleContentLayout}>
-            <FadeInView style={styles.pageHero}>
-              <View style={styles.pageHeroCard}>
-                <Text style={styles.pageHeroEyebrow}>{identity.eyebrow}</Text>
-                <Text style={styles.pageHeroTitle}>{title}</Text>
-                <Text style={styles.pageHeroBody}>{identity.mood}</Text>
-                <View style={styles.heroChipRow}>
-                  {identity.chips.map((chip) => (
-                    <Chip key={chip} label={chip} variant="active" />
-                  ))}
+            {showPageHero ? (
+              <FadeInView style={styles.pageHero}>
+                <View style={styles.pageHeroCard}>
+                  <Text style={styles.pageHeroEyebrow}>{identity.eyebrow}</Text>
+                  <Text style={styles.pageHeroTitle}>{title}</Text>
+                  <Text style={styles.pageHeroBody}>{identity.mood}</Text>
+                  <View style={styles.heroChipRow}>
+                    {identity.chips.map((chip) => (
+                      <Chip key={chip} label={chip} variant="active" />
+                    ))}
+                  </View>
                 </View>
-              </View>
-            </FadeInView>
+              </FadeInView>
+            ) : null}
             <PlaytestObserver />
             {onboardingActive ? <OnboardingStepOverlay /> : null}
 

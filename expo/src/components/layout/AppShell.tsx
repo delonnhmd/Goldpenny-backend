@@ -12,6 +12,7 @@ export default function AppShell({
   subtitle,
   headerRight,
   topStatusBar,
+  showTopBar = true,
   children,
   footer,
   bottomNavItems,
@@ -21,6 +22,7 @@ export default function AppShell({
   subtitle?: string | null;
   headerRight?: React.ReactNode;
   topStatusBar?: React.ReactNode;
+  showTopBar?: boolean;
   children: React.ReactNode;
   footer?: React.ReactNode;
   bottomNavItems?: AppBottomNavItem[];
@@ -30,7 +32,7 @@ export default function AppShell({
     <SafeAreaPage edges={['top', 'bottom']}>
       <View style={styles.container}>
         {topStatusBar ? topStatusBar : null}
-        <TopBar title={title} subtitle={subtitle} rightContent={headerRight} />
+        {showTopBar ? <TopBar title={title} subtitle={subtitle} rightContent={headerRight} /> : null}
         <View style={styles.body}>{children}</View>
         {footer ? footer : null}
         {bottomNavItems && bottomNavItems.length > 0 ? (
