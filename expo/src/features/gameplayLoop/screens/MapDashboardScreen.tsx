@@ -16,6 +16,7 @@ import type { MapTileActionTag } from '@/components/gameMap';
 import { PlayerStatusBar } from '@/components/gameMap';
 import AppBottomNav from '@/components/layout/AppBottomNav';
 import SafeAreaPage from '@/components/layout/SafeAreaPage';
+import { OnboardingHighlight, OnboardingStepOverlay } from '@/components/onboarding';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import SecondaryButton from '@/components/ui/SecondaryButton';
 import { alpha, theme } from '@/design/theme';
@@ -675,6 +676,9 @@ export default function MapDashboardScreen() {
   useScreenTimer('map');
   const loop = useGameplayLoop();
   const onboarding = useOnboarding();
+  const onboardingActive = onboarding.isActive;
+  const onboardingRoute = onboarding.currentStep?.route;
+  const ensureOnboardingRoute = onboarding.ensureRoute;
 
   const [worldMapStage, setWorldMapStage] = useState<WorldMapStage>('main');
   const [selectedRegionId, setSelectedRegionId] = useState<string | null>(null);
@@ -1255,6 +1259,16 @@ export default function MapDashboardScreen() {
     [onboarding.navigateTo],
   );
 
+  useEffect(() => {
+    ensureOnboardingRoute('map');
+  }, [ensureOnboardingRoute]);
+
+  useEffect(() => {
+    if (!onboardingActive || onboardingRoute !== 'map' || selectedRegionId) return;
+    setWorldMapStage('selector');
+    setSelectedRegionId('downtown_exchange');
+  }, [onboardingActive, onboardingRoute, selectedRegionId]);
+
   return (
     <SafeAreaPage edges={['top', 'bottom']} style={styles.page}>
       <View style={styles.root}>
@@ -1280,6 +1294,8 @@ export default function MapDashboardScreen() {
             </Pressable>
           </View>
         ) : null}
+
+        {onboardingActive ? <OnboardingStepOverlay /> : null}
 
         <View style={styles.mapStage}>
           {selectedRegion ? (
@@ -1348,7 +1364,8 @@ export default function MapDashboardScreen() {
               </View>
 
               {selectedCell ? (
-                <View style={styles.detailCard}>
+                <OnboardingHighlight target="map-primary-actions">
+                  <View style={styles.detailCard}>
                   <View style={styles.sheetGrabber} />
                   <View style={styles.detailHeader}>
                     <View style={styles.detailHeaderCopy}>
@@ -1662,7 +1679,8 @@ export default function MapDashboardScreen() {
                       This landmark improves the feel of the district and helps the submap feel like a place, not just a purchase grid.
                     </Text>
                   ) : null}
-                </View>
+                  </View>
+                </OnboardingHighlight>
               ) : null}
             </ScrollView>
           ) : worldMapStage === 'selector' ? (
@@ -1833,24 +1851,26 @@ export default function MapDashboardScreen() {
                 <MetricPill label="Locked next" value={`${lockedRegions.length} areas`} />
               </View>
 
-              <Pressable style={styles.mainMapBoard} onPress={openSubmapSelector}>
-                <ImageBackground
-                  source={MAIN_MAP_IMAGE}
-                  resizeMode="cover"
-                  style={styles.mainMapBoardImage}
-                  imageStyle={styles.mainMapBoardImageInner}
-                >
-                  <View style={styles.mainMapOverlay}>
-                    <View style={styles.mainMapCallout}>
-                      <Text style={styles.mainMapCalloutEyebrow}>Tap Main Map</Text>
-                      <Text style={styles.mainMapCalloutTitle}>Open unlocked areas</Text>
-                      <Text style={styles.mainMapCalloutSubtitle}>
-                        Suburban, Downtown, Riverside, and Harbor Works are live now. Remaining districts stay locked for future city phases.
-                      </Text>
+              <OnboardingHighlight target="map-primary-actions">
+                <Pressable style={styles.mainMapBoard} onPress={openSubmapSelector}>
+                  <ImageBackground
+                    source={MAIN_MAP_IMAGE}
+                    resizeMode="cover"
+                    style={styles.mainMapBoardImage}
+                    imageStyle={styles.mainMapBoardImageInner}
+                  >
+                    <View style={styles.mainMapOverlay}>
+                      <View style={styles.mainMapCallout}>
+                        <Text style={styles.mainMapCalloutEyebrow}>Tap Main Map</Text>
+                        <Text style={styles.mainMapCalloutTitle}>Open unlocked areas</Text>
+                        <Text style={styles.mainMapCalloutSubtitle}>
+                          Suburban, Downtown, Riverside, and Harbor Works are live now. Remaining districts stay locked for future city phases.
+                        </Text>
+                      </View>
                     </View>
-                  </View>
-                </ImageBackground>
-              </Pressable>
+                  </ImageBackground>
+                </Pressable>
+              </OnboardingHighlight>
 
               <View style={styles.mainMapLockedNotice}>
                 <MaterialCommunityIcons name="lock-outline" size={18} color={theme.ui.warning} />

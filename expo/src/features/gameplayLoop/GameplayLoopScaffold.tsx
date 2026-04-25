@@ -65,9 +65,9 @@ const PAGE_IDENTITY: Record<string, { eyebrow: string; mood: string; chips: stri
     chips: ['Revenue', 'Margin', 'Operations'],
   },
   market: {
-    eyebrow: 'Wallet lane',
-    mood: 'Cash, holdings, baskets, and optional stock exposure should feel readable instead of spreadsheet heavy.',
-    chips: ['Baskets', 'Volatility', 'Capital'],
+    eyebrow: 'Portfolio lane',
+    mood: 'Cash, land, businesses, baskets, and stock-market exposure should read as one asset picture.',
+    chips: ['Cash', 'Stocks', 'Assets'],
   },
   life: {
     eyebrow: 'Daily lane',

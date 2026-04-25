@@ -97,8 +97,8 @@ export default function MarketScreen() {
 
   return (
     <GameplayLoopScaffold
-      title="Market"
-      subtitle="Read basket signals, then evaluate optional stock exposure"
+      title="Portfolio"
+      subtitle="Cash, assets, baskets, and optional stock-market exposure"
       activeNavKey="market"
     >
       {loop.economySummary ? (
@@ -116,7 +116,7 @@ export default function MarketScreen() {
       )}
 
       {!simplified && loop.stockMarket ? (
-        <GameplaySummaryCard eyebrow="Stocks" title="Stock Lane">
+        <GameplaySummaryCard eyebrow="Stocks" title="Stock Market">
           <StockMarketCard
             market={loop.stockMarket}
             portfolioMetrics={portfolioMetrics}

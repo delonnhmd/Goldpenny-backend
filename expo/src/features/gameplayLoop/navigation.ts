@@ -4,7 +4,7 @@ import type { OnboardingRouteKey } from '@/features/onboarding/context';
 type GameplayBottomNavKey =
   | 'map'
   | 'life'
-  | 'dashboard'
+  | 'work'
   | 'business'
   | 'market';
 
@@ -15,7 +15,7 @@ const gameplayBottomNavConfig: {
 }[] = [
   { key: 'map', label: 'Map', icon: 'map-outline' },
   { key: 'life', label: 'Life', icon: 'heart-outline' },
-  { key: 'dashboard', label: 'Work', icon: 'view-dashboard-outline' },
+  { key: 'work', label: 'Work', icon: 'briefcase-outline' },
   { key: 'business', label: 'Business', icon: 'storefront-outline' },
   { key: 'market', label: 'Portfolio', icon: 'wallet-outline' },
 ];

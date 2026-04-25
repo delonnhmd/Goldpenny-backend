@@ -75,7 +75,8 @@ export default function SignupScreen() {
       />
 
       <Text style={authScreenStyles.helperText}>Create the account first, then start a fresh player profile from a clean Day 1 baseline.</Text>
-      {error ? <Text style={authScreenStyles.errorText}>{error}</Text> : null}
+      <Text style={authScreenStyles.helperText}>Already use this email on your phone? Log in instead and Gold Penny will restore the existing player.</Text>
+      {error ? <Text selectable style={authScreenStyles.errorText}>{error}</Text> : null}
 
       <PrimaryButton
         label={submitting ? 'Creating Account...' : 'Create Account'}

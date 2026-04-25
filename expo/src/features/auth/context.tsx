@@ -21,6 +21,10 @@ import {
 
 type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
 
+const DUPLICATE_ACCOUNT_MESSAGE = 'That email already has a Gold Penny account. Log in instead to restore your existing player.';
+const LINKED_PLAYER_MESSAGE = 'This account already has a linked player profile. Log in and your saved game will load.';
+const PROFILE_SERVER_MESSAGE = 'Could not reach the player-profile server. Check the backend connection, then try again.';
+
 interface AuthContextValue {
   status: AuthStatus;
   isAuthenticated: boolean;
@@ -40,6 +44,37 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 function normalizeError(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
   return String(error || 'Something went wrong.');
+}
+
+function isDuplicateAccountMessage(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return normalized.includes('user already registered')
+    || normalized.includes('already registered')
+    || normalized.includes('email already exists')
+    || normalized.includes('email_already_exists')
+    || normalized.includes('already has a gold penny account');
+}
+
+function isLinkedPlayerMessage(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return normalized.includes('already has a linked player profile')
+    || normalized.includes('already has a player profile')
+    || normalized.includes('selected user already has a player profile');
+}
+
+function isNetworkFailureMessage(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return normalized === 'failed to fetch'
+    || normalized.includes('failed to fetch')
+    || normalized.includes('network request failed')
+    || normalized.includes('load failed');
+}
+
+function friendlyProfileError(error: unknown): Error {
+  const message = normalizeError(error);
+  if (isLinkedPlayerMessage(message)) return new Error(LINKED_PLAYER_MESSAGE);
+  if (isNetworkFailureMessage(message)) return new Error(PROFILE_SERVER_MESSAGE);
+  return error instanceof Error ? error : new Error(message);
 }
 
 function buildLegacySession(
@@ -169,7 +204,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signUp = useCallback(async ({ email, password }: { email: string; password: string }) => {
     const { data, error } = await supabase.auth.signUp({ email, password });
-    if (error) throw new Error(error.message);
+    if (error) {
+      throw new Error(isDuplicateAccountMessage(error.message) ? DUPLICATE_ACCOUNT_MESSAGE : error.message);
+    }
+    const identities = data.user?.identities;
+    if (data.user && Array.isArray(identities) && identities.length === 0) {
+      await supabase.auth.signOut();
+      throw new Error(DUPLICATE_ACCOUNT_MESSAGE);
+    }
     if (!data.session) {
       // Email confirmation is required by the project. Surface a clear
       // message so the user knows to check their inbox before signing in.
@@ -184,7 +226,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!data?.session?.user?.id) {
       throw new Error('You must be signed in before creating a player profile.');
     }
-    await createPlayerByUserId(data.session.user.id, payload);
+    try {
+      const existing = await getPlayerByUserId(data.session.user.id);
+      if (existing) {
+        await applyFromSupabase();
+        return;
+      }
+    } catch (error) {
+      throw friendlyProfileError(error);
+    }
+    try {
+      await createPlayerByUserId(data.session.user.id, payload);
+    } catch (error) {
+      throw friendlyProfileError(error);
+    }
     await applyFromSupabase();
   }, [applyFromSupabase]);
 
@@ -266,5 +321,10 @@ export function useAuth() {
 }
 
 export function getAuthErrorMessage(error: unknown): string {
-  return normalizeError(error);
+  const message = normalizeError(error);
+  if (isDuplicateAccountMessage(message)) return DUPLICATE_ACCOUNT_MESSAGE;
+  if (isLinkedPlayerMessage(message)) return LINKED_PLAYER_MESSAGE;
+  if (isNetworkFailureMessage(message)) return PROFILE_SERVER_MESSAGE;
+  const colonIndex = message.indexOf(':');
+  return colonIndex > -1 ? message.slice(colonIndex + 1).trim() : message;
 }

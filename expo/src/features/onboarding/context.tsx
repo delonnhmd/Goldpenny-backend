@@ -30,7 +30,7 @@ export type OnboardingRouteKey =
   | 'life'
   | 'summary';
 
-type GuidedRouteKey = Exclude<OnboardingRouteKey, 'business' | 'map'>;
+type GuidedRouteKey = Exclude<OnboardingRouteKey, 'business' | 'dashboard'>;
 
 type OnboardingStepRequirement = 'manual_continue' | 'first_work_action' | 'settled_summary';
 
@@ -52,30 +52,30 @@ const ONBOARDING_STEPS: OnboardingStepDefinition[] = [
     body: 'Signals first -> better actions next.',
     highlightTarget: 'life-daily-economy',
     requirement: 'manual_continue',
-    continueLabel: 'Next: Dashboard',
+    continueLabel: 'Next: Map',
   },
   {
-    key: 'dashboard_core_stats',
-    route: 'dashboard',
-    title: 'Watch Cash And Stress',
-    body: 'Cash protects you -> stress increases mistakes.',
-    highlightTarget: 'dashboard-core-stats',
-    requirement: 'manual_continue',
-    continueLabel: 'Next: Work',
-  },
-  {
-    key: 'work_first_action',
-    route: 'work',
-    title: 'Do One Work Action',
-    body: 'One action spends time -> cash and stress change.',
-    highlightTarget: 'work-first-action',
+    key: 'map_first_action',
+    route: 'map',
+    title: 'Use The Map',
+    body: 'Actions happen on city nodes. Start one work action from the map.',
+    highlightTarget: 'map-primary-actions',
     requirement: 'first_work_action',
+  },
+  {
+    key: 'work_status_review',
+    route: 'work',
+    title: 'Review Work Status',
+    body: 'Work is your income control panel. The map is still where shifts happen.',
+    highlightTarget: 'work-status',
+    requirement: 'manual_continue',
+    continueLabel: 'Next: Portfolio',
   },
   {
     key: 'market_price_movement',
     route: 'market',
-    title: 'Check Price Movement',
-    body: 'Prices up -> your costs and margins move.',
+    title: 'Check Portfolio',
+    body: 'Read assets, baskets, and stock-market exposure together.',
     highlightTarget: 'market-price-movement',
     requirement: 'manual_continue',
     continueLabel: 'Next: Summary',
@@ -140,7 +140,7 @@ function navLabel(route: OnboardingRouteKey): string {
   if (route === 'dashboard') return 'Dashboard';
   if (route === 'map') return 'Map';
   if (route === 'work') return 'Work';
-  if (route === 'market') return 'Market';
+  if (route === 'market') return 'Portfolio';
   if (route === 'business') return 'Business';
   if (route === 'life') return 'Life';
   return 'Summary';
@@ -167,7 +167,10 @@ export function OnboardingProvider({
   const expectedRoute = currentStep?.route || null;
 
   const hasCompletedWorkAction = useMemo(
-    () => loop.dailySession.actionsTakenToday.some((entry) => entry.success),
+    () => loop.dailySession.actionsTakenToday.some((entry) => {
+      const actionKey = String(entry.action_key || '').toLowerCase();
+      return entry.success && (actionKey.includes('work') || actionKey.includes('shift'));
+    }),
     [loop.dailySession.actionsTakenToday],
   );
 

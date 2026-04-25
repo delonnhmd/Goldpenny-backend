@@ -11,7 +11,6 @@ import EmptyStateView from '@/components/ui/EmptyStateView';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import SecondaryButton from '@/components/ui/SecondaryButton';
 import { alpha, theme } from '@/design/theme';
-import { useOnboarding } from '@/features/onboarding';
 import { useScreenTimer } from '@/hooks/useScreenTimer';
 import { finalizePlayerWorkState } from '@/lib/api/gameplay';
 import { BALANCE } from '@/lib/balanceConfig';
@@ -531,8 +530,6 @@ export default function DashboardScreen() {
   const loopPlayerId = loop.playerId;
   const refreshGameplay = loop.refresh;
   const setLoopFeedback = loop.setFeedback;
-  const onboarding = useOnboarding();
-  const guidedDashboardActive = onboarding.isActive && onboarding.currentStep?.route === 'dashboard';
 
   // Stats
   const stats = loop.dashboard?.stats;
@@ -1789,7 +1786,7 @@ export default function DashboardScreen() {
           delayMs={20}
         >
           <OnboardingHighlight target="dashboard-core-stats">
-            <GameplaySummaryCard eyebrow="Status" title="Money, Health &amp; Stress">
+            <GameplaySummaryCard eyebrow="Status" title="Money, Health & Stress">
               <GameplayCompactMetricRows
                 items={[
                   {
@@ -1934,7 +1931,7 @@ export default function DashboardScreen() {
         watchValue={`economy_${dayLabel}_${economySummaryLine}_${workDemandLabel}`}
         delayMs={50}
       >
-        <GameplaySummaryCard eyebrow="Economy" title="Today's Risk &amp; Opportunity">
+        <GameplaySummaryCard eyebrow="Economy" title="Today's Risk & Opportunity">
           <Text style={styles.helperText}>{economySummaryLine}</Text>
           <GameplayCompactMetricRows
             items={economyMacroItems.map((entry, index) => ({
@@ -1981,7 +1978,7 @@ export default function DashboardScreen() {
         watchValue={`work_${dayLabel}_${backendShiftActive ? 'active' : backendShiftCompleted ? 'done' : workState?.missed_shift_today ? 'missed' : 'idle'}_${Math.round(salaryEarnedToday * 100)}`}
         delayMs={60}
       >
-        <GameplaySummaryCard eyebrow="Work" title="Income &amp; Shifts">
+        <GameplaySummaryCard eyebrow="Work" title="Income & Shifts">
         <View style={styles.metricRow}>
           <GameplayStatCard
             label="Current job"
@@ -2416,7 +2413,7 @@ export default function DashboardScreen() {
         watchValue={`recovery_${dayLabel}_${currentTimedActivity || 'idle'}_${loop.dailySession.stressRecoveredToday}_${loop.dailySession.skillProgressGainedToday}`}
         delayMs={120}
       >
-      <GameplaySummaryCard eyebrow="Recovery" title="Timed Recovery &amp; Training">
+      <GameplaySummaryCard eyebrow="Recovery" title="Timed Recovery & Training">
         {(backendShiftActive || autoClockingOut) ? (
           <GameplayWarningBanner
             title="Recovery locked during shift"
@@ -2583,7 +2580,7 @@ export default function DashboardScreen() {
         watchValue={`food_${dayLabel}_${dinnerResolvedToday ? 'done' : 'pending'}_${busyMeal || 'idle'}`}
         delayMs={160}
       >
-      <GameplaySummaryCard eyebrow="Life" title="Food &amp; Meals">
+      <GameplaySummaryCard eyebrow="Life" title="Food & Meals">
         {cash < 6 ? (
           <GameplayWarningBanner
             title="Low cash for meals"
@@ -2650,7 +2647,7 @@ export default function DashboardScreen() {
         watchValue={`finance_${dayLabel}_${Math.round(debt * 100)}_${Math.round(cash * 100)}_${busyFinance ? 'busy' : 'idle'}`}
         delayMs={180}
       >
-      <GameplaySummaryCard eyebrow="Finance" title="Quick Loan &amp; Debt Payment">
+      <GameplaySummaryCard eyebrow="Finance" title="Quick Loan & Debt Payment">
         {debt > 200 ? (
           <GameplayWarningBanner
             title="High debt"

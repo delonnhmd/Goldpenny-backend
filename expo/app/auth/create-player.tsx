@@ -231,7 +231,10 @@ export default function CreatePlayerScreen() {
         })}
 
         <Text style={authScreenStyles.helperText}>Account: {auth.session.account.email}</Text>
-        {error ? <Text style={authScreenStyles.errorText}>{error}</Text> : null}
+        <Text style={authScreenStyles.helperText}>
+          Already created this account on another device? Log in with that email and Gold Penny will restore the linked player instead of creating a new one.
+        </Text>
+        {error ? <Text selectable style={authScreenStyles.errorText}>{error}</Text> : null}
 
         <PrimaryButton
           label={submitting ? 'Creating Survival Profile...' : 'Create Survival Profile'}

@@ -1,20 +1,20 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-import ActionHubPanel from '@/components/gameplay/ActionHubPanel';
-import ActionPreviewModal from '@/components/gameplay/ActionPreviewModal';
 import { OnboardingHighlight } from '@/components/onboarding';
-import EmptyStateView from '@/components/ui/EmptyStateView';
+import PrimaryButton from '@/components/ui/PrimaryButton';
 import { theme } from '@/design/theme';
 import { useOnboarding } from '@/features/onboarding';
 import { useScreenTimer } from '@/hooks/useScreenTimer';
 import { BALANCE } from '@/lib/balanceConfig';
+import { formatMoney } from '@/lib/gameplayFormatters';
 import { recordInfo } from '@/lib/logger';
 import { DailyActionItem, JobMarketJobSnapshot } from '@/types/gameplay';
 
 import JobMarketPanel from '../components/JobMarketPanel';
 import { useGameplayLoop } from '../context';
 import {
+  GameplayCompactMetricRows,
   GameplayStatCard,
   GameplayStickyActionArea,
   GameplaySummaryCard,
@@ -33,50 +33,6 @@ export default function WorkScreen() {
   const guidedWorkActive = onboarding.isActive && onboarding.currentStep?.route === 'work';
   const stats = loop.dashboard?.stats;
   const workState = loop.dashboard?.work_state || loop.actionHub?.work_state || null;
-  const actionHubForDisplay = useMemo(() => {
-    if (!loop.actionHub) return null;
-    const hiddenKeys = new Set([
-      'rest',
-      'study',
-      'watch_tv',
-      'watch_movie',
-      'read_book',
-      'jogging',
-      'eat_meal',
-      'skill_training',
-      'start_training',
-      'work_shift',
-      'side_income',
-      'operate_business',
-      'buy_inventory',
-    ]);
-    const filterActions = (actions: DailyActionItem[]) =>
-      actions.filter((action) => {
-        const rawKey = String(action.action_key || '').trim().toLowerCase();
-        if (hiddenKeys.has(rawKey)) return false;
-        if (
-          rawKey.includes('recover')
-          || rawKey.includes('watch_')
-          || rawKey.includes('jog')
-          || rawKey.includes('eat_')
-          || rawKey.includes('work')
-          || rawKey.includes('shift')
-          || rawKey.includes('ride')
-          || rawKey.includes('side_income')
-          || rawKey.includes('business')
-          || rawKey.includes('inventory')
-        ) {
-          return false;
-        }
-        return true;
-      });
-    return {
-      ...loop.actionHub,
-      recommended_actions: filterActions(loop.actionHub.recommended_actions || []),
-      available_actions: filterActions(loop.actionHub.available_actions || []),
-      blocked_actions: filterActions(loop.actionHub.blocked_actions || []),
-    };
-  }, [loop.actionHub]);
   const jobMarket = workState?.job_market || null;
   const currentJobKey = String(
     jobMarket?.current_job_key
@@ -183,58 +139,87 @@ export default function WorkScreen() {
     void loop.executeAction(action);
   };
 
+  const salaryEarnedToday = Number(workState?.salary_earned_today || 0);
+  const salaryEarnedYesterday = Number(workState?.salary_earned_yesterday || 0);
+  const salaryPaymentStatus = String(workState?.salary_payment_status || '').toLowerCase();
+  const salaryStatusLabel = String(workState?.salary_status_label || 'No salary posted').replace(/Ãƒâ€šÃ‚Â·/g, '-');
+  const currentJobLabel = String(
+    jobMarket?.current_job_display_name
+    || workState?.current_job_display_name
+    || loop.dashboard?.stats?.current_job_display
+    || loop.jobIncome.currentJob
+    || 'No job selected',
+  ).replace(/_/g, ' ');
+  const shiftWindow = workState?.is_weekend
+    ? 'Weekend - no required shift'
+    : workState?.scheduled_shift_window_label || 'Use the map work node';
+  const workStatusTone = salaryPaymentStatus === 'failed'
+    ? 'danger'
+    : salaryEarnedToday > 0
+      ? 'positive'
+      : 'warning';
+
   return (
     <GameplayLoopScaffold
-      title="Work / Job"
+      title="Work"
       subtitle="Turn your time into money"
       activeNavKey="work"
       footer={guidedWorkActive ? null : (
         <GameplayStickyActionArea
           summary={`${loop.dailySession.remainingTimeUnits} time units left today`}
-          secondaryLabel="Open Market"
+          secondaryLabel="Open Map"
           onSecondaryPress={() => {
-            onboarding.navigateTo('market');
+            onboarding.navigateTo('map');
           }}
-          primaryLabel="Open Summary"
+          primaryLabel="Open Portfolio"
           onPrimaryPress={() => {
-            onboarding.navigateTo('summary');
+            onboarding.navigateTo('market');
           }}
           primaryDisabled={false}
         />
       )}
     >
-      <GameplaySummaryCard
-        eyebrow="Your work status"
-        title="Income, Energy &amp; Time"
-        subtitle="Start a shift to earn money. Each shift uses time and increases stress."
-      >
-        <View style={styles.metricRow}>
-          <GameplayStatCard
-            label="Today's pay"
-            value={loop.jobIncome.dailyIncomeLabel}
-            tone={loop.jobIncome.incomeAmount != null && loop.jobIncome.incomeAmount >= 0 ? 'positive' : 'warning'}
-            note={loop.jobIncome.currentJob ? loop.jobIncome.currentJob.replace(/_/g, ' ') : 'No job selected yet'}
+      <OnboardingHighlight target="work-status">
+        <GameplaySummaryCard
+          eyebrow="Your work status"
+          title="Income, Energy & Time"
+          subtitle="Track pay, pressure, and job setup here. Start shifts from the map work node."
+        >
+          <View style={styles.metricRow}>
+            <GameplayStatCard
+              label="Today's pay"
+              value={salaryEarnedToday > 0 ? `+${formatMoney(salaryEarnedToday)}` : loop.jobIncome.dailyIncomeLabel}
+              tone={workStatusTone}
+              note={currentJobLabel}
+            />
+            <GameplayStatCard
+              label="Stress"
+              value={`${Math.round(stats?.stress ?? 0)}`}
+              tone={(stats?.stress ?? 0) >= 65 ? 'danger' : 'warning'}
+              note="High stress slows recovery and raises mistakes."
+            />
+            <GameplayStatCard
+              label="Health"
+              value={`${Math.round(stats?.health ?? 100)}`}
+              tone={(stats?.health ?? 100) >= 65 ? 'positive' : 'warning'}
+              note="Low health reduces earnings from shifts."
+            />
+            <GameplayStatCard
+              label="Time left"
+              value={`${loop.dailySession.remainingTimeUnits}/${loop.dailySession.totalTimeUnits}`}
+              tone={loop.dailySession.remainingTimeUnits <= 2 ? 'warning' : 'info'}
+              note={`1 unit = ${BALANCE.REALTIME.MINUTES_PER_UNIT} mins. Timed activities now consume units over time.`}
+            />
+          </View>
+          <GameplayCompactMetricRows
+            items={[
+              { label: 'Shift window', value: shiftWindow, tone: 'neutral' },
+              { label: 'Salary status', value: salaryStatusLabel, tone: workStatusTone },
+              { label: 'Yesterday salary', value: salaryEarnedYesterday > 0 ? `+${formatMoney(salaryEarnedYesterday)}` : '--', tone: salaryEarnedYesterday > 0 ? 'positive' : 'neutral' },
+            ]}
           />
-          <GameplayStatCard
-            label="Stress"
-            value={`${Math.round(stats?.stress ?? 0)}`}
-            tone={(stats?.stress ?? 0) >= 65 ? 'danger' : 'warning'}
-            note="High stress slows recovery and raises mistakes."
-          />
-          <GameplayStatCard
-            label="Health"
-            value={`${Math.round(stats?.health ?? 100)}`}
-            tone={(stats?.health ?? 100) >= 65 ? 'positive' : 'warning'}
-            note="Low health reduces earnings from shifts."
-          />
-          <GameplayStatCard
-            label="Time left"
-            value={`${loop.dailySession.remainingTimeUnits}/${loop.dailySession.totalTimeUnits}`}
-            tone={loop.dailySession.remainingTimeUnits <= 2 ? 'warning' : 'info'}
-            note={`1 unit = ${BALANCE.REALTIME.MINUTES_PER_UNIT} mins. Timed activities now consume units over time.`}
-          />
-        </View>
-      </GameplaySummaryCard>
+        </GameplaySummaryCard>
+      </OnboardingHighlight>
 
       {showJobMarket ? (
         <JobMarketPanel
@@ -252,44 +237,11 @@ export default function WorkScreen() {
         title="Job board and shift actions now live on the map"
         subtitle="Use the Job Center for hiring and certifications, then use your work location node to run shifts and shift-focus bonuses."
       >
-        <View />
-      </GameplaySummaryCard>
-
-      {actionHubForDisplay ? (
-        <OnboardingHighlight target="work-first-action">
-          <ActionHubPanel
-            hub={actionHubForDisplay}
-            onExecuteAction={(action: DailyActionItem) => {
-              void loop.openActionPreview(action);
-            }}
-            getExecutionGuard={(action) => loop.dailySession.canExecuteAction(action)}
-            remainingTimeUnits={loop.dailySession.remainingTimeUnits}
-            totalTimeUnits={loop.dailySession.totalTimeUnits}
-            sessionStatus={loop.dailySession.sessionStatus}
-            progressRatio={loop.dailySession.progress}
-          />
-        </OnboardingHighlight>
-      ) : (
-        <EmptyStateView
-          title="No actions loaded"
-          subtitle="Refresh to pull the latest action hub."
+        <PrimaryButton
+          label="Open Map Work Node"
+          onPress={() => onboarding.navigateTo('map')}
         />
-      )}
-
-      <ActionPreviewModal
-        visible={Boolean(loop.selectedPreviewAction)}
-        action={loop.selectedPreviewAction}
-        preview={loop.actionPreview}
-        loading={loop.previewLoading}
-        error={loop.previewError}
-        onClose={loop.closeActionPreview}
-        onExecuteAction={() => {
-          void loop.executeSelectedAction();
-        }}
-        executeDisabled={loop.dailySession.sessionStatus !== 'active'}
-        executeGuard={loop.selectedPreviewAction ? loop.dailySession.canExecuteAction(loop.selectedPreviewAction) : undefined}
-        executing={loop.executingAction}
-      />
+      </GameplaySummaryCard>
     </GameplayLoopScaffold>
   );
 }
