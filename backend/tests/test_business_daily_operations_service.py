@@ -1,6 +1,8 @@
+import json
 import os
 import unittest
 import uuid
+from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import create_engine
@@ -212,12 +214,19 @@ class BusinessDailyOperationsServiceTests(unittest.TestCase):
     def _create_business(self, business_type: str, region: str = "suburban", tier: int = 1) -> dict:
         return create_player_business(self.db, str(self.player.id), business_type, region, tier)
 
-    def _buy_inventory(self, business_id: str, items: list[dict[str, object]]) -> dict:
+    def _buy_inventory(
+        self,
+        business_id: str,
+        items: list[dict[str, object]],
+        *,
+        as_of_date: date | None = None,
+    ) -> dict:
         payload = purchase_business_inventory_items(
             self.db,
             str(self.player.id),
             business_id,
             items=items,
+            as_of_date=as_of_date,
         )
         self.db.flush()
         return payload
@@ -243,6 +252,8 @@ class BusinessDailyOperationsServiceTests(unittest.TestCase):
         self.assertEqual(truck_items["business_type"], "food_truck")
         self.assertEqual({item["item_id"] for item in fruit_items["items"]}, {"mango", "orange", "apple", "grape", "banana", "strawberry"})
         self.assertEqual({item["item_id"] for item in truck_items["items"]}, {"bread", "rice", "chicken", "beef", "egg", "cooking_oil"})
+        self.assertTrue(all(item["business_type"] == "fruit_shop" for item in fruit_items["items"]))
+        self.assertTrue(all(item["business_type"] == "food_truck" for item in truck_items["items"]))
 
     def test_buy_fruit_shop_inventory_updates_cash_and_itemized_inventory(self) -> None:
         business = self._create_business("fruit_shop", "suburban", 1)
@@ -262,6 +273,13 @@ class BusinessDailyOperationsServiceTests(unittest.TestCase):
         self.assertLess(float(self.player.cash_xgp), cash_before)
         self.assertEqual({item["item_id"] for item in purchase["inventory_items"]}, {"mango", "orange"})
         self.assertGreater(purchase["inventory_total_units"], 0.0)
+        self.assertEqual(purchase["inventory_total_units"], 50.0)
+        self.assertIn("avg_unit_cost", purchase["inventory_items"][0])
+        business_row = self.db.query(PlayerBusiness).filter(PlayerBusiness.id == uuid.UUID(business["business_id"])).first()
+        assert business_row is not None
+        self.assertEqual(float(business_row.inventory_produce_units), 50.0)
+        self.assertEqual(float(business_row.inventory_essentials_units), 0.0)
+        self.assertEqual(float(business_row.inventory_protein_units), 0.0)
 
     def test_buy_food_truck_inventory_updates_cash_and_itemized_inventory(self) -> None:
         business = self._create_business("food_truck", "downtown", 1)
@@ -278,6 +296,31 @@ class BusinessDailyOperationsServiceTests(unittest.TestCase):
         self.assertEqual(purchase["business_type"], "food_truck")
         self.assertEqual({item["item_id"] for item in purchase["inventory_items"]}, {"bread", "chicken", "cooking_oil"})
         self.assertGreater(purchase["inventory_estimated_value_xgp"], 0.0)
+        business_row = self.db.query(PlayerBusiness).filter(PlayerBusiness.id == uuid.UUID(business["business_id"])).first()
+        assert business_row is not None
+        self.assertEqual(float(business_row.inventory_essentials_units), 24.0)
+        self.assertEqual(float(business_row.inventory_protein_units), 16.0)
+
+    def test_buy_chicken_inventory_fails_for_fruit_shop(self) -> None:
+        business = self._create_business("fruit_shop", "suburban", 1)
+
+        with self.assertRaises(BusinessValidationError):
+            self._buy_inventory(
+                business["business_id"],
+                [{"item_id": "chicken", "quantity": 10}],
+            )
+
+    def test_buy_chicken_inventory_succeeds_for_food_truck(self) -> None:
+        business = self._create_business("food_truck", "downtown", 1)
+
+        purchase = self._buy_inventory(
+            business["business_id"],
+            [{"item_id": "chicken", "quantity": 12}],
+        )
+
+        self.assertEqual(purchase["business_type"], "food_truck")
+        self.assertEqual(purchase["inventory_total_units"], 12.0)
+        self.assertEqual(purchase["inventory_items"][0]["item_id"], "chicken")
 
     def test_inventory_purchase_rejects_insufficient_cash_and_incompatible_items(self) -> None:
         business = self._create_business("fruit_shop", "suburban", 1)
@@ -296,6 +339,49 @@ class BusinessDailyOperationsServiceTests(unittest.TestCase):
                 business["business_id"],
                 [{"item_id": "mango", "quantity": 100}],
             )
+
+    def test_buying_same_item_twice_updates_weighted_average_cost(self) -> None:
+        business = self._create_business("fruit_shop", "suburban", 1)
+        business_uuid = uuid.UUID(business["business_id"])
+
+        first_purchase = self._buy_inventory(
+            business["business_id"],
+            [{"item_id": "mango", "quantity": 10}],
+            as_of_date=date(2026, 1, 1),
+        )
+
+        self.db.add(
+            BasketDailyPrice(
+                day=2,
+                basket_type=BasketType.produce,
+                price_index=Decimal("150.0000"),
+                daily_change_pct=Decimal("0.0000"),
+                supply_pressure=Decimal("1.0000"),
+                demand_pressure=Decimal("1.0000"),
+            )
+        )
+        self.db.commit()
+
+        second_purchase = self._buy_inventory(
+            business["business_id"],
+            [{"item_id": "mango", "quantity": 10}],
+            as_of_date=date(2026, 1, 2),
+        )
+
+        first_cost = Decimal(str(first_purchase["purchased_items"][0]["unit_cost_xgp"]))
+        second_cost = Decimal(str(second_purchase["purchased_items"][0]["unit_cost_xgp"]))
+        expected_avg = ((first_cost * Decimal("10")) + (second_cost * Decimal("10"))) / Decimal("20")
+
+        business_row = self.db.query(PlayerBusiness).filter(PlayerBusiness.id == business_uuid).first()
+        assert business_row is not None
+        itemized = next(
+            item
+            for item in second_purchase["inventory_items"]
+            if item["item_id"] == "mango"
+        )
+        self.assertEqual(itemized["quantity"], 20.0)
+        self.assertAlmostEqual(itemized["avg_unit_cost"], float(expected_avg.quantize(Decimal("0.0001"))), places=4)
+        self.assertEqual(float(business_row.inventory_produce_units), 20.0)
 
     def test_run_fruit_shop_day_creates_log_and_ledger(self) -> None:
         business = self._create_business("fruit_shop", "suburban", 1)
@@ -361,6 +447,139 @@ class BusinessDailyOperationsServiceTests(unittest.TestCase):
         self.assertIn("overhead_cost", categories)
         self.assertIn("fuel_cost", categories)
 
+    def test_fruit_shop_itemized_sales_and_breakdown_are_saved(self) -> None:
+        business = self._create_business("fruit_shop", "suburban", 1)
+        self._buy_inventory(
+            business["business_id"],
+            [
+                {"item_id": "mango", "quantity": 40},
+                {"item_id": "orange", "quantity": 40},
+            ],
+        )
+
+        result = run_business_day(self.db, business["business_id"], 1)
+        self.db.commit()
+
+        self.assertGreater(result["units_sold_by_item"].get("mango", 0), result["units_sold_by_item"].get("orange", 0))
+        self.assertIn("mango", result["revenue_by_item"])
+        self.assertIn("orange", result["revenue_by_item"])
+        self.assertIn("mango", result["spoilage_by_item"])
+        self.assertLess(result["remaining_inventory_by_item"].get("mango", 40.0), 40.0)
+        self.assertLess(result["remaining_inventory_by_item"].get("orange", 40.0), 40.0)
+
+        log = (
+            self.db.query(BusinessDailyLog)
+            .filter(BusinessDailyLog.business_id == uuid.UUID(business["business_id"]), BusinessDailyLog.day == 1)
+            .first()
+        )
+        assert log is not None
+        debug_payload = json.loads(log.debug_json or "{}")
+        self.assertIn("revenue_by_item", debug_payload)
+        self.assertIn("spoilage_by_item", debug_payload)
+        self.assertIn("remaining_inventory_by_item", debug_payload)
+
+    def test_food_truck_itemized_operation_creates_meals_from_recipes(self) -> None:
+        business = self._create_business("food_truck", "downtown", 1)
+        self._buy_inventory(
+            business["business_id"],
+            [
+                {"item_id": "bread", "quantity": 12},
+                {"item_id": "rice", "quantity": 12},
+                {"item_id": "chicken", "quantity": 12},
+                {"item_id": "beef", "quantity": 12},
+                {"item_id": "egg", "quantity": 24},
+                {"item_id": "cooking_oil", "quantity": 12},
+            ],
+        )
+
+        result = run_business_day(self.db, business["business_id"], 1)
+
+        self.assertGreater(result["actual_units_sold"], 0)
+        self.assertTrue(any(Number > 0 for Number in result["meals_sold_by_type"].values()))
+        self.assertIn("ingredients_used_by_item", result)
+        self.assertIn("revenue_by_menu_item", result)
+        self.assertIn("cogs_by_menu_item", result)
+
+    def test_food_truck_cannot_sell_chicken_sandwich_without_bread(self) -> None:
+        business = self._create_business("food_truck", "downtown", 1)
+        self._buy_inventory(
+            business["business_id"],
+            [
+                {"item_id": "chicken", "quantity": 10},
+                {"item_id": "cooking_oil", "quantity": 5},
+            ],
+        )
+
+        result = run_business_day(self.db, business["business_id"], 1)
+
+        self.assertEqual(result["status"], "no_inventory")
+        self.assertEqual(result["meals_sold_by_type"], {})
+        self.assertEqual(result["restock_warning"], "No usable inventory. Buy stock before operating.")
+
+    def test_food_truck_cannot_sell_beef_bowl_without_beef(self) -> None:
+        business = self._create_business("food_truck", "downtown", 1)
+        self._buy_inventory(
+            business["business_id"],
+            [
+                {"item_id": "rice", "quantity": 12},
+                {"item_id": "egg", "quantity": 24},
+                {"item_id": "cooking_oil", "quantity": 8},
+            ],
+        )
+
+        result = run_business_day(self.db, business["business_id"], 1)
+
+        self.assertEqual(result["meals_sold_by_type"].get("beef_rice_bowl", 0), 0)
+        self.assertGreater(result["meals_sold_by_type"].get("egg_rice_bowl", 0), 0)
+
+    def test_food_truck_deducts_ingredients_and_uses_avg_cost_for_cogs(self) -> None:
+        business = self._create_business("food_truck", "downtown", 1)
+        purchase = self._buy_inventory(
+            business["business_id"],
+            [
+                {"item_id": "bread", "quantity": 10},
+                {"item_id": "chicken", "quantity": 10},
+                {"item_id": "cooking_oil", "quantity": 10},
+            ],
+        )
+
+        result = run_business_day(self.db, business["business_id"], 1)
+
+        sandwiches_sold = Decimal(str(result["meals_sold_by_type"].get("chicken_sandwich", 0)))
+        self.assertGreater(sandwiches_sold, 0)
+        self.assertEqual(Decimal(str(result["ingredients_used_by_item"].get("bread", 0))), sandwiches_sold)
+        self.assertEqual(Decimal(str(result["ingredients_used_by_item"].get("chicken", 0))), sandwiches_sold)
+        self.assertEqual(Decimal(str(result["ingredients_used_by_item"].get("cooking_oil", 0))), sandwiches_sold * Decimal("0.1"))
+
+        avg_cost_by_item = {
+            item["item_id"]: Decimal(str(item["avg_unit_cost"]))
+            for item in purchase["inventory_items"]
+        }
+        expected_menu_cogs = (
+            sandwiches_sold * avg_cost_by_item["bread"]
+            + sandwiches_sold * avg_cost_by_item["chicken"]
+            + (sandwiches_sold * Decimal("0.1") * avg_cost_by_item["cooking_oil"])
+        ).quantize(Decimal("0.0001"))
+        self.assertAlmostEqual(
+            result["cogs_by_menu_item"].get("chicken_sandwich", 0),
+            float(expected_menu_cogs),
+            places=4,
+        )
+
+    def test_generic_fallback_still_works_when_itemized_inventory_is_empty(self) -> None:
+        business = self._create_business("fruit_shop", "suburban", 1)
+        business_row = self.db.query(PlayerBusiness).filter(PlayerBusiness.id == uuid.UUID(business["business_id"])).first()
+        assert business_row is not None
+        business_row.inventory_items_json = "{}"
+        business_row.inventory_produce_units = Decimal("20.0000")
+        self.db.commit()
+
+        result = run_business_day(self.db, business["business_id"], 1)
+
+        self.assertEqual(result["status"], "ran")
+        self.assertEqual(result["units_sold_by_item"], {})
+        self.assertLess(result["inventory_after"], result["inventory_before"])
+
     def test_running_same_business_day_twice_does_not_duplicate(self) -> None:
         business = self._create_business("fruit_shop", "suburban", 1)
         self._buy_inventory(
@@ -420,8 +639,8 @@ class BusinessDailyOperationsServiceTests(unittest.TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["result"]["business_count_ran"], 0)
         self.assertEqual(result["result"]["blocked_business_count"], 1)
-        self.assertEqual(result["result_summary"], "You need to buy inventory before operating.")
-        self.assertEqual(result["cash_delta_xgp"], 0.0)
+        self.assertEqual(result["result_summary"], "No usable inventory. Buy stock before operating.")
+        self.assertLess(result["cash_delta_xgp"], 0.0)
 
     def test_day_progression_includes_business_result(self) -> None:
         business = self._create_business("fruit_shop", "suburban", 1)
@@ -501,9 +720,9 @@ class BusinessDailyOperationsServiceTests(unittest.TestCase):
         run_result = run_business_day(self.db, business["business_id"], 1)
 
         self.assertIn(run_result["restock_warning"], {
-            "Urgent: restock before next business day",
-            "Low inventory: restock soon",
-            "Business cannot operate normally without inventory",
+            "Urgent: restock before next business day.",
+            "Low inventory: restock soon.",
+            "No usable inventory. Buy stock before operating.",
         })
         self.assertLessEqual(float(run_result["estimated_days_of_stock_left"] or 0), 3.0)
 

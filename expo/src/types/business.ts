@@ -61,17 +61,29 @@ export interface BusinessDailyOperationRecord {
   maintenance_cost_xgp: number;
   net_profit_xgp: number;
   units_sold: number;
+  actual_units_sold?: number;
   inventory_before: number;
   inventory_after: number;
+  inventory_fill_rate?: number;
+  spoilage_units?: number;
+  days_of_stock_left?: number | null;
   demand_signal: number;
   reputation_before: number;
   reputation_after: number;
   operating_mode?: string | null;
   upgrades?: string[];
   units_sold_by_item?: Record<string, number>;
+  revenue_by_item?: Record<string, number>;
+  cogs_by_item?: Record<string, number>;
+  spoilage_by_item?: Record<string, number>;
   remaining_inventory_by_item?: Record<string, number>;
+  meals_sold_by_type?: Record<string, number>;
+  ingredients_used_by_item?: Record<string, number>;
+  revenue_by_menu_item?: Record<string, number>;
+  cogs_by_menu_item?: Record<string, number>;
   remaining_inventory_value_xgp?: number;
   estimated_days_of_stock_left?: number | null;
+  possible_meals_remaining?: number | null;
   restock_warning?: string | null;
   lost_sales_units?: number;
   status?: string;
@@ -81,16 +93,17 @@ export interface BusinessDailyOperationRecord {
 export interface SupplierItemRecord {
   item_id: string;
   display_name: string;
-  compatible_business_types: string[];
+  business_type: string;
+  compatible_business_types?: string[];
   basket_link: string;
   base_wholesale_cost: number;
   current_wholesale_cost: number;
   suggested_retail_price: number;
-  current_retail_price: number;
+  current_retail_price?: number;
   spoilage_rate: number;
   demand_weight: number;
   unit_label: string;
-  economy_sensitivity: number;
+  economy_sensitivity?: number;
 }
 
 export interface SupplierItemsResponse {
@@ -254,6 +267,7 @@ export interface ActiveBusinessProfile {
   district_key: string | null;
   district_label: string | null;
   tile_key: string | null;
+  location_business_multiplier?: number | null;
   phase_progress_label: string;
 }
 
@@ -270,9 +284,16 @@ export interface SandboxOwnedLot {
   value_xgp: number;
   purchase_price_xgp: number;
   traffic_score: number;
+  foot_traffic_score: number;
   development_potential: number;
   demand_score: number;
+  competition_score: number;
+  risk_score: number;
+  supply_access_score: number;
+  best_business_fit: BusinessTypeKey | 'either';
+  location_business_multiplier: number;
   owner_player_id: string;
+  ownership_status: string;
   planned_business_type: string | null;
   linked_business_id: string | null;
   placed_business_id: string | null;
@@ -293,5 +314,6 @@ export interface BusinessSandboxState {
     district_label: string | null;
     location_label: string;
     growth_phase_key: BusinessGrowthPhaseKey;
+    location_business_multiplier: number | null;
   }[];
 }

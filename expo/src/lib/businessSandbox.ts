@@ -1,4 +1,9 @@
 import type { SandboxMapTile } from '@/components/gameMap';
+import {
+  calculateSlotCurrentValue,
+  createSlotEconomicRecord,
+  getStableSlotAddress,
+} from '@/lib/slotEconomics';
 import type {
   ActiveBusinessProfile,
   BusinessFamilyKey,
@@ -243,56 +248,8 @@ const MARKET_BLUEPRINTS: {
   },
 ];
 
-const SLOT_ADDRESS_BOOK: Record<string, {
-  baseNumber: number;
-  streetNames: string[];
-  suffixes: string[];
-}> = {
-  suburban_brookside: {
-    baseNumber: 200,
-    streetNames: ['Oak Garden', 'Greenfield', 'Maple Creek', 'Willow Bend', 'Cedar Hollow', 'Brookside'],
-    suffixes: ['Ln', 'Way', 'Dr'],
-  },
-  downtown_exchange: {
-    baseNumber: 900,
-    streetNames: ['Market Line', 'Riverfront', 'Central Trade', 'Station Row', 'Skywalk', 'Pier Exchange'],
-    suffixes: ['Ave', 'Plaza', 'St'],
-  },
-  riverside_grove: {
-    baseNumber: 300,
-    streetNames: ['Riverbend', 'Ferry View', 'Grove Trail', 'Maple Creek', 'Canal Vista', 'Waterline'],
-    suffixes: ['Dr', 'Way', 'Rd'],
-  },
-  harbor_works: {
-    baseNumber: 500,
-    streetNames: ['Dockside', 'Union Freight', 'Canal Works', 'Fleet Harbor', 'Shipyard', 'Port Gate'],
-    suffixes: ['St', 'Plaza', 'Ave'],
-  },
-};
-
-const DISTRICT_GROWTH_MODIFIERS: Record<string, number> = {
-  suburban_brookside: 0.05,
-  downtown_exchange: 0.14,
-  riverside_grove: 0.08,
-  harbor_works: 0.1,
-};
-
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
-}
-
-function stableHash(value: string): number {
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) {
-    hash = ((hash << 5) - hash) + value.charCodeAt(index);
-    hash |= 0;
-  }
-  return Math.abs(hash);
-}
-
-function slotAddressProfile(regionId: string | null | undefined) {
-  if (regionId && SLOT_ADDRESS_BOOK[regionId]) return SLOT_ADDRESS_BOOK[regionId];
-  return SLOT_ADDRESS_BOOK.suburban_brookside;
 }
 
 export function buildSlotAddress(
@@ -301,12 +258,11 @@ export function buildSlotAddress(
   row: number,
   col: number,
 ): string {
-  const profile = slotAddressProfile(regionId);
-  const seed = stableHash(`${regionId || 'unknown'}:${lotLabel || 'lot'}:${row}:${col}`);
-  const streetName = profile.streetNames[seed % profile.streetNames.length];
-  const suffix = profile.suffixes[Math.floor(seed / profile.streetNames.length) % profile.suffixes.length];
-  const number = profile.baseNumber + ((row + 1) * 87) + ((col + 1) * 19) + (seed % 23);
-  return `${number} ${streetName} ${suffix}`;
+  return getStableSlotAddress({
+    slot_id: `${regionId || 'unknown'}:${row}:${col}:${lotLabel || 'slot'}`,
+    district: regionId,
+    region: regionId,
+  });
 }
 
 export function estimateSlotDemandScore(
@@ -315,25 +271,15 @@ export function estimateSlotDemandScore(
   regionId?: string | null,
   zoneType?: string | null,
 ): number {
-  const regionBonus = String(regionId || '').includes('downtown')
-    ? 8
-    : String(regionId || '').includes('harbor')
-      ? 6
-      : String(regionId || '').includes('river')
-        ? 4
-        : 2;
-  const zoneBonus = zoneType === 'commercial_core'
-    ? 7
-    : zoneType === 'mixed_use'
-      ? 4
-      : zoneType === 'service_flex'
-        ? 3
-        : 1;
-  return clamp(
-    Math.round((Number(trafficScore || 0) * 0.58) + (Number(developmentPotential || 0) * 0.42) + regionBonus + zoneBonus),
-    10,
-    100,
-  );
+  return createSlotEconomicRecord({
+    slot_id: `${regionId || 'region'}:${zoneType || 'slot'}:${trafficScore}:${developmentPotential}`,
+    district: regionId,
+    region: regionId,
+    slot_type: zoneType,
+    purchase_price: 0,
+    traffic_score: trafficScore,
+    development_potential: developmentPotential,
+  }).demand_score;
 }
 
 export function estimateSlotCurrentValue(
@@ -341,11 +287,15 @@ export function estimateSlotCurrentValue(
   demandScore: number,
   regionId?: string | null,
 ): number {
-  const price = Math.max(0, Number(purchasePriceXgp || 0));
-  if (!price) return 0;
-  const districtGrowthModifier = DISTRICT_GROWTH_MODIFIERS[String(regionId || '')] ?? 0.04;
-  const demandScoreModifier = clamp((Number(demandScore || 0) - 45) / 220, 0, 0.28);
-  return Math.round(price * (1 + districtGrowthModifier + demandScoreModifier));
+  return calculateSlotCurrentValue(
+    createSlotEconomicRecord({
+      slot_id: `${regionId || 'region'}:${purchasePriceXgp}:${demandScore}`,
+      district: regionId,
+      region: regionId,
+      purchase_price: purchasePriceXgp,
+      demand_score: demandScore,
+    }),
+  );
 }
 
 export function createEmptyBusinessSandboxState(playerId: string): BusinessSandboxState {
@@ -511,20 +461,47 @@ export function deriveActiveBusinessProfile(options: {
   const family = businessFamilyForType(activeBusiness.business_type);
   const linkedLot = linkedLotForBusiness(options.sandboxState, activeBusiness.business_id);
   const marketLink = marketLinkForBusiness(options.sandboxState, activeBusiness.business_id);
+  const linkedLotEconomics = linkedLot ? createSlotEconomicRecord({
+    slot_id: linkedLot.tile_key,
+    address: linkedLot.address,
+    region: linkedLot.region,
+    district: linkedLot.district_label || linkedLot.district_key,
+    slot_type: linkedLot.zone_type,
+    purchase_price: linkedLot.purchase_price_xgp,
+    current_value: linkedLot.value_xgp,
+    demand_score: linkedLot.demand_score,
+    foot_traffic_score: linkedLot.foot_traffic_score || linkedLot.traffic_score,
+    traffic_score: linkedLot.traffic_score,
+    competition_score: linkedLot.competition_score,
+    risk_score: linkedLot.risk_score,
+    supply_access_score: linkedLot.supply_access_score,
+    best_business_fit: linkedLot.best_business_fit,
+    linked_business_id: linkedLot.linked_business_id || linkedLot.placed_business_id,
+    linked_business_type: linkedLot.planned_business_type,
+    owner_player_id: linkedLot.owner_player_id,
+    ownership_status: linkedLot.ownership_status,
+    development_potential: linkedLot.development_potential,
+    location_business_multiplier: linkedLot.location_business_multiplier,
+  }) : null;
   const phaseKey = (linkedLot?.development_stage === 'built' && marketLink?.growth_phase_key)
     ? marketLink.growth_phase_key
     : (marketLink?.growth_phase_key || defaultGrowthPhaseForBusinessType(activeBusiness.business_type));
   const phase = getGrowthPhase(phaseKey);
   const nextPhase = getNextGrowthPhase(phase.key);
   const trafficScore = clamp(
-    Number(linkedLot?.traffic_score || 58)
+    Number(linkedLotEconomics?.foot_traffic_score || linkedLot?.traffic_score || 58)
       + (marketLink?.district_key === 'exchange' ? 8 : 0)
       + (marketLink?.district_key === 'harbor' ? 4 : 0),
     20,
     100,
   );
   const demandScore = clamp(
-    Math.round(trafficScore * 0.55 + Number(linkedLot?.development_potential || 60) * 0.25 + options.dayNumber),
+    Math.round(
+      (Number(linkedLotEconomics?.demand_score || linkedLot?.demand_score || 60) * 0.72)
+      + (trafficScore * 0.18)
+      + options.dayNumber
+      + ((Number(linkedLotEconomics?.location_business_multiplier || marketLink?.location_business_multiplier || 1) - 1) * 18),
+    ),
     25,
     100,
   );
@@ -545,7 +522,7 @@ export function deriveActiveBusinessProfile(options: {
   const playerEmployees = clamp(Math.round(employees * realPlayerShare), 0, Math.max(0, employees - 1));
   const npcEmployees = Math.max(0, employees - playerEmployees);
   const locationLabel = linkedLot
-    ? linkedLot.address || `${linkedLot.district_label || 'Owned lot'} (${linkedLot.x},${linkedLot.y})`
+    ? linkedLotEconomics?.address || linkedLot.address || `${linkedLot.district_label || 'Owned lot'} (${linkedLot.x},${linkedLot.y})`
     : marketLink?.location_label || (activeBusiness.region_key ? `${activeBusiness.region_key} market` : 'City market');
 
   return {
@@ -573,6 +550,7 @@ export function deriveActiveBusinessProfile(options: {
     district_key: linkedLot?.district_key || marketLink?.district_key || activeBusiness.region_key || null,
     district_label: linkedLot?.district_label || marketLink?.district_label || null,
     tile_key: linkedLot?.tile_key || marketLink?.tile_key || null,
+    location_business_multiplier: marketLink?.location_business_multiplier ?? linkedLotEconomics?.location_business_multiplier ?? null,
     phase_progress_label: nextPhase
       ? `Next: ${nextPhase.label}`
       : 'Top phase reached',

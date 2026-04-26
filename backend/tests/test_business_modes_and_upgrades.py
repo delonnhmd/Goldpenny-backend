@@ -51,7 +51,7 @@ class BusinessModesAndUpgradesTests(unittest.TestCase):
         self.db.add(user)
         self.db.flush()
         self.player = Player(
-            user_id=user.id,
+            user_id=str(user.id),
             display_name="Mode Test Player",
             cash=Decimal("25000.00"),
             stress=22,
@@ -210,4 +210,3 @@ class BusinessModesAndUpgradesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

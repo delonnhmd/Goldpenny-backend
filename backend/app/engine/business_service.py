@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from datetime import date, timedelta
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 from hashlib import sha256
 from uuid import UUID
 
@@ -27,6 +27,11 @@ from app.models.player import Player
 from app.models.player_business import PlayerBusiness
 from app.models.player_daily_state import PlayerDailyState
 from app.engine.balance_config import FRUIT_MARKUP_GUARDRAILS
+from app.engine.business_supplier_items import (
+    SUPPLIER_ITEM_CATALOG,
+    compatible_business_type as _supplier_compatible_business_type,
+    supplier_items_for_business_type as _supplier_items_catalog_for_business_type,
+)
 from app.engine.population_pressure_service import get_population_effect_multipliers
 from app.services.housing_region_service import get_business_region_demand_modifier
 
@@ -144,156 +149,13 @@ BUSINESS_LABOR_COST_BY_TYPE = {
     "food_truck": Decimal("65.00"),
 }
 
+NO_USABLE_INVENTORY_MESSAGE = "No usable inventory. Buy stock before operating."
+RESTOCK_URGENT_MESSAGE = "Urgent: restock before next business day."
+RESTOCK_LOW_MESSAGE = "Low inventory: restock soon."
+
 BUSINESS_STARTUP_COST_BY_TYPE = {
     str(item["business_id"]): Decimal(str(item.get("startup_cost", 0))).quantize(MONEY_Q, rounding=ROUND_HALF_UP)
     for item in DEFAULT_BUSINESS_TYPES
-}
-
-SUPPLIER_ITEM_CATALOG: dict[str, dict[str, object]] = {
-    "mango": {
-        "item_id": "mango",
-        "display_name": "Mango",
-        "compatible_business_types": ("fruit_shop",),
-        "basket_link": BasketType.produce,
-        "base_wholesale_cost": Decimal("1.25"),
-        "suggested_retail_price": Decimal("2.40"),
-        "spoilage_rate": Decimal("0.11"),
-        "demand_weight": Decimal("1.16"),
-        "unit_label": "crate",
-        "economy_sensitivity": Decimal("1.10"),
-    },
-    "orange": {
-        "item_id": "orange",
-        "display_name": "Orange",
-        "compatible_business_types": ("fruit_shop",),
-        "basket_link": BasketType.produce,
-        "base_wholesale_cost": Decimal("0.85"),
-        "suggested_retail_price": Decimal("1.75"),
-        "spoilage_rate": Decimal("0.06"),
-        "demand_weight": Decimal("1.05"),
-        "unit_label": "crate",
-        "economy_sensitivity": Decimal("0.95"),
-    },
-    "apple": {
-        "item_id": "apple",
-        "display_name": "Apple",
-        "compatible_business_types": ("fruit_shop",),
-        "basket_link": BasketType.produce,
-        "base_wholesale_cost": Decimal("0.75"),
-        "suggested_retail_price": Decimal("1.60"),
-        "spoilage_rate": Decimal("0.04"),
-        "demand_weight": Decimal("1.00"),
-        "unit_label": "crate",
-        "economy_sensitivity": Decimal("0.90"),
-    },
-    "grape": {
-        "item_id": "grape",
-        "display_name": "Grape",
-        "compatible_business_types": ("fruit_shop",),
-        "basket_link": BasketType.produce,
-        "base_wholesale_cost": Decimal("1.10"),
-        "suggested_retail_price": Decimal("2.10"),
-        "spoilage_rate": Decimal("0.07"),
-        "demand_weight": Decimal("1.08"),
-        "unit_label": "box",
-        "economy_sensitivity": Decimal("1.00"),
-    },
-    "banana": {
-        "item_id": "banana",
-        "display_name": "Banana",
-        "compatible_business_types": ("fruit_shop",),
-        "basket_link": BasketType.produce,
-        "base_wholesale_cost": Decimal("0.55"),
-        "suggested_retail_price": Decimal("1.25"),
-        "spoilage_rate": Decimal("0.09"),
-        "demand_weight": Decimal("1.12"),
-        "unit_label": "bundle",
-        "economy_sensitivity": Decimal("0.92"),
-    },
-    "strawberry": {
-        "item_id": "strawberry",
-        "display_name": "Strawberry",
-        "compatible_business_types": ("fruit_shop",),
-        "basket_link": BasketType.produce,
-        "base_wholesale_cost": Decimal("1.45"),
-        "suggested_retail_price": Decimal("2.75"),
-        "spoilage_rate": Decimal("0.14"),
-        "demand_weight": Decimal("1.20"),
-        "unit_label": "tray",
-        "economy_sensitivity": Decimal("1.15"),
-    },
-    "bread": {
-        "item_id": "bread",
-        "display_name": "Bread",
-        "compatible_business_types": ("food_truck",),
-        "basket_link": BasketType.essentials,
-        "base_wholesale_cost": Decimal("0.48"),
-        "suggested_retail_price": Decimal("1.20"),
-        "spoilage_rate": Decimal("0.05"),
-        "demand_weight": Decimal("1.00"),
-        "unit_label": "pack",
-        "economy_sensitivity": Decimal("0.80"),
-    },
-    "rice": {
-        "item_id": "rice",
-        "display_name": "Rice",
-        "compatible_business_types": ("food_truck",),
-        "basket_link": BasketType.essentials,
-        "base_wholesale_cost": Decimal("0.36"),
-        "suggested_retail_price": Decimal("1.10"),
-        "spoilage_rate": Decimal("0.03"),
-        "demand_weight": Decimal("0.95"),
-        "unit_label": "bag",
-        "economy_sensitivity": Decimal("0.82"),
-    },
-    "chicken": {
-        "item_id": "chicken",
-        "display_name": "Chicken",
-        "compatible_business_types": ("food_truck",),
-        "basket_link": BasketType.protein,
-        "base_wholesale_cost": Decimal("1.35"),
-        "suggested_retail_price": Decimal("3.00"),
-        "spoilage_rate": Decimal("0.07"),
-        "demand_weight": Decimal("1.12"),
-        "unit_label": "tray",
-        "economy_sensitivity": Decimal("1.08"),
-    },
-    "beef": {
-        "item_id": "beef",
-        "display_name": "Beef",
-        "compatible_business_types": ("food_truck",),
-        "basket_link": BasketType.protein,
-        "base_wholesale_cost": Decimal("1.95"),
-        "suggested_retail_price": Decimal("3.80"),
-        "spoilage_rate": Decimal("0.08"),
-        "demand_weight": Decimal("1.05"),
-        "unit_label": "tray",
-        "economy_sensitivity": Decimal("1.18"),
-    },
-    "egg": {
-        "item_id": "egg",
-        "display_name": "Egg",
-        "compatible_business_types": ("food_truck",),
-        "basket_link": BasketType.protein,
-        "base_wholesale_cost": Decimal("0.42"),
-        "suggested_retail_price": Decimal("1.30"),
-        "spoilage_rate": Decimal("0.06"),
-        "demand_weight": Decimal("0.98"),
-        "unit_label": "dozen",
-        "economy_sensitivity": Decimal("0.90"),
-    },
-    "cooking_oil": {
-        "item_id": "cooking_oil",
-        "display_name": "Cooking Oil",
-        "compatible_business_types": ("food_truck",),
-        "basket_link": BasketType.convenience,
-        "base_wholesale_cost": Decimal("0.82"),
-        "suggested_retail_price": Decimal("1.60"),
-        "spoilage_rate": Decimal("0.02"),
-        "demand_weight": Decimal("0.72"),
-        "unit_label": "bottle",
-        "economy_sensitivity": Decimal("1.12"),
-    },
 }
 
 BUSINESS_UPGRADES: dict[str, dict[str, dict[str, Decimal | str]]] = {
@@ -333,6 +195,48 @@ BUSINESS_UPGRADES: dict[str, dict[str, dict[str, Decimal | str]]] = {
     },
 }
 
+FRUIT_SHOP_ITEM_IDS = (
+    "mango",
+    "orange",
+    "apple",
+    "grape",
+    "banana",
+    "strawberry",
+)
+
+FOOD_TRUCK_MENU_RECIPES: dict[str, dict[str, object]] = {
+    "chicken_sandwich": {
+        "display_name": "Chicken Sandwich",
+        "sell_price": Decimal("8.50"),
+        "demand_weight": Decimal("1.00"),
+        "recipe": {
+            "bread": Decimal("1.00"),
+            "chicken": Decimal("1.00"),
+            "cooking_oil": Decimal("0.10"),
+        },
+    },
+    "beef_rice_bowl": {
+        "display_name": "Beef Rice Bowl",
+        "sell_price": Decimal("10.50"),
+        "demand_weight": Decimal("0.85"),
+        "recipe": {
+            "rice": Decimal("1.00"),
+            "beef": Decimal("1.00"),
+            "cooking_oil": Decimal("0.10"),
+        },
+    },
+    "egg_rice_bowl": {
+        "display_name": "Egg Rice Bowl",
+        "sell_price": Decimal("7.00"),
+        "demand_weight": Decimal("1.15"),
+        "recipe": {
+            "rice": Decimal("1.00"),
+            "egg": Decimal("2.00"),
+            "cooking_oil": Decimal("0.05"),
+        },
+    },
+}
+
 
 class BusinessServiceError(Exception):
     """Base error for business service operations."""
@@ -368,6 +272,10 @@ def _to_int(value: Decimal) -> int:
 
 def _clamp(value: Decimal, lo: Decimal, hi: Decimal) -> Decimal:
     return max(lo, min(hi, value))
+
+
+def _floor_unit(value: Decimal) -> Decimal:
+    return _unit(max(Decimal("0.00"), value.to_integral_value(rounding=ROUND_DOWN)))
 
 
 def _normalize_uuid(value: str | UUID, *, label: str) -> UUID:
@@ -545,11 +453,7 @@ def _supplier_item_spec(item_id: str) -> dict[str, object]:
 
 def _supplier_items_for_business_type(business_type: str) -> list[dict[str, object]]:
     normalized = _ensure_supported_business_type(business_type)
-    return [
-        spec
-        for spec in SUPPLIER_ITEM_CATALOG.values()
-        if normalized in tuple(spec.get("compatible_business_types", ()))
-    ]
+    return list(_supplier_items_catalog_for_business_type(normalized))
 
 
 def _current_supplier_unit_cost(
@@ -561,14 +465,27 @@ def _current_supplier_unit_cost(
     basket_link = spec.get("basket_link", BasketType.produce)
     if not isinstance(basket_link, BasketType):
         basket_link = BasketType(str(basket_link))
-    reference = DEFAULT_BASKET_PRICE_BY_TYPE.get(basket_link, Decimal("10.00"))
-    live_basket_price = _latest_basket_price(db, basket_link, day, reference)
-    sensitivity = _clamp(_d(spec.get("economy_sensitivity", 1)), Decimal("0.60"), Decimal("1.40"))
-    basket_multiplier = Decimal("1.00") + (((live_basket_price / max(reference, Decimal("0.0001"))) - Decimal("1.00")) * sensitivity)
-    return _money(
-        _d(spec.get("base_wholesale_cost", 0))
-        * _clamp(basket_multiplier, Decimal("0.55"), Decimal("1.85"))
+    base_cost = _money(_d(spec.get("base_wholesale_cost", 0)))
+    row = (
+        db.query(BasketDailyPrice)
+        .filter(
+            BasketDailyPrice.basket_type == basket_link,
+            BasketDailyPrice.day <= int(day),
+        )
+        .order_by(BasketDailyPrice.day.desc(), BasketDailyPrice.created_at.desc())
+        .first()
     )
+    if row is None:
+        row = (
+            db.query(BasketDailyPrice)
+            .filter(BasketDailyPrice.basket_type == basket_link)
+            .order_by(BasketDailyPrice.day.desc(), BasketDailyPrice.created_at.desc())
+            .first()
+        )
+    if row is None:
+        return base_cost
+    basket_price_index = _q4(_d(row.price_index))
+    return _money(base_cost * (basket_price_index / Decimal("100")))
 
 
 def _current_supplier_retail_price(
@@ -578,20 +495,8 @@ def _current_supplier_retail_price(
     day: int,
     wholesale_unit_cost: Decimal | None = None,
 ) -> Decimal:
-    basket_link = spec.get("basket_link", BasketType.produce)
-    if not isinstance(basket_link, BasketType):
-        basket_link = BasketType(str(basket_link))
-    reference = DEFAULT_BASKET_PRICE_BY_TYPE.get(basket_link, Decimal("10.00"))
-    live_basket_price = _latest_basket_price(db, basket_link, day, reference)
-    wholesale = wholesale_unit_cost if wholesale_unit_cost is not None else _current_supplier_unit_cost(db, spec, day=day)
-    uplift = _clamp(
-        Decimal("1.00") + (((live_basket_price / max(reference, Decimal("0.0001"))) - Decimal("1.00")) * Decimal("0.35")),
-        Decimal("0.88"),
-        Decimal("1.22"),
-    )
-    suggested = _money(_d(spec.get("suggested_retail_price", 0)) * uplift)
-    floor_price = _money(wholesale * Decimal("1.35"))
-    return _money(max(suggested, floor_price))
+    del db, day, wholesale_unit_cost
+    return _money(_d(spec.get("suggested_retail_price", 0)))
 
 
 def _decode_inventory_items(raw: object) -> dict[str, dict[str, object]]:
@@ -712,89 +617,49 @@ def _load_log_debug_meta(log: BusinessDailyLog | None) -> dict[str, object]:
         return {}
 
 
-def _baseline_item_daily_draw(business_type: str, item_id: str, basket_link: str) -> Decimal:
-    normalized_type = (business_type or "").strip().lower()
-    if normalized_type == "fruit_shop":
-        return _q4(max(Decimal("1.20"), _d(SUPPLIER_ITEM_CATALOG[item_id].get("demand_weight", 1)) * Decimal("3.10")))
-    if basket_link == BasketType.convenience.value:
-        return Decimal("2.40")
-    return _q4(max(Decimal("2.20"), _d(SUPPLIER_ITEM_CATALOG[item_id].get("demand_weight", 1)) * Decimal("4.25")))
-
-
 def _inventory_days_left_metrics(
     business_type: str,
     items: dict[str, dict[str, object]],
     *,
     latest_units_sold_by_item: dict[str, Decimal] | None = None,
+    latest_meals_sold_by_type: dict[str, Decimal] | None = None,
+    latest_ingredients_used_by_item: dict[str, Decimal] | None = None,
 ) -> tuple[Decimal | None, dict[str, Decimal]]:
     latest_units = latest_units_sold_by_item or {}
+    latest_meals = latest_meals_sold_by_type or {}
+    latest_ingredients = latest_ingredients_used_by_item or {}
     per_item_days: dict[str, Decimal] = {}
     if not items:
         return Decimal("0.00"), per_item_days
 
-    for item_id, payload in items.items():
-        quantity = _unit(_d(payload.get("quantity", 0)))
-        basket_link = str(payload.get("basket_link") or "")
-        baseline = _baseline_item_daily_draw(business_type, item_id, basket_link)
-        draw = _q4(max(_d(latest_units.get(item_id, 0)), baseline))
-        per_item_days[item_id] = _q4(quantity / max(draw, Decimal("0.0001"))) if quantity > Decimal("0") else Decimal("0.00")
-
     normalized_type = (business_type or "").strip().lower()
     if normalized_type == "fruit_shop":
-        total_quantity = sum((_unit(_d(payload.get("quantity", 0))) for payload in items.values()), Decimal("0.00"))
-        total_draw = sum(
-            (
-                max(
-                    _d(latest_units.get(item_id, 0)),
-                    _baseline_item_daily_draw(normalized_type, item_id, str(payload.get("basket_link") or "")),
-                )
-                for item_id, payload in items.items()
-            ),
-            Decimal("0.00"),
-        )
-        if total_quantity <= Decimal("0.00"):
-            return Decimal("0.00"), per_item_days
-        return _q4(total_quantity / max(total_draw, Decimal("0.0001"))), per_item_days
+        total_remaining_units = sum((_unit(_d(payload.get("quantity", 0))) for payload in items.values()), Decimal("0.00"))
+        total_units_sold_today = sum((_unit(_d(value)) for value in latest_units.values()), Decimal("0.00"))
+        for item_id, payload in items.items():
+            quantity = _unit(_d(payload.get("quantity", 0)))
+            sold_today = _unit(_d(latest_units.get(item_id, 0)))
+            per_item_days[item_id] = _q4(quantity / max(Decimal("1.00"), sold_today)) if quantity > Decimal("0.00") else Decimal("0.00")
+        return _q4(total_remaining_units / max(Decimal("1.00"), total_units_sold_today)), per_item_days
 
-    category_days: list[Decimal] = []
-    for basket_link in (BasketType.essentials.value, BasketType.protein.value, BasketType.convenience.value):
-        category_quantity = sum(
-            (
-                _unit(_d(payload.get("quantity", 0)))
-                for payload in items.values()
-                if str(payload.get("basket_link") or "") == basket_link
-            ),
-            Decimal("0.00"),
-        )
-        if category_quantity <= Decimal("0.00"):
-            continue
-        category_draw = sum(
-            (
-                max(
-                    _d(latest_units.get(item_id, 0)),
-                    _baseline_item_daily_draw(normalized_type, item_id, basket_link),
-                )
-                for item_id, payload in items.items()
-                if str(payload.get("basket_link") or "") == basket_link
-            ),
-            Decimal("0.00"),
-        )
-        category_days.append(_q4(category_quantity / max(category_draw, Decimal("0.0001"))))
-
-    if not category_days:
-        return Decimal("0.00"), per_item_days
-    return min(category_days), per_item_days
+    meals_sold_today = sum((_unit(_d(value)) for value in latest_meals.values()), Decimal("0.00"))
+    possible_meals_remaining = _food_truck_possible_meals_remaining(items)
+    for item_id, payload in items.items():
+        quantity = _unit(_d(payload.get("quantity", 0)))
+        used_today = _unit(_d(latest_ingredients.get(item_id, 0)))
+        per_item_days[item_id] = _q4(quantity / max(Decimal("1.00"), used_today)) if quantity > Decimal("0.00") else Decimal("0.00")
+    return _q4(possible_meals_remaining / max(Decimal("1.00"), meals_sold_today)), per_item_days
 
 
 def _restock_warning_for_days(days_left: Decimal | None, total_units: Decimal) -> str | None:
     if total_units <= Decimal("0.00"):
-        return "Business cannot operate normally without inventory"
+        return NO_USABLE_INVENTORY_MESSAGE
     if days_left is None:
         return None
     if days_left <= Decimal("1.00"):
-        return "Urgent: restock before next business day"
+        return RESTOCK_URGENT_MESSAGE
     if days_left <= Decimal("3.00"):
-        return "Low inventory: restock soon"
+        return RESTOCK_LOW_MESSAGE
     return None
 
 
@@ -811,16 +676,31 @@ def _inventory_snapshot_for_business(
         str(item_id): _d(value)
         for item_id, value in dict(latest_debug.get("units_sold_by_item", {}) or {}).items()
     }
+    latest_meals_sold_by_type = {
+        str(menu_id): _d(value)
+        for menu_id, value in dict(latest_debug.get("meals_sold_by_type", {}) or {}).items()
+    }
+    latest_ingredients_used_by_item = {
+        str(item_id): _d(value)
+        for item_id, value in dict(latest_debug.get("ingredients_used_by_item", {}) or {}).items()
+    }
 
     if inventory_items:
         days_left, per_item_days = _inventory_days_left_metrics(
             business.business_type,
             inventory_items,
             latest_units_sold_by_item=latest_units_sold_by_item,
+            latest_meals_sold_by_type=latest_meals_sold_by_type,
+            latest_ingredients_used_by_item=latest_ingredients_used_by_item,
         )
         serialized_items: list[dict[str, object]] = []
         total_units = Decimal("0.00")
         total_value = Decimal("0.00")
+        possible_meals_remaining = (
+            _food_truck_possible_meals_remaining(inventory_items)
+            if (business.business_type or "").strip().lower() == "food_truck"
+            else None
+        )
         for item_id, payload in inventory_items.items():
             quantity = _unit(_d(payload.get("quantity", 0)))
             avg_unit_cost = _q4(_d(payload.get("avg_unit_cost", 0)))
@@ -846,13 +726,23 @@ def _inventory_snapshot_for_business(
             )
         total_units = _unit(total_units)
         total_value = _money(total_value)
+        restock_warning = _restock_warning_for_days(days_left, total_units)
+        if (
+            (business.business_type or "").strip().lower() == "food_truck"
+            and possible_meals_remaining is not None
+            and possible_meals_remaining <= Decimal("0.00")
+        ):
+            restock_warning = NO_USABLE_INVENTORY_MESSAGE
         return {
             "uses_itemized_inventory": True,
             "inventory_items": serialized_items,
             "inventory_total_units": float(total_units),
             "inventory_estimated_value_xgp": float(total_value),
             "estimated_days_of_stock_left": float(days_left) if days_left is not None else None,
-            "restock_warning": _restock_warning_for_days(days_left, total_units),
+            "restock_warning": restock_warning,
+            "possible_meals_remaining": (
+                None if possible_meals_remaining is None else float(_q4(possible_meals_remaining))
+            ),
         }
 
     produce_unit_cost = _q4(_latest_basket_price(db, BasketType.produce, day, DEFAULT_BASKET_PRICE_BY_TYPE[BasketType.produce]) * Decimal("0.50"))
@@ -870,6 +760,7 @@ def _inventory_snapshot_for_business(
         "inventory_estimated_value_xgp": float(total_value),
         "estimated_days_of_stock_left": float(_q4(total_units / Decimal("10.0"))) if total_units > Decimal("0.00") else 0.0,
         "restock_warning": _restock_warning_for_days(_q4(total_units / Decimal("10.0")), total_units),
+        "possible_meals_remaining": None,
     }
 
 
@@ -880,9 +771,7 @@ def _business_startup_cost(business_type: str) -> Decimal:
 def _labor_cost_for_business(business: PlayerBusiness) -> Decimal:
     business_type = (business.business_type or "").strip().lower()
     base_cost = BUSINESS_LABOR_COST_BY_TYPE.get(business_type, Decimal("45.00"))
-    level_bonus = max(0, int(getattr(business, "business_level", 1) or 1) - 1) * Decimal("5.00")
-    upgrade_bonus = Decimal(str(len(_business_upgrades(business)))) * Decimal("4.00")
-    return _money(base_cost + level_bonus + upgrade_bonus)
+    return _money(base_cost)
 
 
 def _sum_itemized_inventory_units(
@@ -913,6 +802,68 @@ def _serialize_quantity_map(items: dict[str, dict[str, object]]) -> dict[str, fl
         for item_id, payload in items.items()
         if _unit(_d(payload.get("quantity", 0))) > Decimal("0.00")
     }
+
+
+def _serialize_decimal_map(values: dict[str, Decimal]) -> dict[str, float]:
+    return {
+        str(key): float(_q4(_d(value)))
+        for key, value in values.items()
+        if _q4(_d(value)) > Decimal("0.00")
+    }
+
+
+def _inventory_quantity_for_item(items: dict[str, dict[str, object]], item_id: str) -> Decimal:
+    return _unit(_d((items.get(item_id) or {}).get("quantity", 0)))
+
+
+def _food_truck_recipe_possible_units(
+    items: dict[str, dict[str, object]],
+    recipe: dict[str, Decimal],
+) -> Decimal:
+    possible: Decimal | None = None
+    for ingredient_id, required_qty in recipe.items():
+        requirement = _q4(max(Decimal("0.0001"), _d(required_qty)))
+        available_qty = _inventory_quantity_for_item(items, ingredient_id)
+        candidate = _q4(available_qty / requirement)
+        possible = candidate if possible is None else min(possible, candidate)
+    return _unit(max(Decimal("0.00"), possible or Decimal("0.00")))
+
+
+def _food_truck_possible_meals_remaining(items: dict[str, dict[str, object]]) -> Decimal:
+    bread = _floor_unit(_inventory_quantity_for_item(items, "bread"))
+    chicken = _floor_unit(_inventory_quantity_for_item(items, "chicken"))
+    rice = _floor_unit(_inventory_quantity_for_item(items, "rice"))
+    beef = _floor_unit(_inventory_quantity_for_item(items, "beef"))
+    egg = _floor_unit(_inventory_quantity_for_item(items, "egg"))
+    oil = _unit(_inventory_quantity_for_item(items, "cooking_oil"))
+
+    max_sandwich = min(
+        int(bread),
+        int(chicken),
+        int((oil / Decimal("0.10")).to_integral_value(rounding=ROUND_DOWN)),
+    )
+    best_total = 0
+    for chicken_sandwiches in range(max(0, max_sandwich) + 1):
+        oil_after_sandwich = oil - (Decimal(str(chicken_sandwiches)) * Decimal("0.10"))
+        if oil_after_sandwich < Decimal("0.00"):
+            continue
+        max_beef_bowls = min(
+            int(rice),
+            int(beef),
+            int((oil_after_sandwich / Decimal("0.10")).to_integral_value(rounding=ROUND_DOWN)),
+        )
+        for beef_bowls in range(max(0, max_beef_bowls) + 1):
+            rice_left = int(rice) - beef_bowls
+            oil_after_beef = oil_after_sandwich - (Decimal(str(beef_bowls)) * Decimal("0.10"))
+            if rice_left < 0 or oil_after_beef < Decimal("0.00"):
+                continue
+            egg_bowls = min(
+                rice_left,
+                int((egg / Decimal("2.00")).to_integral_value(rounding=ROUND_DOWN)),
+                int((oil_after_beef / Decimal("0.05")).to_integral_value(rounding=ROUND_DOWN)),
+            )
+            best_total = max(best_total, chicken_sandwiches + beef_bowls + max(0, egg_bowls))
+    return _unit(Decimal(str(best_total)))
 
 
 def _allocate_units_across_items(
@@ -1052,6 +1003,13 @@ def _operation_hours_for_business(business: PlayerBusiness) -> Decimal:
     return Decimal("0.00")
 
 
+def _inventory_fill_rate(actual_units_sold: int | Decimal, desired_units: int | Decimal) -> Decimal:
+    desired = _d(desired_units)
+    if desired <= Decimal("0.00"):
+        return Decimal("1.0000")
+    return _q4(_clamp(_d(actual_units_sold) / desired, Decimal("0.0000"), Decimal("1.0000")))
+
+
 def _deterministic_ratio(seed: str) -> Decimal:
     digest = sha256(seed.encode("utf-8")).hexdigest()
     n = int(digest[:16], 16)
@@ -1064,37 +1022,77 @@ def _serialize_operation_result(log: BusinessDailyLog, *, already_processed: boo
         debug_meta = json.loads(log.debug_json or log.notes_json or "{}")
     except Exception:
         debug_meta = {}
+    revenue_xgp = float(_money(_d(log.revenue_xgp)))
+    cogs_xgp = float(_money(_d(log.cogs_xgp)))
+    labor_cost_xgp = float(_money(_d(getattr(log, "labor_cost_xgp", 0))))
+    overhead_xgp = float(_money(_d(log.overhead_xgp)))
+    spoilage_loss_xgp = float(_money(_d(log.spoilage_loss_xgp)))
+    fuel_cost_xgp = float(_money(_d(log.fuel_cost_xgp)))
+    maintenance_cost_xgp = float(_money(_d(log.maintenance_cost_xgp)))
+    net_profit_xgp = float(_money(_d(log.net_profit_xgp)))
+    actual_units_sold = int(_d(debug_meta.get("actual_units_sold", log.units_sold or 0)))
+    days_of_stock_left = debug_meta.get("days_of_stock_left", debug_meta.get("estimated_days_of_stock_left"))
+    status = str(debug_meta.get("operation_status") or debug_meta.get("status") or "ran")
     return {
         "business_id": str(log.business_id),
         "business_type": log.business_type,
         "as_of_date": as_of,
         "day": int(log.day),
         "region_key": log.region_key,
-        "gross_revenue_xgp": float(_money(_d(log.revenue_xgp))),
-        "revenue_xgp": float(_money(_d(log.revenue_xgp))),
-        "cost_of_goods_sold_xgp": float(_money(_d(log.cogs_xgp))),
-        "cogs_xgp": float(_money(_d(log.cogs_xgp))),
-        "labor_cost_xgp": float(_money(_d(getattr(log, "labor_cost_xgp", 0)))),
-        "overhead_xgp": float(_money(_d(log.overhead_xgp))),
-        "spoilage_loss_xgp": float(_money(_d(log.spoilage_loss_xgp))),
-        "fuel_cost_xgp": float(_money(_d(log.fuel_cost_xgp))),
-        "maintenance_cost_xgp": float(_money(_d(log.maintenance_cost_xgp))),
-        "net_profit_xgp": float(_money(_d(log.net_profit_xgp))),
+        "gross_revenue_xgp": revenue_xgp,
+        "gross_revenue": revenue_xgp,
+        "revenue_xgp": revenue_xgp,
+        "cost_of_goods_sold_xgp": cogs_xgp,
+        "cost_of_goods_sold": cogs_xgp,
+        "cogs_xgp": cogs_xgp,
+        "labor_cost_xgp": labor_cost_xgp,
+        "labor_cost": labor_cost_xgp,
+        "overhead_xgp": overhead_xgp,
+        "overhead_cost_xgp": overhead_xgp,
+        "overhead_cost": overhead_xgp,
+        "spoilage_loss_xgp": spoilage_loss_xgp,
+        "spoilage_cost": spoilage_loss_xgp,
+        "fuel_cost_xgp": fuel_cost_xgp,
+        "fuel_cost": fuel_cost_xgp,
+        "maintenance_cost_xgp": maintenance_cost_xgp,
+        "maintenance_cost": maintenance_cost_xgp,
+        "net_profit_xgp": net_profit_xgp,
+        "net_profit": net_profit_xgp,
         "units_sold": int(log.units_sold or 0),
+        "actual_units_sold": actual_units_sold,
         "inventory_before": float(_unit(_d(log.inventory_start_units))),
         "inventory_after": float(_unit(_d(log.inventory_end_units))),
+        "inventory_fill_rate": float(_q4(_d(debug_meta.get("inventory_fill_rate", _inventory_fill_rate(actual_units_sold, _d(log.demand_signal)))))),
+        "spoilage_units": float(_unit(_d(debug_meta.get("spoilage_units", 0)))),
+        "days_of_stock_left": (
+            None
+            if days_of_stock_left is None
+            else float(_q4(_d(days_of_stock_left)))
+        ),
         "demand_signal": float(_q4(_d(log.demand_signal))),
         "reputation_before": int(log.reputation_before or 0),
         "reputation_after": int(log.reputation_after or 0),
         "operating_mode": debug_meta.get("operating_mode"),
         "upgrades": debug_meta.get("upgrades", []),
         "units_sold_by_item": dict(debug_meta.get("units_sold_by_item", {}) or {}),
+        "revenue_by_item": dict(debug_meta.get("revenue_by_item", {}) or {}),
+        "cogs_by_item": dict(debug_meta.get("cogs_by_item", {}) or {}),
+        "spoilage_by_item": dict(debug_meta.get("spoilage_by_item", {}) or {}),
         "remaining_inventory_by_item": dict(debug_meta.get("remaining_inventory_by_item", {}) or {}),
+        "meals_sold_by_type": dict(debug_meta.get("meals_sold_by_type", {}) or {}),
+        "ingredients_used_by_item": dict(debug_meta.get("ingredients_used_by_item", {}) or {}),
+        "revenue_by_menu_item": dict(debug_meta.get("revenue_by_menu_item", {}) or {}),
+        "cogs_by_menu_item": dict(debug_meta.get("cogs_by_menu_item", {}) or {}),
         "remaining_inventory_value_xgp": float(_money(_d(debug_meta.get("remaining_inventory_value_xgp", 0)))),
         "estimated_days_of_stock_left": (
             None
             if debug_meta.get("estimated_days_of_stock_left") is None
             else float(_q4(_d(debug_meta.get("estimated_days_of_stock_left", 0))))
+        ),
+        "possible_meals_remaining": (
+            None
+            if debug_meta.get("possible_meals_remaining") is None
+            else float(_q4(_d(debug_meta.get("possible_meals_remaining", 0))))
         ),
         "restock_warning": (
             None
@@ -1102,9 +1100,10 @@ def _serialize_operation_result(log: BusinessDailyLog, *, already_processed: boo
             else str(debug_meta.get("restock_warning"))
         ),
         "lost_sales_units": int(_d(debug_meta.get("lost_sales_units", 0))),
+        "message": debug_meta.get("message"),
         "debug_meta": debug_meta,
         "already_processed": bool(already_processed),
-        "status": "already_processed" if already_processed else "ran",
+        "status": "already_processed" if already_processed else status,
     }
 
 
@@ -1250,9 +1249,91 @@ def _upsert_business_daily_log(
     for entry in ledger_rows:
         db.add(entry)
 
+    player.cash_xgp = _money(_d(player.cash_xgp) + _money(net_profit_xgp))
     db.flush()
     db.refresh(row)
     return row
+
+
+def _record_no_inventory_operation(
+    db: Session,
+    *,
+    business: PlayerBusiness,
+    player: Player,
+    day: int,
+    as_of_date: date,
+    business_type: str,
+    region_key: str,
+    inventory_start_units: Decimal,
+    demand_units: int | Decimal,
+    overhead_xgp: Decimal,
+    reputation_before: int,
+    operating_mode: str | None,
+    upgrades: list[str],
+    extra_debug: dict | None = None,
+) -> dict:
+    inventory_start = _unit(max(Decimal("0.00"), _d(inventory_start_units)))
+    demand_units_int = max(0, int(_d(demand_units)))
+    overhead = _money(overhead_xgp)
+    net_profit_xgp = _money(Decimal("0.00") - overhead)
+    debug_meta = {
+        "operation_status": "no_inventory",
+        "status": "no_inventory",
+        "message": NO_USABLE_INVENTORY_MESSAGE,
+        "operating_mode": operating_mode,
+        "upgrades": upgrades,
+        "uses_itemized_inventory": False,
+        "actual_units_sold": 0,
+        "lost_sales_units": demand_units_int,
+        "inventory_fill_rate": 0.0,
+        "spoilage_units": 0.0,
+        "days_of_stock_left": 0.0,
+        "estimated_days_of_stock_left": 0.0,
+        "restock_warning": NO_USABLE_INVENTORY_MESSAGE,
+        "remaining_inventory_by_item": {},
+        "units_sold_by_item": {},
+        "revenue_by_item": {},
+        "cogs_by_item": {},
+        "spoilage_by_item": {},
+        "meals_sold_by_type": {},
+        "ingredients_used_by_item": {},
+        "revenue_by_menu_item": {},
+        "cogs_by_menu_item": {},
+        "remaining_inventory_value_xgp": 0.0,
+        "possible_meals_remaining": 0.0,
+    }
+    if extra_debug:
+        debug_meta.update(extra_debug)
+
+    business.last_operated_day = day
+    business.last_operated_on = as_of_date
+
+    log = _upsert_business_daily_log(
+        db,
+        business=business,
+        player=player,
+        day=day,
+        as_of_date=as_of_date,
+        business_type=business_type,
+        region_key=region_key,
+        revenue_xgp=Decimal("0.00"),
+        cogs_xgp=Decimal("0.00"),
+        labor_cost_xgp=Decimal("0.00"),
+        overhead_xgp=overhead,
+        spoilage_loss_xgp=Decimal("0.00"),
+        fuel_cost_xgp=Decimal("0.00"),
+        maintenance_cost_xgp=Decimal("0.00"),
+        net_profit_xgp=net_profit_xgp,
+        units_sold=0,
+        inventory_start_units=inventory_start,
+        inventory_end_units=inventory_start,
+        demand_signal=_q4(_d(demand_units_int)),
+        utilization_pct=Decimal("0.00"),
+        reputation_before=reputation_before,
+        reputation_after=reputation_before,
+        debug_meta=debug_meta,
+    )
+    return _serialize_operation_result(log, already_processed=False)
 
 
 def _ensure_supported_business_type(business_type: str) -> str:
@@ -1361,11 +1442,13 @@ def get_supplier_market_items(
         wholesale_cost = _current_supplier_unit_cost(db, spec, day=day)
         retail_price = _current_supplier_retail_price(db, spec, day=day, wholesale_unit_cost=wholesale_cost)
         basket_link = spec.get("basket_link", BasketType.produce)
+        compatible_type = _supplier_compatible_business_type(spec)
         items.append(
             {
                 "item_id": str(spec["item_id"]),
                 "display_name": str(spec["display_name"]),
-                "compatible_business_types": list(spec.get("compatible_business_types", ())),
+                "business_type": compatible_type,
+                "compatible_business_types": [compatible_type] if compatible_type else [],
                 "basket_link": str(getattr(basket_link, "value", basket_link)),
                 "base_wholesale_cost": float(_money(_d(spec.get("base_wholesale_cost", 0)))),
                 "current_wholesale_cost": float(wholesale_cost),
@@ -1424,8 +1507,8 @@ def purchase_business_inventory_items(
         if quantity <= Decimal("0.00"):
             raise BusinessValidationError(f"Quantity for '{item_id}' must be greater than zero.")
         spec = _supplier_item_spec(item_id)
-        compatible_business_types = tuple(spec.get("compatible_business_types", ()))
-        if business.business_type not in compatible_business_types:
+        compatible_type = _supplier_compatible_business_type(spec)
+        if business.business_type != compatible_type:
             raise BusinessValidationError(
                 f"Item '{item_id}' is not compatible with business type '{business.business_type}'."
             )
@@ -1847,56 +1930,95 @@ def operate_fruit_shop(
 
     if inventory_items and itemized_inventory_available:
         inventory_start = _sum_itemized_inventory_units(inventory_items)
-        weight_by_item: dict[str, Decimal] = {}
+        base_daily_demand = _q4(
+            base_region_demand / max(
+                Decimal("1.00"),
+                sum(
+                    (
+                        _q4(max(Decimal("0.25"), _d(payload.get("demand_weight", 1))))
+                        for item_id, payload in inventory_items.items()
+                        if item_id in FRUIT_SHOP_ITEM_IDS
+                    ),
+                    Decimal("0.00"),
+                ),
+            )
+        )
+        region_demand_multiplier = _q4(
+            _clamp(region_demand_modifier, Decimal("0.35"), Decimal("1.80"))
+            * _clamp(population_demand_mult, Decimal("0.35"), Decimal("1.80"))
+            * demand_share_factor
+            * mode_cfg["demand_multiplier"]
+            * signage_demand_mult
+            * productivity_capture_factor
+        )
         sold_by_item: dict[str, Decimal] = {}
+        demand_by_item: dict[str, Decimal] = {}
+        revenue_by_item: dict[str, Decimal] = {}
+        cogs_by_item: dict[str, Decimal] = {}
+        spoilage_by_item: dict[str, Decimal] = {}
+        pricing_multiplier_by_item: dict[str, Decimal] = {}
         remaining_items: dict[str, dict[str, object]] = {}
         remaining_inventory_by_item: dict[str, float] = {}
-        spoilage_by_item: dict[str, float] = {}
         revenue_xgp = Decimal("0.00")
         cogs_xgp = Decimal("0.00")
         spoilage_loss_xgp = Decimal("0.00")
 
         for item_id, payload in inventory_items.items():
-            item_sell_price = _q4(max(_d(payload.get("retail_price", 0)), Decimal("0.01")))
-            suggested_price = _q4(max(_d(payload.get("suggested_retail_price", item_sell_price)), Decimal("0.01")))
-            item_weight = _q4(max(Decimal("0.35"), _d(payload.get("demand_weight", 1))))
-            economy_sensitivity = _q4(_clamp(_d(payload.get("economy_sensitivity", 1)), Decimal("0.50"), Decimal("1.50")))
-            price_ratio = item_sell_price / max(suggested_price, Decimal("0.0001"))
-            item_affordability = _clamp(
-                Decimal("1.18") - ((price_ratio - Decimal("1.00")) * Decimal("0.72") * economy_sensitivity),
-                Decimal("0.40"),
-                Decimal("1.22"),
-            )
-            weight_by_item[item_id] = _q4(max(Decimal("0.05"), item_weight * item_affordability))
-
-        sold_by_item = _allocate_units_across_items(
-            Decimal(str(desired_units)),
-            inventory_items,
-            weight_by_item=weight_by_item,
-        )
-
-        for item_id, payload in inventory_items.items():
             quantity_before = _unit(_d(payload.get("quantity", 0)))
-            sold_qty = _unit(sold_by_item.get(item_id, Decimal("0.00")))
+            if item_id not in FRUIT_SHOP_ITEM_IDS:
+                if quantity_before > Decimal("0.00"):
+                    remaining_items[item_id] = {
+                        **payload,
+                        "quantity": quantity_before,
+                    }
+                    remaining_inventory_by_item[item_id] = float(quantity_before)
+                continue
             avg_unit_cost = _q4(_d(payload.get("avg_unit_cost", wholesale_unit_cost)))
             item_sell_price = _q4(max(_d(payload.get("retail_price", sell_price)), Decimal("0.01")))
+            suggested_price = _q4(max(_d(payload.get("suggested_retail_price", item_sell_price)), Decimal("0.01")))
+            item_weight = _q4(max(Decimal("0.25"), _d(payload.get("demand_weight", 1))))
+            price_ratio = item_sell_price / max(suggested_price, Decimal("0.0001"))
+            pricing_multiplier = _q4(
+                _clamp(
+                    Decimal("1.20") - (Decimal("1.50") * (price_ratio - Decimal("1.00"))),
+                    Decimal("0.35"),
+                    Decimal("1.25"),
+                )
+            )
+            pricing_multiplier_by_item[item_id] = pricing_multiplier
+            item_demand = _q4(
+                base_daily_demand
+                * item_weight
+                * region_demand_multiplier
+                * _clamp(confidence_multiplier, Decimal("0.30"), Decimal("1.70"))
+                * reputation_bonus
+                * weekend_bonus
+                * pricing_multiplier
+            )
+            sold_qty = _unit(min(quantity_before, item_demand))
+            demand_by_item[item_id] = item_demand
+            sold_by_item[item_id] = sold_qty
             item_spoilage_rate = _q4(
                 _clamp(
                     _d(payload.get("spoilage_rate", spoil_rate))
                     * mode_cfg["spoilage_multiplier"]
-                    * spoilage_upgrade_mult
-                    * (Decimal("1.00") + (supply_stress_norm / Decimal("1200"))),
-                    Decimal("0.005"),
+                    * spoilage_upgrade_mult,
+                    Decimal("0.00"),
                     Decimal("0.25"),
                 )
             )
 
-            revenue_xgp += item_sell_price * sold_qty
-            cogs_xgp += avg_unit_cost * sold_qty
+            item_revenue = _money(item_sell_price * sold_qty)
+            item_cogs = _money(avg_unit_cost * sold_qty)
+            revenue_xgp += item_revenue
+            cogs_xgp += item_cogs
+            revenue_by_item[item_id] = item_revenue
+            cogs_by_item[item_id] = item_cogs
 
             remaining_after_sales = _unit(max(Decimal("0.00"), quantity_before - sold_qty))
-            spoiled_qty = _unit(min(remaining_after_sales, remaining_after_sales * item_spoilage_rate))
-            spoilage_loss_xgp += avg_unit_cost * spoiled_qty
+            spoiled_qty = _floor_unit(min(remaining_after_sales, remaining_after_sales * item_spoilage_rate))
+            spoilage_by_item[item_id] = spoiled_qty
+            spoilage_loss_xgp += _money(avg_unit_cost * spoiled_qty)
 
             remaining_final = _unit(max(Decimal("0.00"), remaining_after_sales - spoiled_qty))
             if remaining_final > Decimal("0.00"):
@@ -1905,15 +2027,19 @@ def operate_fruit_shop(
                     "quantity": remaining_final,
                 }
                 remaining_inventory_by_item[item_id] = float(remaining_final)
-            if spoiled_qty > Decimal("0.00"):
-                spoilage_by_item[item_id] = float(spoiled_qty)
 
         revenue_xgp = _money(revenue_xgp)
         cogs_xgp = _money(cogs_xgp)
         spoilage_loss_xgp = _money(spoilage_loss_xgp)
         sold_units_d = _unit(sum(sold_by_item.values(), Decimal("0.00")))
         sold_units = _to_int(sold_units_d)
-        lost_sales_units = max(0, desired_units - sold_units)
+        total_item_demand = _q4(sum((qty for qty in demand_by_item.values()), Decimal("0.00")))
+        lost_sales_units = _to_int(
+            sum(
+                (max(Decimal("0.00"), demand_by_item.get(item_id, Decimal("0.00")) - sold_by_item.get(item_id, Decimal("0.00"))) for item_id in demand_by_item),
+                Decimal("0.00"),
+            )
+        )
         inventory_end = _sum_itemized_inventory_units(remaining_items)
         remaining_inventory_value_xgp = _remaining_inventory_value(remaining_items)
         estimated_days_of_stock_left, per_item_days = _inventory_days_left_metrics(
@@ -1925,13 +2051,13 @@ def operate_fruit_shop(
         net_profit_xgp = _money(revenue_xgp - cogs_xgp - labor_cost_xgp - overhead_xgp - spoilage_loss_xgp)
 
         sell_through = _q4((sold_units_d / inventory_start) if inventory_start > Decimal("0.00") else Decimal("0.0"))
+        inventory_fill_rate = _inventory_fill_rate(sold_units_d, total_item_demand)
         rep_delta = 0
         reputation_floor = _clamp(mode_cfg["reputation_floor"], Decimal("0.25"), Decimal("0.70"))
-        if net_profit_xgp > 0 and sell_through >= max(Decimal("0.40"), reputation_floor) and markup_effective <= Decimal("0.32"):
+        if net_profit_xgp > 0 and inventory_fill_rate >= max(Decimal("0.40"), reputation_floor):
             rep_delta = 1
         if (
-            sell_through < Decimal("0.35")
-            or markup_effective >= Decimal("0.38")
+            inventory_fill_rate < Decimal("0.35")
             or net_profit_xgp < (_money(overhead_xgp) * Decimal("-0.5"))
         ):
             rep_delta -= 1
@@ -1974,9 +2100,13 @@ def operate_fruit_shop(
             "upgrade_storage_spoilage_multiplier": float(_q4(spoilage_upgrade_mult)),
             "population_effects": population_effects,
             "uses_itemized_inventory": True,
-            "units_sold_by_item": {item_id: float(_unit(qty)) for item_id, qty in sold_by_item.items() if qty > Decimal("0.00")},
+            "base_daily_demand": float(_q4(base_daily_demand)),
+            "region_demand_multiplier": float(_q4(region_demand_multiplier)),
+            "units_sold_by_item": _serialize_decimal_map(sold_by_item),
+            "revenue_by_item": _serialize_decimal_map(revenue_by_item),
+            "cogs_by_item": _serialize_decimal_map(cogs_by_item),
             "remaining_inventory_by_item": remaining_inventory_by_item,
-            "spoilage_by_item": spoilage_by_item,
+            "spoilage_by_item": _serialize_decimal_map(spoilage_by_item),
             "remaining_inventory_value_xgp": float(remaining_inventory_value_xgp),
             "estimated_days_of_stock_left": (
                 None if estimated_days_of_stock_left is None else float(_q4(estimated_days_of_stock_left))
@@ -1984,8 +2114,17 @@ def operate_fruit_shop(
             "estimated_days_of_stock_left_by_item": {
                 item_id: float(_q4(days_left)) for item_id, days_left in per_item_days.items()
             },
+            "pricing_multiplier_by_item": _serialize_decimal_map(pricing_multiplier_by_item),
             "restock_warning": restock_warning,
             "lost_sales_units": int(lost_sales_units),
+            "actual_units_sold": int(sold_units),
+            "inventory_fill_rate": float(_q4(inventory_fill_rate)),
+            "spoilage_units": float(_unit(sum((_d(qty) for qty in spoilage_by_item.values()), Decimal("0.00")))),
+            "days_of_stock_left": (
+                None if estimated_days_of_stock_left is None else float(_q4(estimated_days_of_stock_left))
+            ),
+            "operation_status": "ran",
+            "message": "Business operated.",
         }
 
         log = _upsert_business_daily_log(
@@ -2007,7 +2146,7 @@ def operate_fruit_shop(
             units_sold=sold_units,
             inventory_start_units=inventory_start,
             inventory_end_units=inventory_end,
-            demand_signal=demand,
+            demand_signal=total_item_demand,
             utilization_pct=_q4(sell_through * Decimal("100")),
             reputation_before=reputation_before,
             reputation_after=reputation_after,
@@ -2015,19 +2154,40 @@ def operate_fruit_shop(
         )
         return _serialize_operation_result(log, already_processed=False)
 
-    if legacy_inventory_start <= Decimal("0.00"):
-        raise BusinessValidationError("You need to buy inventory before operating.")
+    available_produce_units = max(0, int(legacy_inventory_start))
+    if available_produce_units <= 0:
+        return _record_no_inventory_operation(
+            db,
+            business=business,
+            player=player,
+            day=day,
+            as_of_date=op_date,
+            business_type="fruit_shop",
+            region_key=region,
+            inventory_start_units=legacy_inventory_start,
+            demand_units=desired_units,
+            overhead_xgp=overhead_xgp,
+            reputation_before=reputation_before,
+            operating_mode=mode_key,
+            upgrades=upgrades,
+            extra_debug={
+                "wholesale_unit_cost": float(_q4(wholesale_unit_cost)),
+                "sell_price": float(_q4(sell_price)),
+                "desired_units": int(desired_units),
+                "available_inventory_units": float(legacy_inventory_start),
+            },
+        )
 
     inventory_start = legacy_inventory_start
-    sold_units = min(max(desired_units, 0), _to_int(inventory_start))
+    sold_units = min(max(desired_units, 0), available_produce_units)
     sold_units_d = Decimal(str(sold_units))
 
     revenue_xgp = _money(sell_price * sold_units_d)
     cogs_xgp = _money(wholesale_unit_cost * sold_units_d)
 
     remaining_after_sales = _unit(max(Decimal("0"), inventory_start - sold_units_d))
-    spoil_units = min(_to_int(remaining_after_sales * spoil_rate), _to_int(remaining_after_sales))
-    spoil_units_d = Decimal(str(max(0, spoil_units)))
+    generic_spoil_rate = Decimal("0.05")
+    spoil_units_d = _unit(min(remaining_after_sales, remaining_after_sales * generic_spoil_rate))
     spoilage_loss_xgp = _money(wholesale_unit_cost * spoil_units_d)
 
     inventory_end = _unit(max(Decimal("0"), remaining_after_sales - spoil_units_d))
@@ -2074,7 +2234,7 @@ def operate_fruit_shop(
         "productivity_modifier": float(_q4(_d(getattr(player, "productivity_modifier", 1.0)))),
         "productivity_capture_factor": float(_q4(productivity_capture_factor)),
         "business_risk_penalty": float(_q4(_d(getattr(player, "business_risk_penalty", 0.0)))),
-        "spoil_rate": float(_q4(spoil_rate)),
+        "spoil_rate": float(_q4(generic_spoil_rate)),
         "supply_chain_stress": float(_q4(supply_stress)),
         "upgrades": upgrades,
         "mode_demand_multiplier": float(_q4(mode_cfg["demand_multiplier"])),
@@ -2091,6 +2251,12 @@ def operate_fruit_shop(
         "estimated_days_of_stock_left": float(_q4(estimated_days_of_stock_left)),
         "restock_warning": restock_warning,
         "lost_sales_units": max(0, desired_units - sold_units),
+        "actual_units_sold": int(sold_units),
+        "inventory_fill_rate": float(_inventory_fill_rate(sold_units, desired_units)),
+        "spoilage_units": float(_unit(spoil_units_d)),
+        "days_of_stock_left": float(_q4(estimated_days_of_stock_left)),
+        "operation_status": "ran",
+        "message": "Business operated.",
     }
 
     log = _upsert_business_daily_log(
@@ -2262,103 +2428,142 @@ def operate_food_truck(
 
     if inventory_items and itemized_inventory_available:
         inventory_start_units = _sum_itemized_inventory_units(inventory_items)
-        essentials_items = {
-            item_id: payload
-            for item_id, payload in inventory_items.items()
-            if str(payload.get("basket_link") or "") == BasketType.essentials.value
-        }
-        protein_items = {
-            item_id: payload
-            for item_id, payload in inventory_items.items()
-            if str(payload.get("basket_link") or "") == BasketType.protein.value
-        }
-        support_items = {
-            item_id: payload
-            for item_id, payload in inventory_items.items()
-            if str(payload.get("basket_link") or "") == BasketType.convenience.value
-        }
-
-        essentials_inventory_start = _sum_itemized_inventory_units(essentials_items)
-        protein_inventory_start = _sum_itemized_inventory_units(protein_items)
-        support_inventory_start = _sum_itemized_inventory_units(support_items)
-        if essentials_inventory_start <= Decimal("0.00") or protein_inventory_start <= Decimal("0.00") or support_inventory_start <= Decimal("0.00"):
-            raise BusinessValidationError("You need to buy inventory before operating.")
-
-        max_by_ess = _to_int(essentials_inventory_start / essentials_per_sale) if essentials_per_sale > 0 else 0
-        max_by_protein = _to_int(protein_inventory_start / protein_per_sale) if protein_per_sale > 0 else 0
-        max_by_support = _to_int(support_inventory_start / oil_per_sale) if oil_per_sale > 0 else 0
-        available_sales = max(0, min(max_by_ess, max_by_protein, max_by_support))
-        units_sold = max(0, min(desired_sales, available_sales))
-        sold_d = Decimal(str(units_sold))
-        revenue_xgp = _money(avg_ticket * sold_d)
-
-        essential_need = _unit(sold_d * essentials_per_sale)
-        protein_need = _unit(sold_d * protein_per_sale)
-        support_need = _unit(sold_d * oil_per_sale)
-
-        essential_draw = _allocate_units_across_items(
-            essential_need,
-            essentials_items,
-            weight_by_item={
-                item_id: _q4(max(Decimal("0.10"), _d(payload.get("demand_weight", 1)) * _unit(_d(payload.get("quantity", 0)))))
-                for item_id, payload in essentials_items.items()
-            },
+        menu_demand_by_type: dict[str, Decimal] = {}
+        traffic_multiplier = _q4(
+            (Decimal("1.00") + event_bonus)
+            * weather_bonus
+            * region_demand_modifier
+            * population_demand_mult
+            * demand_share_factor
+            * mode_cfg["demand_multiplier"]
+            * location_demand_mult
+            * productivity_capture_factor
         )
-        protein_draw = _allocate_units_across_items(
-            protein_need,
-            protein_items,
-            weight_by_item={
-                item_id: _q4(max(Decimal("0.10"), _d(payload.get("demand_weight", 1)) * _unit(_d(payload.get("quantity", 0)))))
-                for item_id, payload in protein_items.items()
-            },
-        )
-        support_draw = _allocate_units_across_items(
-            support_need,
-            support_items,
-            weight_by_item={
-                item_id: _q4(max(Decimal("0.10"), _d(payload.get("demand_weight", 1)) * _unit(_d(payload.get("quantity", 0)))))
-                for item_id, payload in support_items.items()
-            },
-        )
-
-        consumed_by_item = {
-            item_id: _unit(essential_draw.get(item_id, 0) + protein_draw.get(item_id, 0) + support_draw.get(item_id, 0))
-            for item_id in inventory_items
-        }
-        cogs_xgp = Decimal("0.00")
-        spoilage_loss_xgp = Decimal("0.00")
-        remaining_items: dict[str, dict[str, object]] = {}
-        remaining_inventory_by_item: dict[str, float] = {}
-        spoilage_by_item: dict[str, float] = {}
-
-        for item_id, payload in inventory_items.items():
-            quantity_before = _unit(_d(payload.get("quantity", 0)))
-            consumed_qty = _unit(consumed_by_item.get(item_id, Decimal("0.00")))
-            avg_unit_cost = _q4(_d(payload.get("avg_unit_cost", 0)))
-            item_spoilage_rate = _q4(
-                _clamp(
-                    _d(payload.get("spoilage_rate", 0.05))
-                    * (Decimal("1.00") + (supply_stress_norm / Decimal("1800"))),
-                    Decimal("0.00"),
-                    Decimal("0.22"),
-                )
+        for menu_id, menu_spec in FOOD_TRUCK_MENU_RECIPES.items():
+            menu_demand_by_type[menu_id] = _q4(
+                base_foot
+                * _q4(_d(menu_spec.get("demand_weight", 1)))
+                * traffic_multiplier
+                * confidence_multiplier
+                * reputation_multiplier
+                * weekend_bonus
             )
 
-            cogs_xgp += avg_unit_cost * consumed_qty
-            remaining_after_use = _unit(max(Decimal("0.00"), quantity_before - consumed_qty))
-            spoiled_qty = _unit(min(remaining_after_use, remaining_after_use * item_spoilage_rate))
-            spoilage_loss_xgp += avg_unit_cost * spoiled_qty
-            remaining_final = _unit(max(Decimal("0.00"), remaining_after_use - spoiled_qty))
-            if remaining_final > Decimal("0.00"):
-                remaining_items[item_id] = {
-                    **payload,
-                    "quantity": remaining_final,
-                }
-                remaining_inventory_by_item[item_id] = float(remaining_final)
-            if spoiled_qty > Decimal("0.00"):
-                spoilage_by_item[item_id] = float(spoiled_qty)
+        if not any(
+            _food_truck_recipe_possible_units(
+                inventory_items,
+                {
+                    ingredient_id: _q4(_d(required_qty))
+                    for ingredient_id, required_qty in dict(menu_spec.get("recipe", {}) or {}).items()
+                },
+            ) > Decimal("0.00")
+            for menu_spec in FOOD_TRUCK_MENU_RECIPES.values()
+        ):
+            return _record_no_inventory_operation(
+                db,
+                business=business,
+                player=player,
+                day=day,
+                as_of_date=op_date,
+                business_type="food_truck",
+                region_key=region,
+                inventory_start_units=inventory_start_units,
+                demand_units=desired_sales,
+                overhead_xgp=overhead_xgp,
+                reputation_before=reputation_before,
+                operating_mode=mode_key,
+                upgrades=upgrades,
+                extra_debug={
+                    "uses_itemized_inventory": True,
+                    "desired_sales": int(_to_int(sum((value for value in menu_demand_by_type.values()), Decimal("0.00")))),
+                    "remaining_inventory_by_item": _serialize_quantity_map(inventory_items),
+                    "remaining_inventory_value_xgp": float(_remaining_inventory_value(inventory_items)),
+                    "possible_meals_remaining": float(_q4(_food_truck_possible_meals_remaining(inventory_items))),
+                },
+            )
 
+        remaining_items: dict[str, dict[str, object]] = {
+            item_id: dict(payload)
+            for item_id, payload in inventory_items.items()
+        }
+        meals_sold_by_type: dict[str, Decimal] = {}
+        ingredients_used_by_item: dict[str, Decimal] = {}
+        revenue_by_menu_item: dict[str, Decimal] = {}
+        cogs_by_menu_item: dict[str, Decimal] = {}
+        total_meal_demand = Decimal("0.00")
+        desired_sales_remaining = _unit(Decimal(str(max(0, desired_sales))))
+        revenue_xgp = Decimal("0.00")
+        cogs_xgp = Decimal("0.00")
+
+        menu_execution_order = sorted(
+            FOOD_TRUCK_MENU_RECIPES.items(),
+            key=lambda entry: (_d(menu_demand_by_type.get(entry[0], 0)), _d(entry[1].get("demand_weight", 1))),
+            reverse=True,
+        )
+        for menu_id, menu_spec in menu_execution_order:
+            recipe = {
+                ingredient_id: _q4(_d(required_qty))
+                for ingredient_id, required_qty in dict(menu_spec.get("recipe", {}) or {}).items()
+            }
+            possible_units = _food_truck_recipe_possible_units(remaining_items, recipe)
+            meal_demand = _q4(menu_demand_by_type.get(menu_id, Decimal("0.00")))
+            total_meal_demand += meal_demand
+            actual_sold = _floor_unit(min(possible_units, meal_demand, desired_sales_remaining))
+            meals_sold_by_type[menu_id] = actual_sold
+            if actual_sold <= Decimal("0.00"):
+                revenue_by_menu_item[menu_id] = Decimal("0.00")
+                cogs_by_menu_item[menu_id] = Decimal("0.00")
+                continue
+            desired_sales_remaining = _unit(max(Decimal("0.00"), desired_sales_remaining - actual_sold))
+
+            menu_revenue = _money(_q4(_d(menu_spec.get("sell_price", 0))) * actual_sold)
+            menu_cogs = Decimal("0.00")
+            for ingredient_id, required_qty in recipe.items():
+                ingredient_use = _unit(actual_sold * required_qty)
+                current_payload = remaining_items.get(ingredient_id)
+                current_qty = _inventory_quantity_for_item(remaining_items, ingredient_id)
+                avg_unit_cost = _q4(_d((current_payload or {}).get("avg_unit_cost", 0)))
+                menu_cogs += avg_unit_cost * ingredient_use
+                ingredients_used_by_item[ingredient_id] = _unit(
+                    ingredients_used_by_item.get(ingredient_id, Decimal("0.00")) + ingredient_use
+                )
+                if current_payload is not None:
+                    current_payload["quantity"] = _unit(max(Decimal("0.00"), current_qty - ingredient_use))
+            revenue_by_menu_item[menu_id] = menu_revenue
+            cogs_by_menu_item[menu_id] = _money(menu_cogs)
+            revenue_xgp += menu_revenue
+            cogs_xgp += menu_cogs
+
+        revenue_xgp = _money(revenue_xgp)
         cogs_xgp = _money(cogs_xgp)
+        sold_d = _unit(sum((qty for qty in meals_sold_by_type.values()), Decimal("0.00")))
+        units_sold = _to_int(sold_d)
+        available_sales = _to_int(_food_truck_possible_meals_remaining(inventory_items))
+
+        spoilage_loss_xgp = Decimal("0.00")
+        remaining_inventory_by_item: dict[str, float] = {}
+        spoilage_by_item: dict[str, Decimal] = {}
+
+        for item_id, payload in remaining_items.items():
+            quantity_before = _unit(_d(payload.get("quantity", 0)))
+            avg_unit_cost = _q4(_d(payload.get("avg_unit_cost", 0)))
+            raw_spoilage_rate = _q4(_d(payload.get("spoilage_rate", 0.05)))
+            if item_id in {"rice", "cooking_oil"}:
+                item_spoilage_rate = Decimal("0.00")
+            elif item_id == "bread":
+                item_spoilage_rate = _clamp(raw_spoilage_rate, Decimal("0.00"), Decimal("0.03"))
+            else:
+                item_spoilage_rate = _clamp(raw_spoilage_rate, Decimal("0.00"), Decimal("0.18"))
+            spoiled_qty = _floor_unit(min(quantity_before, quantity_before * item_spoilage_rate))
+            spoilage_by_item[item_id] = spoiled_qty
+            spoilage_loss_xgp += _money(avg_unit_cost * spoiled_qty)
+            remaining_final = _unit(max(Decimal("0.00"), quantity_before - spoiled_qty))
+            if remaining_final > Decimal("0.00"):
+                payload["quantity"] = remaining_final
+                remaining_inventory_by_item[item_id] = float(remaining_final)
+            else:
+                payload["quantity"] = Decimal("0.00")
+
         spoilage_loss_xgp = _money(spoilage_loss_xgp)
 
         maintenance_prob = _clamp(
@@ -2391,8 +2596,16 @@ def operate_food_truck(
             - spoilage_loss_xgp
             - maintenance_cost_xgp
         )
-        lost_sales_units = max(0, desired_sales - units_sold)
-        shortage_ratio = _q4(Decimal(str(lost_sales_units)) / Decimal(str(desired_sales))) if desired_sales > 0 else Decimal("0.0")
+        lost_sales_units = _to_int(
+            sum(
+                (
+                    max(Decimal("0.00"), menu_demand_by_type.get(menu_id, Decimal("0.00")) - meals_sold_by_type.get(menu_id, Decimal("0.00")))
+                    for menu_id in FOOD_TRUCK_MENU_RECIPES
+                ),
+                Decimal("0.00"),
+            )
+        )
+        shortage_ratio = _q4(Decimal(str(lost_sales_units)) / max(Decimal("1.00"), total_meal_demand)) if total_meal_demand > 0 else Decimal("0.0")
         rep_delta = 0
         if net_profit_xgp > 0 and shortage_ratio <= Decimal("0.35"):
             rep_delta += 1
@@ -2411,17 +2624,24 @@ def operate_food_truck(
 
         inventory_end_units = _sum_itemized_inventory_units(remaining_items)
         remaining_inventory_value_xgp = _remaining_inventory_value(remaining_items)
+        possible_meals_remaining = _food_truck_possible_meals_remaining(remaining_items)
         estimated_days_of_stock_left, per_item_days = _inventory_days_left_metrics(
             "food_truck",
             remaining_items,
-            latest_units_sold_by_item=consumed_by_item,
+            latest_meals_sold_by_type=meals_sold_by_type,
+            latest_ingredients_used_by_item=ingredients_used_by_item,
         )
-        restock_warning = _restock_warning_for_days(estimated_days_of_stock_left, inventory_end_units)
+        restock_warning = (
+            NO_USABLE_INVENTORY_MESSAGE
+            if possible_meals_remaining <= Decimal("0.00")
+            else _restock_warning_for_days(estimated_days_of_stock_left, inventory_end_units)
+        )
         utilization = _q4(
             (Decimal(str(units_sold)) / Decimal(str(max(1, available_sales)))) * Decimal("100")
             if available_sales > 0
             else Decimal("0")
         )
+        avg_ticket_itemized = _money(revenue_xgp / max(Decimal("1.00"), sold_d)) if sold_d > Decimal("0.00") else Decimal("0.00")
 
         debug_meta = {
             "foot_traffic": float(_q4(bounded_foot)),
@@ -2432,9 +2652,9 @@ def operate_food_truck(
             "confidence_multiplier": float(_q4(confidence_multiplier)),
             "reputation_multiplier": float(_q4(reputation_multiplier)),
             "operating_mode": mode_key,
-            "avg_ticket_xgp": float(_q4(avg_ticket)),
+            "avg_ticket_xgp": float(_q4(avg_ticket_itemized)),
             "available_sales": int(available_sales),
-            "desired_sales": int(desired_sales),
+            "desired_sales": int(_to_int(total_meal_demand)),
             "maintenance_triggered": bool(maintenance_triggered),
             "maintenance_probability": float(_q4(maintenance_prob)),
             "maintenance_roll": float(_q4(maint_roll)),
@@ -2459,13 +2679,13 @@ def operate_food_truck(
             "upgrade_location_demand_multiplier": float(_q4(location_demand_mult)),
             "population_effects": population_effects,
             "uses_itemized_inventory": True,
-            "units_sold_by_item": {
-                item_id: float(_unit(qty))
-                for item_id, qty in consumed_by_item.items()
-                if _unit(qty) > Decimal("0.00")
-            },
+            "units_sold_by_item": _serialize_decimal_map(ingredients_used_by_item),
+            "meals_sold_by_type": _serialize_decimal_map(meals_sold_by_type),
+            "ingredients_used_by_item": _serialize_decimal_map(ingredients_used_by_item),
+            "revenue_by_menu_item": _serialize_decimal_map(revenue_by_menu_item),
+            "cogs_by_menu_item": _serialize_decimal_map(cogs_by_menu_item),
             "remaining_inventory_by_item": remaining_inventory_by_item,
-            "spoilage_by_item": spoilage_by_item,
+            "spoilage_by_item": _serialize_decimal_map(spoilage_by_item),
             "remaining_inventory_value_xgp": float(remaining_inventory_value_xgp),
             "estimated_days_of_stock_left": (
                 None if estimated_days_of_stock_left is None else float(_q4(estimated_days_of_stock_left))
@@ -2473,8 +2693,17 @@ def operate_food_truck(
             "estimated_days_of_stock_left_by_item": {
                 item_id: float(_q4(days_left)) for item_id, days_left in per_item_days.items()
             },
+            "possible_meals_remaining": float(_q4(possible_meals_remaining)),
             "restock_warning": restock_warning,
             "lost_sales_units": int(lost_sales_units),
+            "actual_units_sold": int(units_sold),
+            "inventory_fill_rate": float(_inventory_fill_rate(units_sold, total_meal_demand)),
+            "spoilage_units": float(_unit(sum((_d(qty) for qty in spoilage_by_item.values()), Decimal("0.00")))),
+            "days_of_stock_left": (
+                None if estimated_days_of_stock_left is None else float(_q4(estimated_days_of_stock_left))
+            ),
+            "operation_status": "ran",
+            "message": "Business operated.",
         }
 
         log = _upsert_business_daily_log(
@@ -2496,7 +2725,7 @@ def operate_food_truck(
             units_sold=units_sold,
             inventory_start_units=inventory_start_units,
             inventory_end_units=inventory_end_units,
-            demand_signal=_q4(Decimal(str(desired_sales))),
+            demand_signal=_q4(total_meal_demand),
             utilization_pct=utilization,
             reputation_before=reputation_before,
             reputation_after=reputation_after,
@@ -2507,34 +2736,43 @@ def operate_food_truck(
     essentials_inventory_start = _unit(_d(business.inventory_essentials_units))
     protein_inventory_start = _unit(_d(business.inventory_protein_units))
     inventory_start_units = _unit(essentials_inventory_start + protein_inventory_start)
-    if inventory_start_units <= Decimal("0.00"):
-        raise BusinessValidationError("You need to buy inventory before operating.")
+    available_meals = _unit(min(essentials_inventory_start, protein_inventory_start))
+    available_sales = max(0, int(available_meals))
+    if available_sales <= 0:
+        return _record_no_inventory_operation(
+            db,
+            business=business,
+            player=player,
+            day=day,
+            as_of_date=op_date,
+            business_type="food_truck",
+            region_key=region,
+            inventory_start_units=inventory_start_units,
+            demand_units=desired_sales,
+            overhead_xgp=overhead_xgp,
+            reputation_before=reputation_before,
+            operating_mode=mode_key,
+            upgrades=upgrades,
+            extra_debug={
+                "desired_sales": int(desired_sales),
+                "available_meals": float(available_meals),
+                "essentials_inventory_start": float(essentials_inventory_start),
+                "protein_inventory_start": float(protein_inventory_start),
+            },
+        )
 
-    max_by_ess = _to_int(essentials_inventory_start / essentials_per_sale) if essentials_per_sale > 0 else 0
-    max_by_protein = _to_int(protein_inventory_start / protein_per_sale) if protein_per_sale > 0 else 0
-    available_sales = max(0, min(max_by_ess, max_by_protein))
     units_sold = max(0, min(desired_sales, available_sales))
     sold_d = Decimal(str(units_sold))
     revenue_xgp = _money(avg_ticket * sold_d)
 
-    essentials_used = _unit(sold_d * essentials_per_sale)
-    protein_used = _unit(sold_d * protein_per_sale)
+    essentials_used = _unit(sold_d)
+    protein_used = _unit(sold_d)
     cogs_xgp = _money((essentials_used * essentials_unit_cost) + (protein_used * protein_unit_cost))
 
     remaining_essentials = _unit(max(Decimal("0"), essentials_inventory_start - essentials_used))
     remaining_protein_before_spoilage = _unit(max(Decimal("0"), protein_inventory_start - protein_used))
-    protein_spoil_rate = _q4(
-        _clamp(
-            Decimal("0.01") + (supply_stress_norm / Decimal("2000")),
-            Decimal("0.01"),
-            Decimal("0.06"),
-        )
-    )
-    spoiled_protein_units = min(
-        _to_int(remaining_protein_before_spoilage * protein_spoil_rate),
-        _to_int(remaining_protein_before_spoilage),
-    )
-    spoiled_protein_d = Decimal(str(max(0, spoiled_protein_units)))
+    protein_spoil_rate = Decimal("0.03")
+    spoiled_protein_d = _unit(min(remaining_protein_before_spoilage, remaining_protein_before_spoilage * protein_spoil_rate))
     spoilage_loss_xgp = _money(spoiled_protein_d * protein_unit_cost)
     remaining_protein = _unit(max(Decimal("0"), remaining_protein_before_spoilage - spoiled_protein_d))
 
@@ -2596,8 +2834,9 @@ def operate_food_truck(
         if available_sales > 0
         else Decimal("0")
     )
-    estimated_days_of_stock_left = _q4(inventory_end_units / Decimal("12.0")) if inventory_end_units > Decimal("0.00") else Decimal("0.00")
-    restock_warning = _restock_warning_for_days(estimated_days_of_stock_left, inventory_end_units)
+    usable_meals_after = _unit(min(remaining_essentials, remaining_protein))
+    estimated_days_of_stock_left = _q4(usable_meals_after / Decimal("12.0")) if usable_meals_after > Decimal("0.00") else Decimal("0.00")
+    restock_warning = _restock_warning_for_days(estimated_days_of_stock_left, usable_meals_after)
     debug_meta = {
         "foot_traffic": float(_q4(bounded_foot)),
         "base_foot_traffic": float(_q4(base_foot)),
@@ -2640,6 +2879,14 @@ def operate_food_truck(
         "estimated_days_of_stock_left": float(_q4(estimated_days_of_stock_left)),
         "restock_warning": restock_warning,
         "lost_sales_units": max(0, desired_sales - units_sold),
+        "actual_units_sold": int(units_sold),
+        "inventory_fill_rate": float(_inventory_fill_rate(units_sold, desired_sales)),
+        "spoilage_units": float(_unit(spoiled_protein_d)),
+        "days_of_stock_left": float(_q4(estimated_days_of_stock_left)),
+        "available_meals": float(available_meals),
+        "usable_meals_after": float(usable_meals_after),
+        "operation_status": "ran",
+        "message": "Business operated.",
     }
 
     log = _upsert_business_daily_log(
@@ -2901,6 +3148,7 @@ def run_business_operations_for_player(
 
     results: list[dict] = []
     business_hours_total = Decimal("0.00")
+    cash_before = _money(_d(player.cash_xgp))
     for row in rows:
         btype = (row.business_type or "").strip().lower()
         try:
@@ -2912,6 +3160,7 @@ def run_business_operations_for_player(
                 continue
         except BusinessValidationError as exc:
             inventory_snapshot = _inventory_snapshot_for_business(db, row, day=day)
+            blocked_message = NO_USABLE_INVENTORY_MESSAGE
             result = {
                 "business_id": str(row.id),
                 "business_type": btype,
@@ -2929,8 +3178,12 @@ def run_business_operations_for_player(
                 "maintenance_cost_xgp": 0.0,
                 "net_profit_xgp": 0.0,
                 "units_sold": 0,
+                "actual_units_sold": 0,
                 "inventory_before": float(_d(inventory_snapshot.get("inventory_total_units", 0))),
                 "inventory_after": float(_d(inventory_snapshot.get("inventory_total_units", 0))),
+                "inventory_fill_rate": 0.0,
+                "spoilage_units": 0.0,
+                "days_of_stock_left": 0.0,
                 "demand_signal": 0.0,
                 "reputation_before": int(getattr(row, "reputation", 0) or 0),
                 "reputation_after": int(getattr(row, "reputation", 0) or 0),
@@ -2943,15 +3196,15 @@ def run_business_operations_for_player(
                 },
                 "remaining_inventory_value_xgp": float(_d(inventory_snapshot.get("inventory_estimated_value_xgp", 0))),
                 "estimated_days_of_stock_left": inventory_snapshot.get("estimated_days_of_stock_left"),
-                "restock_warning": inventory_snapshot.get("restock_warning") or str(exc),
+                "restock_warning": inventory_snapshot.get("restock_warning") or blocked_message,
                 "lost_sales_units": 0,
                 "debug_meta": {
                     "blocked_reason": str(exc),
-                    "restock_warning": inventory_snapshot.get("restock_warning") or str(exc),
+                    "restock_warning": inventory_snapshot.get("restock_warning") or blocked_message,
                 },
                 "already_processed": False,
                 "status": "blocked_no_inventory",
-                "message": str(exc),
+                "message": blocked_message,
             }
         results.append(result)
         if result.get("status") == "ran":
@@ -2986,7 +3239,7 @@ def run_business_operations_for_player(
         totals["business_fuel_cost_xgp"] += _d(item.get("fuel_cost_xgp", 0))
         totals["business_maintenance_cost_xgp"] += _d(item.get("maintenance_cost_xgp", 0))
         totals["business_net_profit_xgp"] += _d(item.get("net_profit_xgp", 0))
-        if item.get("status") == "ran":
+        if item.get("status") in {"ran", "no_inventory"}:
             cash_delta_totals["business_revenue_xgp"] += _d(item.get("revenue_xgp", 0))
             cash_delta_totals["business_cogs_xgp"] += _d(item.get("cogs_xgp", 0))
             cash_delta_totals["business_labor_cost_xgp"] += _d(item.get("labor_cost_xgp", 0))
@@ -2995,9 +3248,6 @@ def run_business_operations_for_player(
             cash_delta_totals["business_fuel_cost_xgp"] += _d(item.get("fuel_cost_xgp", 0))
             cash_delta_totals["business_maintenance_cost_xgp"] += _d(item.get("maintenance_cost_xgp", 0))
             cash_delta_totals["business_net_profit_xgp"] += _d(item.get("net_profit_xgp", 0))
-
-    cash_before = _money(_d(player.cash_xgp))
-    player.cash_xgp = _money(cash_before + _money(cash_delta_totals["business_net_profit_xgp"]))
 
     # Side-income snapshot (if any) for the same day, so day/run can return both systems together.
     pds = (
@@ -3032,7 +3282,7 @@ def run_business_operations_for_player(
     fruit_result = next((r for r in results if r.get("business_type") == "fruit_shop"), None)
     truck_result = next((r for r in results if r.get("business_type") == "food_truck"), None)
     ran_count = len([item for item in results if item.get("status") == "ran"])
-    blocked_count = len([item for item in results if item.get("status") == "blocked_no_inventory"])
+    blocked_count = len([item for item in results if item.get("status") in {"blocked_no_inventory", "no_inventory"}])
 
     summary = {
         "player_id": str(player.id),

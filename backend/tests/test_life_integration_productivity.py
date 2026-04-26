@@ -18,6 +18,8 @@ from app.models.business_daily_log import BusinessDailyLog
 from app.models.business_ledger_entry import BusinessLedgerEntry
 from app.models.daily_settlement_log import DailySettlementLog
 from app.models.enums import BasketType
+from app.models.gameplay_transaction import GameplayTransaction
+from app.models.game_state import GameState
 from app.models.housing_daily_log import HousingDailyLog
 from app.models.job_definition_db import JobDefinition as JobDefinitionDB
 from app.models.macro_daily_state import MacroDailyState
@@ -27,7 +29,9 @@ from app.models.player_daily_state import PlayerDailyState
 from app.models.player_employment_state import PlayerEmploymentState
 from app.models.player_housing_state import PlayerHousingState
 from app.models.player_net_worth_snapshot import PlayerNetWorthSnapshot
+from app.models.player_progression_state import PlayerProgressionState
 from app.models.player_stock_holding import PlayerStockHolding
+from app.models.player_transaction_log import PlayerTransactionLog
 from app.models.stock_daily_price import StockDailyPrice
 from app.models.user import User
 from app.services.daily_settlement_service import settle_player_day
@@ -56,6 +60,10 @@ class LifeIntegrationProductivityTests(unittest.TestCase):
                 StockDailyPrice.__table__,
                 PlayerNetWorthSnapshot.__table__,
                 PlayerStockHolding.__table__,
+                GameplayTransaction.__table__,
+                GameState.__table__,
+                PlayerTransactionLog.__table__,
+                PlayerProgressionState.__table__,
             ],
         )
         self.db = self.SessionLocal()
@@ -93,7 +101,7 @@ class LifeIntegrationProductivityTests(unittest.TestCase):
         self.db.flush()
 
         player = Player(
-            user_id=user.id,
+            user_id=str(user.id),
             cash=Decimal("2000.00"),
             stress=30,
             health=92,
@@ -173,7 +181,7 @@ class LifeIntegrationProductivityTests(unittest.TestCase):
             self.db.add(user)
             self.db.flush()
             player = Player(
-                user_id=user.id,
+                user_id=str(user.id),
                 cash=Decimal("1000.00"),
                 debt_xgp=Decimal("0.00"),
                 stress=20,

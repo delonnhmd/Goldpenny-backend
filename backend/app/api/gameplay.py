@@ -2817,8 +2817,8 @@ def execute_gameplay_action(
             message = "Business operation completed."
             result_summary = f"Business operation completed: {business_count} {noun}, {cash_delta:+.2f} XGP net."
             if business_count == 0 and blocked_count > 0:
-                message = "You need to buy inventory before operating."
-                result_summary = "You need to buy inventory before operating."
+                message = "No usable inventory. Buy stock before operating."
+                result_summary = "No usable inventory. Buy stock before operating."
             detailed_result = {
                 **result,
                 "cash_delta_xgp": cash_delta,

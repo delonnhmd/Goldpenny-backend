@@ -53,7 +53,7 @@ class BusinessServiceTests(unittest.TestCase):
         self.db.flush()
 
         self.player = Player(
-            user_id=user.id,
+            user_id=str(user.id),
             display_name="Biz Service Test Player",
             cash=Decimal("20000.00"),
             stress=20,
@@ -179,6 +179,47 @@ class BusinessServiceTests(unittest.TestCase):
         self.assertGreater(result["spoilage_loss_xgp"], 0.0)
         self.assertLess(inventory_after, without_spoilage)
 
+    def test_fruit_shop_zero_inventory_logs_no_revenue_and_warning(self) -> None:
+        shop = self._new_business("fruit_shop")
+
+        result = operate_fruit_shop(self.db, shop, day_number=1, as_of_date=day_to_date(1))
+
+        self.assertEqual(result["status"], "no_inventory")
+        self.assertEqual(result["gross_revenue_xgp"], 0.0)
+        self.assertEqual(result["actual_units_sold"], 0)
+        self.assertEqual(result["restock_warning"], "No usable inventory. Buy stock before operating.")
+        self.assertEqual(result["message"], "No usable inventory. Buy stock before operating.")
+        log = (
+            self.db.query(BusinessDailyLog)
+            .filter(BusinessDailyLog.business_id == shop.id, BusinessDailyLog.day == 1)
+            .first()
+        )
+        self.assertIsNotNone(log)
+        self.assertEqual(float(log.gross_revenue_xgp), 0.0)
+        self.assertLess(float(log.net_profit_xgp), 0.0)
+
+    def test_fruit_shop_sales_are_capped_by_produce_inventory(self) -> None:
+        shop = self._new_business("fruit_shop")
+        shop.inventory_produce_units = Decimal("5")
+
+        result = operate_fruit_shop(self.db, shop, day_number=1, as_of_date=day_to_date(1), markup_pct=Decimal("0.20"))
+
+        self.assertEqual(result["actual_units_sold"], 5)
+        self.assertGreater(result["lost_sales_units"], 0)
+        self.assertLess(float(shop.inventory_produce_units), 5.0)
+
+    def test_fruit_shop_generic_spoilage_is_five_percent_after_sales(self) -> None:
+        shop = self._new_business("fruit_shop")
+        shop.inventory_produce_units = Decimal("100")
+
+        result = operate_fruit_shop(self.db, shop, day_number=1, as_of_date=day_to_date(1), markup_pct=Decimal("0.20"))
+
+        remaining_after_sales = Decimal(str(result["inventory_before"])) - Decimal(str(result["actual_units_sold"]))
+        expected_spoilage = remaining_after_sales * Decimal("0.05")
+        self.assertGreater(result["spoilage_units"], 0.0)
+        self.assertAlmostEqual(result["spoilage_units"], float(expected_spoilage), places=2)
+        self.assertLess(Decimal(str(result["inventory_after"])), remaining_after_sales)
+
     def test_fruit_shop_weekend_and_reputation_increase_demand(self) -> None:
         weekday_shop = self._new_business("fruit_shop", reputation=20)
         weekend_shop = self._new_business("fruit_shop", reputation=80)
@@ -213,7 +254,7 @@ class BusinessServiceTests(unittest.TestCase):
                 user = User(email=f"det-{uuid.uuid4()}@example.com", hashed_password="x")
                 db.add(user)
                 db.flush()
-                player = Player(user_id=user.id, cash=Decimal("20000.00"), region="suburban", hours_available=16, stress=20, health=95)
+                player = Player(user_id=str(user.id), cash=Decimal("20000.00"), region="suburban", hours_available=16, stress=20, health=95)
                 db.add(player)
                 db.flush()
                 db.add(
@@ -296,6 +337,67 @@ class BusinessServiceTests(unittest.TestCase):
         self.assertLessEqual(after, before)
         self.assertGreaterEqual(after, Decimal("0"))
 
+    def test_food_truck_sales_are_capped_by_min_essentials_and_protein(self) -> None:
+        truck = self._new_business("food_truck")
+        truck.inventory_essentials_units = Decimal("10")
+        truck.inventory_protein_units = Decimal("3")
+
+        result = operate_food_truck(self.db, truck, day_number=1, as_of_date=day_to_date(1))
+
+        self.assertEqual(result["actual_units_sold"], 3)
+        self.assertGreater(result["lost_sales_units"], 0)
+        self.assertEqual(float(truck.inventory_essentials_units), 7.0)
+        self.assertEqual(float(truck.inventory_protein_units), 0.0)
+
+    def test_business_operation_includes_labor_and_applies_net_profit_to_cash(self) -> None:
+        shop = self._new_business("fruit_shop")
+        shop.inventory_produce_units = Decimal("90")
+        cash_before = Decimal(str(self.player.cash_xgp))
+
+        result = operate_fruit_shop(self.db, shop, day_number=1, as_of_date=day_to_date(1))
+
+        self.assertEqual(result["labor_cost_xgp"], 45.0)
+        self.assertEqual(
+            Decimal(str(self.player.cash_xgp)).quantize(Decimal("0.01")),
+            (cash_before + Decimal(str(result["net_profit_xgp"]))).quantize(Decimal("0.01")),
+        )
+
+    def test_low_inventory_warning_appears_after_operation(self) -> None:
+        shop = self._new_business("fruit_shop")
+        shop.inventory_produce_units = Decimal("50")
+
+        result = operate_fruit_shop(self.db, shop, day_number=1, as_of_date=day_to_date(1))
+
+        self.assertIn(
+            result["restock_warning"],
+            {
+                "Urgent: restock before next business day.",
+                "Low inventory: restock soon.",
+                "No usable inventory. Buy stock before operating.",
+            },
+        )
+        self.assertLessEqual(result["days_of_stock_left"], 3.0)
+
+    def test_business_operation_same_day_is_idempotent(self) -> None:
+        shop = self._new_business("fruit_shop")
+        shop.inventory_produce_units = Decimal("90")
+
+        first = operate_fruit_shop(self.db, shop, day_number=1, as_of_date=day_to_date(1))
+        cash_after_first = Decimal(str(self.player.cash_xgp))
+        second = operate_fruit_shop(self.db, shop, day_number=1, as_of_date=day_to_date(1))
+        cash_after_second = Decimal(str(self.player.cash_xgp))
+
+        log_count = (
+            self.db.query(BusinessDailyLog)
+            .filter(BusinessDailyLog.business_id == shop.id, BusinessDailyLog.day == 1)
+            .count()
+        )
+        self.assertEqual(first["status"], "ran")
+        self.assertEqual(second["status"], "already_processed")
+        self.assertEqual(first["net_profit_xgp"], second["net_profit_xgp"])
+        self.assertEqual(cash_after_first, cash_after_second)
+        self.assertEqual(log_count, 1)
+
     def test_food_truck_output_is_deterministic_for_same_inputs(self) -> None:
         def run_once() -> dict:
             local_engine = create_engine("sqlite:///:memory:", future=True)
@@ -318,7 +420,7 @@ class BusinessServiceTests(unittest.TestCase):
                 user = User(email=f"det-truck-{uuid.uuid4()}@example.com", hashed_password="x")
                 db.add(user)
                 db.flush()
-                player = Player(user_id=user.id, cash=Decimal("20000.00"), region="suburban", hours_available=16, stress=20, health=95)
+                player = Player(user_id=str(user.id), cash=Decimal("20000.00"), region="suburban", hours_available=16, stress=20, health=95)
                 db.add(player)
                 db.flush()
                 db.add(

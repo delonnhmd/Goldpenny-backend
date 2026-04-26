@@ -25,13 +25,10 @@ import { buildGameplayBottomNavItems } from '@/features/gameplayLoop/navigation'
 import JobMarketPanel from '@/features/gameplayLoop/components/JobMarketPanel';
 import { useScreenTimer } from '@/hooks/useScreenTimer';
 import {
-  buildSlotAddress,
   businessLabel,
   createEmptyBusinessSandboxState,
   defaultGrowthPhaseForBusinessType,
   deriveActiveBusinessProfile,
-  estimateSlotCurrentValue,
-  estimateSlotDemandScore,
   getNextGrowthPhase,
 } from '@/lib/businessSandbox';
 import {
@@ -39,6 +36,13 @@ import {
   updateBusinessSandboxState,
 } from '@/lib/businessSandboxPersistence';
 import { formatMoney } from '@/lib/gameplayFormatters';
+import {
+  calculateSlotRevenuePreview,
+  createSlotEconomicRecord,
+  getSlotBottomSheetState,
+  getSlotBusinessBadgeState,
+  isHotSlot,
+} from '@/lib/slotEconomics';
 import { openBusiness } from '@/lib/api/business';
 import type {
   BusinessLandZoneType,
@@ -524,30 +528,59 @@ function sectionEyebrow(kind: RegionKind): string {
 
 type RegionTone = ReturnType<typeof toneForRegion>;
 
-function lotOpportunityScore(cell: DistrictLotCell, regionKind: RegionKind): number {
-  const districtBonus = regionKind === 'downtown'
-    ? 12
-    : regionKind === 'riverside'
-      ? 8
-      : regionKind === 'industrial'
-        ? 5
-        : 0;
-  const zoneBonus = cell.zoneType === 'commercial_core'
-    ? 10
-    : cell.zoneType === 'mixed_use'
-      ? 6
-      : cell.zoneType === 'logistics'
-        ? 4
-        : 0;
-  const frontageBonus = /corner|frontage|gateway|plaza|water|bridge|station|harbor|metro/i.test(`${cell.title} ${cell.subtitle || ''}`) ? 8 : 0;
-  const sizeBonus = cell.size === 'large' ? 6 : cell.size === 'medium' ? 3 : 0;
-  return cell.trafficScore + cell.developmentPotential + districtBonus + zoneBonus + frontageBonus + sizeBonus;
+function createDistrictSlotEconomics(
+  cell: DistrictLotCell,
+  region: Pick<WorldRegion, 'id' | 'label' | 'kind'>,
+  ownership?: BusinessSandboxState['owned_lots'][number] | null,
+) {
+  return createSlotEconomicRecord({
+    slot_id: cellTileKey(region.id, cell.id),
+    address: ownership?.address,
+    region: ownership?.region || region.kind,
+    district: ownership?.district_label || region.label,
+    slot_type: cell.zoneType,
+    purchase_price: ownership?.purchase_price_xgp ?? cell.priceXgp,
+    current_value: ownership?.value_xgp,
+    demand_score: ownership?.demand_score,
+    foot_traffic_score: ownership?.foot_traffic_score ?? ownership?.traffic_score,
+    traffic_score: ownership?.traffic_score ?? cell.trafficScore,
+    competition_score: ownership?.competition_score,
+    risk_score: ownership?.risk_score,
+    supply_access_score: ownership?.supply_access_score,
+    best_business_fit: ownership?.best_business_fit,
+    linked_business_id: ownership?.linked_business_id || ownership?.placed_business_id,
+    linked_business_type: ownership?.planned_business_type,
+    owner_player_id: ownership?.owner_player_id,
+    ownership_status: ownership?.ownership_status,
+    development_potential: ownership?.development_potential ?? cell.developmentPotential,
+    location_business_multiplier: ownership?.location_business_multiplier,
+  });
 }
 
-function lotOpportunityTier(cell: DistrictLotCell, regionKind: RegionKind): LotOpportunityTier {
-  const score = lotOpportunityScore(cell, regionKind);
-  if (score >= 176 || (cell.trafficScore >= 82 && cell.developmentPotential >= 86)) return 'hot';
-  if (score >= 148 || cell.trafficScore >= 70 || cell.developmentPotential >= 76) return 'strong';
+function lotOpportunityScore(
+  cell: DistrictLotCell,
+  region: Pick<WorldRegion, 'id' | 'label' | 'kind'>,
+  ownership?: BusinessSandboxState['owned_lots'][number] | null,
+): number {
+  const slot = createDistrictSlotEconomics(cell, region, ownership);
+  return Math.round(
+    slot.demand_score
+    + slot.foot_traffic_score
+    - (slot.competition_score * 0.35)
+    - (slot.risk_score * 0.25)
+    + (slot.supply_access_score * 0.2),
+  );
+}
+
+function lotOpportunityTier(
+  cell: DistrictLotCell,
+  region: Pick<WorldRegion, 'id' | 'label' | 'kind'>,
+  ownership?: BusinessSandboxState['owned_lots'][number] | null,
+): LotOpportunityTier {
+  const slot = createDistrictSlotEconomics(cell, region, ownership);
+  const score = lotOpportunityScore(cell, region, ownership);
+  if (isHotSlot(slot)) return 'hot';
+  if (score >= 108 || slot.demand_score >= 68 || slot.foot_traffic_score >= 70) return 'strong';
   return 'normal';
 }
 
@@ -591,6 +624,13 @@ const DistrictGridCell = React.memo(function DistrictGridCell({
   const handlePress = useCallback(() => {
     onSelect(cell.id);
   }, [cell.id, onSelect]);
+  const badgeState = cell.type === 'lot'
+    ? getSlotBusinessBadgeState({
+      linked_business_id: ownership?.linked_business_id || ownership?.placed_business_id || null,
+      linked_business_type: ownership?.planned_business_type || null,
+      owner_player_id: ownership?.owner_player_id || null,
+    })
+    : null;
   const statusLabel = cell.type === 'lot'
     ? primaryLotStatusLabel(cell, ownership, opportunity || 'normal')
     : primaryLotStatusLabel(cell, null);
@@ -634,6 +674,23 @@ const DistrictGridCell = React.memo(function DistrictGridCell({
               {statusLabel}
             </Text>
           </View>
+          {badgeState?.show_badge ? (
+            <View style={[
+              styles.gridLotBadge,
+              badgeState.tone === 'built' ? styles.gridLotBadgeBuilt : styles.gridLotBadgeOwned,
+            ]}>
+              <MaterialCommunityIcons
+                name={badgeState.tone === 'built'
+                  ? (ownership?.planned_business_type === 'food_truck' ? 'food-outline' : 'storefront-outline')
+                  : 'map-marker-check-outline'}
+                size={11}
+                color={theme.ui.text.onDark}
+              />
+              <Text style={styles.gridLotBadgeText} numberOfLines={1}>
+                {badgeState.label}
+              </Text>
+            </View>
+          ) : null}
           <Text style={styles.gridLotPrice}>{tileMeta}</Text>
         </>
       ) : cell.type === 'locked' ? (
@@ -764,14 +821,6 @@ export default function MapDashboardScreen() {
     () => regionCells.find((cell) => cell.id === selectedCellId) || null,
     [regionCells, selectedCellId],
   );
-  const selectedCellOpportunity = useMemo(
-    () => (
-      selectedRegion && selectedCell?.type === 'lot'
-        ? lotOpportunityTier(selectedCell, selectedRegion.kind)
-        : null
-    ),
-    [selectedCell, selectedRegion],
-  );
   const handleSelectCell = useCallback((cellId: string) => {
     setSelectedCellId(cellId);
   }, []);
@@ -785,6 +834,14 @@ export default function MapDashboardScreen() {
     if (!selectedRegion || !selectedCell || selectedCell.type !== 'lot') return null;
     return ownedLotsByTileKey.get(cellTileKey(selectedRegion.id, selectedCell.id)) || null;
   }, [ownedLotsByTileKey, selectedCell, selectedRegion]);
+  const selectedCellOpportunity = useMemo(
+    () => (
+      selectedRegion && selectedCell?.type === 'lot'
+        ? lotOpportunityTier(selectedCell, selectedRegion, selectedLotOwnership)
+        : null
+    ),
+    [selectedCell, selectedLotOwnership, selectedRegion],
+  );
 
   const selectedShiftFocus = useMemo(
     () => SHIFT_FOCUS_OPTIONS.find((option) => option.key === shiftFocusKey) || SHIFT_FOCUS_OPTIONS[1],
@@ -825,6 +882,33 @@ export default function MapDashboardScreen() {
     const businesses = loop.businesses?.businesses || [];
     return businesses.find((item) => item.is_active) || null;
   }, [loop.businesses?.businesses]);
+  const selectedSlotEconomics = useMemo(() => {
+    if (!selectedRegion || !selectedCell || selectedCell.type !== 'lot') return null;
+    return createDistrictSlotEconomics(selectedCell, selectedRegion, selectedLotOwnership);
+  }, [selectedCell, selectedLotOwnership, selectedRegion]);
+  const selectedFruitRevenuePreview = useMemo(
+    () => (selectedSlotEconomics ? calculateSlotRevenuePreview(selectedSlotEconomics, 'fruit_shop') : null),
+    [selectedSlotEconomics],
+  );
+  const selectedFoodRevenuePreview = useMemo(
+    () => (selectedSlotEconomics ? calculateSlotRevenuePreview(selectedSlotEconomics, 'food_truck') : null),
+    [selectedSlotEconomics],
+  );
+  const selectedSlotBadge = useMemo(
+    () => getSlotBusinessBadgeState({
+      linked_business_id: selectedLotOwnership?.linked_business_id || selectedLotOwnership?.placed_business_id || null,
+      linked_business_type: selectedLotOwnership?.planned_business_type || null,
+      owner_player_id: selectedLotOwnership?.owner_player_id || null,
+    }),
+    [selectedLotOwnership?.linked_business_id, selectedLotOwnership?.owner_player_id, selectedLotOwnership?.placed_business_id, selectedLotOwnership?.planned_business_type],
+  );
+  const selectedBottomSheetState = useMemo(
+    () => getSlotBottomSheetState({
+      is_owned: Boolean(selectedLotOwnership),
+      has_linked_business: Boolean(selectedLotOwnership?.linked_business_id || selectedLotOwnership?.placed_business_id),
+    }),
+    [selectedLotOwnership],
+  );
 
   const activeBusinessProfile = useMemo(
     () => deriveActiveBusinessProfile({
@@ -1046,6 +1130,7 @@ export default function MapDashboardScreen() {
             district_label: selectedRegion.label,
             location_label: selectedRegion.label,
             growth_phase_key: defaultGrowthPhaseForBusinessType(businessType),
+            location_business_multiplier: null,
           },
         ],
       }));
@@ -1071,16 +1156,8 @@ export default function MapDashboardScreen() {
   };
 
   const purchaseSelectedLot = async () => {
-    if (!selectedRegion || !selectedCell || selectedCell.type !== 'lot' || selectedLotOwnership) return;
+    if (!selectedRegion || !selectedCell || selectedCell.type !== 'lot' || selectedLotOwnership || !selectedSlotEconomics) return;
     const tileKey = cellTileKey(selectedRegion.id, selectedCell.id);
-    const demandScore = estimateSlotDemandScore(
-      selectedCell.trafficScore,
-      selectedCell.developmentPotential,
-      selectedRegion.id,
-      selectedCell.zoneType,
-    );
-    const slotAddress = buildSlotAddress(selectedRegion.id, selectedCell.title, selectedCell.row, selectedCell.col);
-    const currentValue = estimateSlotCurrentValue(selectedCell.priceXgp, demandScore, selectedRegion.id);
     await persistSandboxState((current) => ({
       ...current,
       owned_lots: [
@@ -1089,18 +1166,25 @@ export default function MapDashboardScreen() {
           tile_key: tileKey,
           x: selectedCell.col,
           y: selectedCell.row,
-          address: slotAddress,
+          address: selectedSlotEconomics.address,
           district_key: selectedRegion.id,
           district_label: selectedRegion.label,
           region: selectedRegion.kind,
           zone_type: selectedCell.zoneType,
           size: selectedCell.size,
-          value_xgp: currentValue,
+          value_xgp: selectedSlotEconomics.current_value,
           purchase_price_xgp: selectedCell.priceXgp,
-          traffic_score: selectedCell.trafficScore,
-          development_potential: selectedCell.developmentPotential,
-          demand_score: demandScore,
+          traffic_score: selectedSlotEconomics.foot_traffic_score,
+          foot_traffic_score: selectedSlotEconomics.foot_traffic_score,
+          development_potential: selectedSlotEconomics.development_potential,
+          demand_score: selectedSlotEconomics.demand_score,
+          competition_score: selectedSlotEconomics.competition_score,
+          risk_score: selectedSlotEconomics.risk_score,
+          supply_access_score: selectedSlotEconomics.supply_access_score,
+          best_business_fit: selectedSlotEconomics.best_business_fit,
+          location_business_multiplier: selectedSlotEconomics.location_business_multiplier,
           owner_player_id: loop.playerId,
+          ownership_status: 'owned_land',
           planned_business_type: null,
           linked_business_id: null,
           placed_business_id: null,
@@ -1116,16 +1200,16 @@ export default function MapDashboardScreen() {
   };
 
   const placeActiveBusinessOnLot = async () => {
-    if (!selectedRegion || !selectedCell || selectedCell.type !== 'lot' || !selectedLotOwnership || !activeBusiness) return;
+    if (!selectedRegion || !selectedCell || selectedCell.type !== 'lot' || !selectedLotOwnership || !activeBusiness || !selectedSlotEconomics) return;
     const tileKey = cellTileKey(selectedRegion.id, selectedCell.id);
-    const slotAddress = selectedLotOwnership.address
-      || buildSlotAddress(selectedRegion.id, selectedCell.title, selectedCell.row, selectedCell.col);
+    const slotAddress = selectedLotOwnership.address || selectedSlotEconomics.address;
     await persistSandboxState((current) => ({
       ...current,
       owned_lots: current.owned_lots.map((lot) => {
         if ((lot.linked_business_id === activeBusiness.business_id || lot.placed_business_id === activeBusiness.business_id) && lot.tile_key !== tileKey) {
           return {
             ...lot,
+            ownership_status: 'owned_land',
             planned_business_type: null,
             linked_business_id: null,
             placed_business_id: null,
@@ -1135,6 +1219,17 @@ export default function MapDashboardScreen() {
         if (lot.tile_key !== tileKey) return lot;
         return {
           ...lot,
+          address: slotAddress,
+          value_xgp: selectedSlotEconomics.current_value,
+          traffic_score: selectedSlotEconomics.foot_traffic_score,
+          foot_traffic_score: selectedSlotEconomics.foot_traffic_score,
+          demand_score: selectedSlotEconomics.demand_score,
+          competition_score: selectedSlotEconomics.competition_score,
+          risk_score: selectedSlotEconomics.risk_score,
+          supply_access_score: selectedSlotEconomics.supply_access_score,
+          best_business_fit: selectedSlotEconomics.best_business_fit,
+          location_business_multiplier: selectedSlotEconomics.location_business_multiplier,
+          ownership_status: 'owned_built',
           planned_business_type: String(activeBusiness.business_type),
           linked_business_id: activeBusiness.business_id,
           placed_business_id: activeBusiness.business_id,
@@ -1154,6 +1249,7 @@ export default function MapDashboardScreen() {
           location_label: slotAddress,
           growth_phase_key: current.business_market_links.find((link) => link.business_id === activeBusiness.business_id)?.growth_phase_key
             || defaultGrowthPhaseForBusinessType(String(activeBusiness.business_type)),
+          location_business_multiplier: selectedSlotEconomics.location_business_multiplier,
         },
       ],
     }));
@@ -1181,6 +1277,7 @@ export default function MapDashboardScreen() {
           district_label: activeBusinessProfile.district_label,
           location_label: activeBusinessProfile.location_label,
           growth_phase_key: nextPhase.key,
+          location_business_multiplier: activeBusinessProfile.location_business_multiplier ?? null,
         },
       ],
     }));
@@ -1218,9 +1315,12 @@ export default function MapDashboardScreen() {
   );
   const districtHotLots = useMemo(
     () => selectedRegion
-      ? selectedRegionLotCells.filter((cell) => lotOpportunityTier(cell, selectedRegion.kind) === 'hot').length
+      ? selectedRegionLotCells.filter((cell) => {
+        const ownership = ownedLotsByTileKey.get(cellTileKey(selectedRegion.id, cell.id)) || null;
+        return lotOpportunityTier(cell, selectedRegion, ownership) === 'hot';
+      }).length
       : 0,
-    [selectedRegion, selectedRegionLotCells],
+    [ownedLotsByTileKey, selectedRegion, selectedRegionLotCells],
   );
   const totalUnlockedLotCapacity = useMemo(
     () => unlockedRegions.reduce((sum, region) => sum + region.cells.filter((cell) => cell.type === 'lot').length, 0),
@@ -1346,7 +1446,7 @@ export default function MapDashboardScreen() {
                     ? ownedLotsByTileKey.get(cellTileKey(selectedRegion.id, cell.id)) || null
                     : null;
                   const opportunity = cell.type === 'lot'
-                    ? lotOpportunityTier(cell, selectedRegion.kind)
+                    ? lotOpportunityTier(cell, selectedRegion, ownership)
                     : null;
                   return (
                     <DistrictGridCell
@@ -1384,7 +1484,7 @@ export default function MapDashboardScreen() {
                     </View>
                   </View>
 
-                  {selectedCell.type === 'lot' ? (
+                  {selectedCell.type === 'lot' && selectedSlotEconomics ? (
                     <>
                       <View style={styles.landStatePanel}>
                         <View style={styles.landStateRow}>
@@ -1406,47 +1506,80 @@ export default function MapDashboardScreen() {
                         <View style={styles.landStateRow}>
                           <Text style={styles.landStateLabel}>Address</Text>
                           <Text style={styles.landStateValue}>
-                            {selectedLotOwnership?.address || buildSlotAddress(selectedRegion.id, selectedCell.title, selectedCell.row, selectedCell.col)}
+                            {selectedSlotEconomics.address}
                           </Text>
                         </View>
                         <View style={styles.landStateRow}>
                           <Text style={styles.landStateLabel}>Current value</Text>
                           <Text style={styles.landStateValue}>
-                            {formatMoney(
-                              selectedLotOwnership?.value_xgp
-                              || estimateSlotCurrentValue(
-                                selectedCell.priceXgp,
-                                estimateSlotDemandScore(
-                                  selectedCell.trafficScore,
-                                  selectedCell.developmentPotential,
-                                  selectedRegion.id,
-                                  selectedCell.zoneType,
-                                ),
-                                selectedRegion.id,
-                              ),
-                            )}
+                            {formatMoney(selectedSlotEconomics.current_value)}
+                          </Text>
+                        </View>
+                        <View style={styles.landStateRow}>
+                          <Text style={styles.landStateLabel}>Expected revenue</Text>
+                          <Text style={styles.landStateValue}>
+                            {selectedSlotEconomics.best_business_fit === 'fruit_shop'
+                              ? `${formatMoney(selectedFruitRevenuePreview?.low_revenue || 0)} to ${formatMoney(selectedFruitRevenuePreview?.high_revenue || 0)}`
+                              : selectedSlotEconomics.best_business_fit === 'food_truck'
+                                ? `${formatMoney(selectedFoodRevenuePreview?.low_revenue || 0)} to ${formatMoney(selectedFoodRevenuePreview?.high_revenue || 0)}`
+                                : `${formatMoney(Math.min(selectedFruitRevenuePreview?.low_revenue || 0, selectedFoodRevenuePreview?.low_revenue || 0))} to ${formatMoney(Math.max(selectedFruitRevenuePreview?.high_revenue || 0, selectedFoodRevenuePreview?.high_revenue || 0))}`}
                           </Text>
                         </View>
                       </View>
                       <View style={styles.summaryRow}>
                         <MetricPill label="Price" value={formatMoney(selectedCell.priceXgp)} />
-                        <MetricPill label="Traffic" value={`${selectedCell.trafficScore}/100`} />
-                        <MetricPill label="Dev" value={`${selectedCell.developmentPotential}/100`} />
+                        <MetricPill label="Demand" value={`${selectedSlotEconomics.demand_score}/100`} />
+                        <MetricPill label="Traffic" value={`${selectedSlotEconomics.foot_traffic_score}/100`} />
+                      </View>
+                      <View style={styles.summaryRow}>
+                        <MetricPill label="Competition" value={`${selectedSlotEconomics.competition_score}/100`} />
+                        <MetricPill label="Risk" value={`${selectedSlotEconomics.risk_score}/100`} />
+                        <MetricPill label="Supply" value={`${selectedSlotEconomics.supply_access_score}/100`} />
+                      </View>
+                      <View style={styles.summaryRow}>
+                        <MetricPill label="Best Fit" value={businessLabel(selectedSlotEconomics.best_business_fit)} />
+                        <MetricPill
+                          label="Fruit Preview"
+                          value={`${formatMoney(selectedFruitRevenuePreview?.low_revenue || 0)}-${formatMoney(selectedFruitRevenuePreview?.high_revenue || 0)}`}
+                        />
+                        <MetricPill
+                          label="Food Preview"
+                          value={`${formatMoney(selectedFoodRevenuePreview?.low_revenue || 0)}-${formatMoney(selectedFoodRevenuePreview?.high_revenue || 0)}`}
+                        />
                       </View>
                       <View style={styles.summaryRow}>
                         <MetricPill label="Zone" value={selectedCell.zoneType.replace(/_/g, ' ')} />
                         <MetricPill label="Size" value={selectedCell.size} />
-                        <MetricPill label="District" value={selectedRegion.label} />
+                        <MetricPill label="Multiplier" value={`${selectedSlotEconomics.location_business_multiplier.toFixed(2)}x`} />
                       </View>
 
-                      {selectedLotOwnership ? (
-                        <View style={styles.selectionStack}>
+                      <View style={styles.selectionStack}>
+                        <Text style={styles.supportingCopy}>
+                          {(selectedLotOwnership?.linked_business_id || selectedLotOwnership?.placed_business_id)
+                            ? 'This slot is already tied to a business. Operate it here or manage the site.'
+                            : selectedLotOwnership
+                              ? 'This land is owned. Open or place a business when you are ready.'
+                              : 'Secure this slot now, then use the location scores to decide which business belongs here.'}
+                        </Text>
+
+                        {selectedSlotBadge.show_badge ? (
                           <Text style={styles.supportingCopy}>
-                            {(selectedLotOwnership.linked_business_id || selectedLotOwnership.placed_business_id)
-                              ? 'This lot already hosts your active business footprint.'
-                              : 'This land is owned and ready for development.'}
+                            Linked status: {selectedSlotBadge.label}
                           </Text>
-                          {(selectedLotOwnership.linked_business_id || selectedLotOwnership.placed_business_id) ? (
+                        ) : null}
+
+                        <SecondaryButton
+                          label={selectedBottomSheetState.buttons.find((button) => button.key === 'inspect')?.label || 'Inspect'}
+                          onPress={() => {
+                            loop.setFeedback({
+                              tone: 'info',
+                              message: `${selectedSlotEconomics.address} | Demand ${selectedSlotEconomics.demand_score} | Traffic ${selectedSlotEconomics.foot_traffic_score} | Fit ${businessLabel(selectedSlotEconomics.best_business_fit)}`,
+                            });
+                          }}
+                        />
+
+                        {selectedLotOwnership ? (
+                          (selectedLotOwnership.linked_business_id || selectedLotOwnership.placed_business_id) ? (
                             <>
                               {selectedLotHasActiveBusiness && activeBusinessProfile ? (
                                 <View style={styles.businessPanel}>
@@ -1462,7 +1595,7 @@ export default function MapDashboardScreen() {
                                 </View>
                               ) : null}
                               <PrimaryButton
-                                label={operatedToday ? 'Operated Today' : 'Run Business'}
+                                label={operatedToday ? 'Operated Today' : selectedBottomSheetState.primary_label}
                                 disabled={!selectedLotHasActiveBusiness || operatedToday || loop.dailySession.sessionStatus !== 'active'}
                                 onPress={() => { void loop.operateBusiness(); }}
                               />
@@ -1480,26 +1613,20 @@ export default function MapDashboardScreen() {
                                 <SecondaryButton label="Manage Site" disabled />
                               )}
                             </>
-                          ) : activeBusiness ? (
+                          ) : (
                             <PrimaryButton
-                              label={`Build Here: Place ${activeBusinessProfile?.growth_phase_label || businessLabel(activeBusiness.business_type)}`}
+                              label={selectedBottomSheetState.primary_label}
+                              disabled={!activeBusiness}
                               onPress={() => { void placeActiveBusinessOnLot(); }}
                             />
-                          ) : (
-                            <SecondaryButton label="Open A Business First" disabled />
-                          )}
-                        </View>
-                      ) : (
-                        <View style={styles.selectionStack}>
-                          <Text style={styles.supportingCopy}>
-                            Secure this lot now, then place your active business later when you are ready to expand.
-                          </Text>
+                          )
+                        ) : (
                           <PrimaryButton
-                            label={`Buy Lot ${formatMoney(selectedCell.priceXgp)}`}
+                            label={`${selectedBottomSheetState.primary_label} ${formatMoney(selectedCell.priceXgp)}`}
                             onPress={() => { void purchaseSelectedLot(); }}
                           />
-                        </View>
-                      )}
+                        )}
+                      </View>
                     </>
                   ) : null}
 
@@ -1790,7 +1917,7 @@ export default function MapDashboardScreen() {
                   {expansionRegions.map((region) => {
                     const tone = toneForRegion(region.kind);
                     const lotCount = region.cells.filter((cell) => cell.type === 'lot').length;
-                    const hotCount = region.cells.filter((cell) => cell.type === 'lot' && lotOpportunityTier(cell, region.kind) === 'hot').length;
+                    const hotCount = region.cells.filter((cell) => cell.type === 'lot' && lotOpportunityTier(cell, region) === 'hot').length;
                     return (
                       <Pressable
                         key={region.id}
@@ -2282,14 +2409,16 @@ const styles = StyleSheet.create({
     backgroundColor: alpha(theme.ui.info, 0.12),
   },
   gridCellHot: {
-    borderColor: alpha(theme.ui.warning, 0.86),
-    backgroundColor: alpha(theme.ui.warning, 0.16),
+    borderColor: alpha(theme.ui.warning, 0.94),
+    backgroundColor: alpha(theme.ui.warning, 0.24),
   },
   gridCellOwned: {
-    backgroundColor: alpha(theme.ui.info, 0.1),
+    borderColor: alpha(theme.ui.info, 0.52),
+    backgroundColor: alpha(theme.ui.info, 0.14),
   },
   gridCellBuilt: {
-    backgroundColor: alpha(theme.ui.warning, 0.12),
+    borderColor: alpha(theme.ui.positive, 0.52),
+    backgroundColor: alpha(theme.ui.warning, 0.16),
   },
   gridNodeTitle: {
     ...theme.typography.caption,
@@ -2305,13 +2434,38 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 5,
   },
+  gridLotBadge: {
+    maxWidth: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+  },
+  gridLotBadgeOwned: {
+    borderColor: alpha(theme.ui.info, 0.42),
+    backgroundColor: alpha(theme.ui.info, 0.18),
+  },
+  gridLotBadgeBuilt: {
+    borderColor: alpha(theme.ui.warning, 0.58),
+    backgroundColor: alpha(theme.ui.warning, 0.22),
+  },
+  gridLotBadgeText: {
+    ...theme.typography.caption,
+    color: theme.ui.text.onDark,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
   gridHotSpark: {
-    width: 7,
-    height: 7,
+    width: 9,
+    height: 9,
     borderRadius: 999,
     backgroundColor: theme.ui.warning,
     borderWidth: 1,
-    borderColor: alpha(theme.ui.info, 0.72),
+    borderColor: alpha(theme.ui.warning, 0.36),
   },
   gridLotStatus: {
     ...theme.typography.caption,

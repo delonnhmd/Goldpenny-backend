@@ -8,7 +8,6 @@ import { alpha, theme } from '@/design/theme';
 import { useOnboarding } from '@/features/onboarding';
 import { useScreenTimer } from '@/hooks/useScreenTimer';
 import {
-  buildSlotAddress,
   businessLabel,
   createEmptyBusinessSandboxState,
   deriveActiveBusinessProfile,
@@ -20,6 +19,7 @@ import {
 } from '@/lib/api/business';
 import { readBusinessSandboxState } from '@/lib/businessSandboxPersistence';
 import { formatMoney } from '@/lib/gameplayFormatters';
+import { getStableSlotAddress } from '@/lib/slotEconomics';
 import type {
   BusinessDailyOperationRecord,
   BusinessInventoryItem,
@@ -96,6 +96,16 @@ function formatDaysLeft(daysLeft?: number | null): string {
   if (daysLeft <= 0) return '0 days';
   if (daysLeft < 1) return '<1 day';
   return `${daysLeft.toFixed(daysLeft < 10 ? 1 : 0)} day${daysLeft >= 1.95 ? 's' : ''}`;
+}
+
+function formatBreakdownMap(
+  values: Record<string, number> | undefined | null,
+  valueFormatter?: (value: number) => string,
+): string {
+  return Object.entries(values || {})
+    .filter(([, value]) => Number(value || 0) > 0)
+    .map(([key, value]) => `${key.replace(/_/g, ' ')} ${valueFormatter ? valueFormatter(Number(value || 0)) : Number(value || 0).toFixed(Number(value || 0) % 1 === 0 ? 0 : 1)}`)
+    .join(' | ');
 }
 
 function SummaryStatRow({
@@ -206,6 +216,13 @@ function DailyLogBreakdown({
     .filter(([, quantity]) => Number(quantity || 0) > 0)
     .map(([itemId, quantity]) => `${itemId.replace(/_/g, ' ')} ${Number(quantity).toFixed(Number(quantity) % 1 === 0 ? 0 : 1)}`)
     .join(' | ');
+  const fruitSpoilageSummary = formatBreakdownMap(latestLog.spoilage_by_item);
+  const remainingInventorySummary = formatBreakdownMap(latestLog.remaining_inventory_by_item);
+  const mealsSoldSummary = formatBreakdownMap(latestLog.meals_sold_by_type);
+  const ingredientsUsedSummary = formatBreakdownMap(latestLog.ingredients_used_by_item);
+  const actualUnitsSold = Number(latestLog.actual_units_sold ?? latestLog.units_sold ?? 0);
+  const daysOfStockLeft = latestLog.days_of_stock_left ?? latestLog.estimated_days_of_stock_left;
+  const isFoodTruck = String(latestLog.business_type || '') === 'food_truck';
 
   return (
     <View style={styles.breakdownStack}>
@@ -213,19 +230,43 @@ function DailyLogBreakdown({
         items={[
           { label: 'Revenue', value: formatMoney(Number(latestLog.gross_revenue_xgp || latestLog.revenue_xgp || 0)), tone: 'positive' },
           { label: 'Stock cost / COGS', value: formatMoney(Number(latestLog.cost_of_goods_sold_xgp || latestLog.cogs_xgp || 0)), tone: 'warning' },
+          { label: 'Units sold', value: actualUnitsSold.toFixed(0) },
           { label: 'Labor', value: formatMoney(Number(latestLog.labor_cost_xgp || 0)), tone: 'warning' },
           { label: 'Overhead', value: formatMoney(Number(latestLog.overhead_xgp || 0)), tone: 'warning' },
           { label: 'Fuel', value: formatMoney(Number(latestLog.fuel_cost_xgp || 0)), tone: Number(latestLog.fuel_cost_xgp || 0) > 0 ? 'warning' : 'neutral' },
           { label: 'Maintenance', value: formatMoney(Number(latestLog.maintenance_cost_xgp || 0)), tone: Number(latestLog.maintenance_cost_xgp || 0) > 0 ? 'warning' : 'neutral' },
           { label: 'Spoilage', value: formatMoney(Number(latestLog.spoilage_loss_xgp || 0)), tone: Number(latestLog.spoilage_loss_xgp || 0) > 0 ? 'danger' : 'neutral' },
           { label: 'Net profit', value: formatMoney(Number(latestLog.net_profit_xgp || 0)), tone: toneFromSignedValue(Number(latestLog.net_profit_xgp || 0)) },
-          { label: 'Remaining inventory', value: formatMoney(Number(latestLog.remaining_inventory_value_xgp || 0)) },
-          { label: 'Stock left', value: formatDaysLeft(latestLog.estimated_days_of_stock_left) },
+          { label: 'Inventory left', value: `${Number(latestLog.inventory_after || 0).toFixed(1)} units` },
+          ...(isFoodTruck && latestLog.possible_meals_remaining != null
+            ? [{ label: 'Meals left', value: Number(latestLog.possible_meals_remaining || 0).toFixed(0) }]
+            : []),
+          { label: 'Stock left', value: formatDaysLeft(daysOfStockLeft) },
         ]}
       />
 
-      {unitsSoldSummary ? (
+      {!isFoodTruck && unitsSoldSummary ? (
         <Text style={styles.supportingCopy}>Units sold: {unitsSoldSummary}</Text>
+      ) : null}
+
+      {!isFoodTruck && fruitSpoilageSummary ? (
+        <Text style={styles.supportingCopy}>Spoilage by fruit: {fruitSpoilageSummary}</Text>
+      ) : null}
+
+      {!isFoodTruck && remainingInventorySummary ? (
+        <Text style={styles.supportingCopy}>Inventory left by fruit: {remainingInventorySummary}</Text>
+      ) : null}
+
+      {isFoodTruck && mealsSoldSummary ? (
+        <Text style={styles.supportingCopy}>Meals sold: {mealsSoldSummary}</Text>
+      ) : null}
+
+      {isFoodTruck && ingredientsUsedSummary ? (
+        <Text style={styles.supportingCopy}>Ingredients used: {ingredientsUsedSummary}</Text>
+      ) : null}
+
+      {isFoodTruck && remainingInventorySummary ? (
+        <Text style={styles.supportingCopy}>Remaining ingredients: {remainingInventorySummary}</Text>
       ) : null}
 
       {Number(latestLog.lost_sales_units || 0) > 0 ? (
@@ -344,7 +385,11 @@ export default function BusinessScreen() {
   const linkedAddress = useMemo(() => {
     if (linkedLot?.address) return linkedLot.address;
     if (!linkedLot?.tile_key) return null;
-    return buildSlotAddress(linkedLot.district_key, linkedLot.district_label || linkedLot.tile_key, linkedLot.y, linkedLot.x);
+    return getStableSlotAddress({
+      slot_id: linkedLot.tile_key,
+      district: linkedLot.district_label || linkedLot.district_key,
+      region: linkedLot.region,
+    });
   }, [linkedLot]);
 
   const inventoryItems = useMemo(

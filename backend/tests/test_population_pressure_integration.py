@@ -18,6 +18,8 @@ from app.models.daily_brief_log import DailyBriefLog
 from app.models.daily_settlement_log import DailySettlementLog
 from app.models.debt_credit_log import DebtCreditLog
 from app.models.enums import BasketType
+from app.models.gameplay_transaction import GameplayTransaction
+from app.models.game_state import GameState
 from app.models.housing_daily_log import HousingDailyLog
 from app.models.job_definition_db import JobDefinition as JobDefinitionDB
 from app.models.macro_daily_state import MacroDailyState
@@ -27,7 +29,9 @@ from app.models.player_daily_state import PlayerDailyState
 from app.models.player_employment_state import PlayerEmploymentState
 from app.models.player_housing_state import PlayerHousingState
 from app.models.player_net_worth_snapshot import PlayerNetWorthSnapshot
+from app.models.player_progression_state import PlayerProgressionState
 from app.models.player_stock_holding import PlayerStockHolding
+from app.models.player_transaction_log import PlayerTransactionLog
 from app.models.region_population_history import RegionPopulationHistory
 from app.models.region_population_state import RegionPopulationState
 from app.models.stock_daily_price import StockDailyPrice
@@ -79,6 +83,10 @@ class PopulationPressureIntegrationTests(unittest.TestCase):
                 HousingDailyLog.__table__,
                 RegionPopulationState.__table__,
                 RegionPopulationHistory.__table__,
+                GameplayTransaction.__table__,
+                GameState.__table__,
+                PlayerTransactionLog.__table__,
+                PlayerProgressionState.__table__,
             ],
         )
         self.db = self.SessionLocal()
@@ -94,7 +102,7 @@ class PopulationPressureIntegrationTests(unittest.TestCase):
         self.db.add(user)
         self.db.flush()
         player = Player(
-            user_id=user.id,
+            user_id=str(user.id),
             display_name=f"Step34 Int {region}",
             cash=Decimal("2500.00"),
             debt_xgp=Decimal("300.00"),
