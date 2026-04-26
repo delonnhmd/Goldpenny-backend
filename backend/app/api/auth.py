@@ -14,13 +14,7 @@ from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.db.database import get_db
-from app.models.player import Player
-from app.models.user import User
-from app.services.player_onboarding_service import (
-    create_survival_player_profile,
-    load_existing_player_state,
-)
+from app.core.security import load_jwt_secret
 
 router = APIRouter()
 
@@ -45,7 +39,7 @@ def _auth_error_json(
         },
     )
 
-SECRET_KEY = os.getenv("SECRET_KEY", os.getenv("JWT_SECRET_KEY", "change-me"))
+SECRET_KEY = load_jwt_secret()
 ALGORITHM = os.getenv("ALGORITHM", os.getenv("JWT_ALGORITHM", "HS256"))
 ACCESS_TOKEN_EXPIRE_MINUTES = int(
     os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", os.getenv("JWT_EXPIRE_MINUTES", str(60 * 24 * 30)))
@@ -54,6 +48,14 @@ RESET_TOKEN_EXPIRE_MINUTES = int(os.getenv("RESET_TOKEN_EXPIRE_MINUTES", "15"))
 RESET_URL_BASE = os.getenv("APP_RESET_URL_BASE", "goldpenny://auth/reset-password")
 STARTER_REGION = "suburban"
 ACTIVE_USER_STATUS = "active"
+
+from app.db.database import get_db
+from app.models.player import Player
+from app.models.user import User
+from app.services.player_onboarding_service import (
+    create_survival_player_profile,
+    load_existing_player_state,
+)
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")

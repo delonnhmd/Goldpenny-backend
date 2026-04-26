@@ -13,6 +13,7 @@ from sqlalchemy import text
 load_dotenv()
 
 from app.api import auth, baskets, briefs, business, career, commitment, consumer_borrowing, contract_timing, day, daily, deals, debt, debt_behavior, economy, economy_presentation, events, finance, financial_survival, forecasting, gameplay, guided_sandbox, health, housing, internal, jobs, macro, market, marketplace, onboarding, personal_shocks, player, population_pressure, portfolio, progression, reputation_trust, rewards, side_income, soft_launch, stocks, strategic_planning, strategy, supply_chain, wealth_progression, world_memory
+from app.core.security import load_jwt_secret
 from app.db.database import Base, engine, SessionLocal, log_database_schema_diagnostics
 from app import models  # noqa: F401
 
@@ -23,7 +24,7 @@ def load_app_config() -> dict[str, str | int]:
     # Centralized MVP config loader. These values are sourced from `.env`.
     return {
         "DATABASE_URL": os.getenv("DATABASE_URL", ""),
-        "SECRET_KEY": os.getenv("SECRET_KEY", "change-me"),
+        "SECRET_KEY": load_jwt_secret(),
         "ALGORITHM": os.getenv("ALGORITHM", "HS256"),
         "ACCESS_TOKEN_EXPIRE_MINUTES": int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60")),
     }
