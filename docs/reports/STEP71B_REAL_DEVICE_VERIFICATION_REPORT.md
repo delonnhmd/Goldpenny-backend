@@ -649,7 +649,7 @@ These items do not block the internal launch but should be resolved before publi
 | Item | Priority | Action |
 |---|---|---|
 | Kotlin source directory `com/yourcompany/nnt/` | Low | `git mv android/app/src/main/java/com/yourcompany/nnt android/app/src/main/java/com/pennyfloat/goldpenny` |
-| Stale app routes (`/post`, `/claim`, `/referral`) | Medium | Add 404 redirect or `notFound()` guard |
+| Stale app routes (`/post`, `/claim`) | Medium | Add 404 redirect or `notFound()` guard |
 | `.env.local` not in `.gitignore` | Check | Confirm `.env.local` is in `.gitignore` |
 | Apple provisioning cert renewal process | Low | Document before cert expiry (1 year from first build) |
 | Backend URL (`EXPO_PUBLIC_BACKEND`) in EAS secrets | **Required** | `npx eas secret:create --scope project --name EXPO_PUBLIC_BACKEND --value ...` |

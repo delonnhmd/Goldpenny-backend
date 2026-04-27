@@ -85,7 +85,6 @@ permanently deleted (except two confirmed-empty stub files).
 | `app/admin/index.tsx` | NNT admin panel (Posts/Users/ad-stats — NNT-specific) |
 | `app/claim/` | NNT on-chain token claim flow |
 | `app/leaderboard/` | NNT leaderboard |
-| `app/referral/` | NNT referral system |
 | `app/account/` | NNT account page showing nnt/gnnt balances |
 | `app/post/` | NNT post detail page |
 | `app/user/` | NNT user profile page |
@@ -133,7 +132,7 @@ These files were confirmed empty and provided no value:
 
 ### `app/(tabs)/_layout.tsx`
 - Removed: WalletConnect polyfill imports at top (`react-native-gesture-handler`, `@walletconnect/react-native-compat`, etc.)
-- Removed tab declarations: `explore`, `claim/index`, `leaderboard/index`, `referral/index`, `account/index`
+- Removed tab declarations: `explore`, `claim/index`, `leaderboard/index`, `account/index`
 - Updated: "Home" tab title → "Gold Penny", now renders the new redirect `index.tsx`
 - Kept: `settings` tab
 

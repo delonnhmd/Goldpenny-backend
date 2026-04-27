@@ -21,7 +21,6 @@
 | `app/claim/` | ✅ Empty stub | Directory exists, no files — expected placeholder. |
 | `app/leaderboard/` | ✅ Empty stub | Directory exists, no files — expected placeholder. |
 | `app/post/` | ✅ Empty stub | Directory exists, no files — expected placeholder. |
-| `app/referral/` | ✅ Empty stub | Directory exists, no files — expected placeholder. |
 | `app/user/` | ✅ Empty stub | Directory exists, no files — expected placeholder. |
 
 ---
