@@ -18,7 +18,6 @@
 | `app/gameplay/[playerId].tsx` | ✅ Clean | Unwraps `playerId` from router params; delegates to `@/pages/gameplay/GameDashboardPage`. Single import, resolves correctly. |
 | `app/account/` | ✅ Empty stub | Directory exists, no files — expected placeholder. |
 | `app/admin/` | ✅ Empty stub | Directory exists, no files — expected placeholder. |
-| `app/claim/` | ✅ Empty stub | Directory exists, no files — expected placeholder. |
 | `app/leaderboard/` | ✅ Empty stub | Directory exists, no files — expected placeholder. |
 | `app/post/` | ✅ Empty stub | Directory exists, no files — expected placeholder. |
 | `app/user/` | ✅ Empty stub | Directory exists, no files — expected placeholder. |

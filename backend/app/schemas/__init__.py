@@ -51,12 +51,6 @@ class Player(PlayerBase):
     user_id: UUID
     created_at: datetime
 
-    # reward accounting
-    pending_reward_points: float = 0.0
-    pending_token_amount: float = 0.0
-    total_lifetime_token_claimed: float = 0.0
-    reward_eligibility_status: str = "eligible"
-    wallet_linked: bool = False
     successful_coop_deals_count: int = 0
     failed_coop_deals_count: int = 0
 

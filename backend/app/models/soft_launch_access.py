@@ -1,6 +1,6 @@
 """Step 70 — Soft launch invite code catalogue.
 
-Rows here are pre-provisioned invite codes.  When a user claims a code
+Rows here are pre-provisioned invite codes. When a user redeems a code
 the use_count is incremented.  Admins can deactivate codes without
 touching user memberships.
 """

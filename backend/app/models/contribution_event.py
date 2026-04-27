@@ -1,15 +1,13 @@
 """app/models/contribution_event.py — Raw gameplay contribution event.
 
 Every significant gameplay action that can contribute towards a player's
-monthly PFT reward score creates one row here.  These raw events are later
-aggregated by the monthly epoch finalisation process (Step 1 reward engine)
-to produce ContributionSnapshot records and PFT allocations.
+activity history creates one row here. These raw events can be aggregated by
+reporting jobs with anti-exploit filters.
 
 Design intent:
   - This table is WRITE-ONCE from the game engine's perspective.
   - Rows must NOT be modified after creation (audit trail).
-  - The reward engine reads these rows at epoch close time.
-  - Claiming / PFT minting never happens here.
+  - Token payout execution never happens here.
 
 Event types used in Step 2:
   job_work      — XGP earned through labour; xgp_value = earned amount

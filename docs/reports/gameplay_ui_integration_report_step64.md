@@ -88,7 +88,7 @@ This supports a complete daily cycle:
 ### 6) Gameplay/Token Boundary
 Maintained strict separation:
 - No wallet code added
-- No token claim logic added
+- No token payout logic added
 - No token balance UI introduced in gameplay loop screens
 
 ## Key UI Decisions (Design Translation)

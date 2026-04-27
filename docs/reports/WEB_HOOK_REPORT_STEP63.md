@@ -25,7 +25,7 @@ Design intent is preserved:
   - Includes `Continue in App` deep link.
 - `/connect` (wallet placeholder)
   - Connect Wallet placeholder button and state transitions (`idle`, `connecting`, `ready`).
-  - Explicitly disables claim/transfer/token execution logic.
+  - Explicitly disables transfer/token execution logic.
 
 ## Endpoints Used (Read-Only)
 
@@ -53,7 +53,7 @@ Implemented wallet-prep UI only:
 
 - `Connect Wallet` button
 - Placeholder connection states
-- No claim logic
+- No payout logic
 - No on-chain transfer logic
 - No gameplay mutation path
 

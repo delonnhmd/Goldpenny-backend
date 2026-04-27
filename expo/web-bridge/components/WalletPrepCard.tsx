@@ -7,7 +7,7 @@ type WalletState = 'idle' | 'connecting' | 'ready';
 const STATE_COPY: Record<WalletState, string> = {
   idle: 'No wallet connected yet. This bridge is prepared for future token features.',
   connecting: 'Preparing secure connection flow... (placeholder only)',
-  ready: 'Wallet placeholder connected. Claim and token actions are intentionally disabled for now.',
+  ready: 'Wallet placeholder connected. Token actions are intentionally disabled for now.',
 };
 
 export default function WalletPrepCard() {
@@ -35,7 +35,7 @@ export default function WalletPrepCard() {
     <section className="content-card wallet-card" aria-live="polite">
       <h3>Wallet Bridge (Future-Ready)</h3>
       <p>
-        This UI reserves space for wallet identity and signing. No claims, transfers, or payout actions are available in this step.
+        This UI reserves space for wallet identity and signing. No transfers or payout actions are available in this step.
       </p>
 
       <div className="wallet-state-row">

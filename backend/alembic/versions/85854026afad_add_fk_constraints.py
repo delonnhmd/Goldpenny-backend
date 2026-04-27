@@ -396,40 +396,8 @@ def upgrade() -> None:
                existing_type=sa.BOOLEAN(),
                server_default=None,
                existing_nullable=False)
-    op.alter_column('players', 'pending_reward_points',
-               existing_type=sa.DOUBLE_PRECISION(precision=53),
-               server_default=None,
-               existing_nullable=False)
-    op.alter_column('players', 'pending_token_amount',
-               existing_type=sa.DOUBLE_PRECISION(precision=53),
-               server_default=None,
-               existing_nullable=False)
-    op.alter_column('players', 'total_lifetime_token_claimed',
-               existing_type=sa.DOUBLE_PRECISION(precision=53),
-               server_default=None,
-               existing_nullable=False)
-    op.alter_column('players', 'reward_eligibility_status',
-               existing_type=sa.VARCHAR(length=20),
-               server_default=None,
-               existing_nullable=False)
-    op.alter_column('players', 'anti_cheat_flag',
-               existing_type=sa.BOOLEAN(),
-               server_default=None,
-               existing_nullable=False)
-    op.alter_column('players', 'wallet_linked',
-               existing_type=sa.BOOLEAN(),
-               server_default=None,
-               existing_nullable=False)
     op.alter_column('players', 'lifetime_xgp_earned',
                existing_type=sa.DOUBLE_PRECISION(precision=53),
-               server_default=None,
-               existing_nullable=False)
-    op.alter_column('players', 'lifetime_contribution_score',
-               existing_type=sa.DOUBLE_PRECISION(precision=53),
-               server_default=None,
-               existing_nullable=False)
-    op.alter_column('players', 'is_reward_eligible',
-               existing_type=sa.BOOLEAN(),
                server_default=None,
                existing_nullable=False)
     op.alter_column('players', 'completed_trades_count',
@@ -490,39 +458,7 @@ def downgrade() -> None:
                existing_type=sa.INTEGER(),
                server_default=sa.text('0'),
                existing_nullable=False)
-    op.alter_column('players', 'is_reward_eligible',
-               existing_type=sa.BOOLEAN(),
-               server_default=sa.text('false'),
-               existing_nullable=False)
-    op.alter_column('players', 'lifetime_contribution_score',
-               existing_type=sa.DOUBLE_PRECISION(precision=53),
-               server_default=sa.text("'0'::double precision"),
-               existing_nullable=False)
     op.alter_column('players', 'lifetime_xgp_earned',
-               existing_type=sa.DOUBLE_PRECISION(precision=53),
-               server_default=sa.text("'0'::double precision"),
-               existing_nullable=False)
-    op.alter_column('players', 'wallet_linked',
-               existing_type=sa.BOOLEAN(),
-               server_default=sa.text('false'),
-               existing_nullable=False)
-    op.alter_column('players', 'anti_cheat_flag',
-               existing_type=sa.BOOLEAN(),
-               server_default=sa.text('false'),
-               existing_nullable=False)
-    op.alter_column('players', 'reward_eligibility_status',
-               existing_type=sa.VARCHAR(length=20),
-               server_default=sa.text("'eligible'::character varying"),
-               existing_nullable=False)
-    op.alter_column('players', 'total_lifetime_token_claimed',
-               existing_type=sa.DOUBLE_PRECISION(precision=53),
-               server_default=sa.text("'0'::double precision"),
-               existing_nullable=False)
-    op.alter_column('players', 'pending_token_amount',
-               existing_type=sa.DOUBLE_PRECISION(precision=53),
-               server_default=sa.text("'0'::double precision"),
-               existing_nullable=False)
-    op.alter_column('players', 'pending_reward_points',
                existing_type=sa.DOUBLE_PRECISION(precision=53),
                server_default=sa.text("'0'::double precision"),
                existing_nullable=False)

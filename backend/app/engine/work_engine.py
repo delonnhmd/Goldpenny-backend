@@ -190,7 +190,7 @@ class WorkEngine:
 
         # ── Contribution event (raw input for monthly PFT scoring) ──────────
         # The reward engine reads these rows at epoch close time to build
-        # ContributionSnapshot records.  Do NOT compute PFT here.
+        # Token payout accounting is outside the V1 work loop.
         import json as _json
         contribution = ContributionEvent(
             player_id=player.id,

@@ -212,7 +212,7 @@ Current rule:
 These were intentionally not implemented in Step 51:
 
 - wallet-auth registration flow activation
-- token claim or reward UI
+- token payout or reward UI
 - wallet connection prompts in the gameplay shell
 - any dependency from daily gameplay progression onto token balances or external addresses
 

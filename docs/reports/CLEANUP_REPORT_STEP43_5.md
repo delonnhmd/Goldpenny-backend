@@ -42,7 +42,7 @@ permanently deleted (except two confirmed-empty stub files).
 ### Directories archived
 | Directory | Reason |
 |---|---|
-| `contracts/` | Solidity: NNTRewardSystem, DualMerkleClaim, gnnt.sol, etc. |
+| `contracts/` | Solidity: NNTRewardSystem, gnnt.sol, etc. |
 | `scripts/` | 17 Hardhat deploy/utility scripts |
 | `artifacts/` | Hardhat compiled contract output |
 | `cache/` | Hardhat build cache |
@@ -74,7 +74,7 @@ permanently deleted (except two confirmed-empty stub files).
 ### App routes archived (`app-routes/`)
 | Route | Reason |
 |---|---|
-| `app/(tabs)/airdrop.tsx` | NNT airdrop claim flow (was not in tab bar) |
+| `app/(tabs)/airdrop.tsx` | NNT airdrop flow (was not in tab bar) |
 | `app/(tabs)/rewards.tsx` | NNT/GNNT balance display (was not in tab bar) |
 | `app/(tabs)/posts.tsx` | NNT post browser tab |
 | `app/(tabs)/users.tsx` | NNT user list tab |
@@ -83,7 +83,6 @@ permanently deleted (except two confirmed-empty stub files).
 | `app/compose.tsx` | NNT post compose screen |
 | `app/register.tsx` | NNT username registration screen |
 | `app/admin/index.tsx` | NNT admin panel (Posts/Users/ad-stats — NNT-specific) |
-| `app/claim/` | NNT on-chain token claim flow |
 | `app/leaderboard/` | NNT leaderboard |
 | `app/account/` | NNT account page showing nnt/gnnt balances |
 | `app/post/` | NNT post detail page |
@@ -92,8 +91,8 @@ permanently deleted (except two confirmed-empty stub files).
 ### Components archived (`components/`)
 | Path | Reason |
 |---|---|
-| `src/components/airdrop/` | AirdropClaimer, AirdropStatus |
-| `src/components/rewards/` | RewardsDashboard, ClaimButtons, RewardHistory |
+| `src/components/airdrop/` | AirdropStatus |
+| `src/components/rewards/` | RewardsDashboard, RewardHistory |
 | `src/components/posts/` | PostCard, PostFeed, PostDetail, PostStatus |
 | `src/components/voting/` | VoteButtons, GodVoteButtons, VotingStatus |
 | `src/components/users/` | UserCard, UserList, UserModerator, UserProfile, UserSearch, UserStats |
@@ -115,7 +114,7 @@ permanently deleted (except two confirmed-empty stub files).
 ### Library archived (`lib/`)
 | File | Reason |
 |---|---|
-| `src/lib/api.ts` | Legacy NNT API client (Points, nnt/gnnt token types, airdropClaimable, adComplete, getFeed, etc.) |
+| `src/lib/api.ts` | Legacy NNT API client (Points, nnt/gnnt token types, adComplete, getFeed, etc.) |
 
 ---
 
@@ -124,7 +123,6 @@ permanently deleted (except two confirmed-empty stub files).
 These files were confirmed empty and provided no value:
 
 - `src/hooks/useAirdrop.ts` — empty file, zero imports
-- `src/hooks/useRewardClaims.ts` — empty file, zero imports
 
 ---
 
@@ -132,7 +130,7 @@ These files were confirmed empty and provided no value:
 
 ### `app/(tabs)/_layout.tsx`
 - Removed: WalletConnect polyfill imports at top (`react-native-gesture-handler`, `@walletconnect/react-native-compat`, etc.)
-- Removed tab declarations: `explore`, `claim/index`, `leaderboard/index`, `account/index`
+- Removed tab declarations: `explore`, `leaderboard/index`, `account/index`
 - Updated: "Home" tab title → "Gold Penny", now renders the new redirect `index.tsx`
 - Kept: `settings` tab
 
@@ -141,7 +139,7 @@ These files were confirmed empty and provided no value:
 - New file: `Redirect` to `/gameplay` — routes users directly into the Gold Penny dashboard
 
 ### `src/components/TopStatusBar.tsx`
-- Removed: `getApi` import, all NNT balance/ad-credit/claim-countdown display
+- Removed: `getApi` import, all NNT balance/ad-credit countdown display
 - Kept: `useDebt` debt warning bar (shown only when player has outstanding debt > 0)
 
 ### `src/hooks/index.tsx`

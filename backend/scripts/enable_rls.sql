@@ -12,12 +12,10 @@ ALTER TABLE public.alembic_version              ENABLE ROW LEVEL SECURITY;
 -- ── Auth / Identity ───────────────────────────────────────────────────────────
 ALTER TABLE public.users                        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.players                      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.wallet_links                 ENABLE ROW LEVEL SECURITY;
 
 -- ── Player state ───────────────────────────────────────────────────────────────
 ALTER TABLE public.player_daily_states          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.player_inventory             ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.player_reward_scores         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.portfolios                   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.debt_accounts                ENABLE ROW LEVEL SECURITY;
 
@@ -93,20 +91,10 @@ ALTER TABLE public.job_openings                 ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.employment_contracts         ENABLE ROW LEVEL SECURITY;
 
 -- ── Rewards / Tokens ─────────────────────────────────────────────────────────
-ALTER TABLE public.reward_pools                 ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.reward_ledgers               ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.reward_epochs                ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.token_claims                 ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.token_claim_history          ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.token_claim_allowances       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.claim_balances               ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.claim_windows                ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.claim_ledger                 ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.xgp_transactions             ENABLE ROW LEVEL SECURITY;
 
 -- ── Contributions / Side income ───────────────────────────────────────────────
 ALTER TABLE public.contribution_events          ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.contribution_snapshots       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.side_income_actions          ENABLE ROW LEVEL SECURITY;
 
 -- ── Settlement ────────────────────────────────────────────────────────────────

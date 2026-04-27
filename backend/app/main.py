@@ -12,7 +12,7 @@ from sqlalchemy import text
 # Load environment variables from the project root `.env` file at app import/startup time.
 load_dotenv()
 
-from app.api import auth, baskets, briefs, business, career, commitment, consumer_borrowing, contract_timing, day, daily, deals, debt, debt_behavior, economy, economy_presentation, events, finance, financial_survival, forecasting, gameplay, guided_sandbox, health, housing, internal, jobs, macro, market, marketplace, onboarding, personal_shocks, player, population_pressure, portfolio, progression, reputation_trust, rewards, side_income, soft_launch, stocks, strategic_planning, strategy, supply_chain, wealth_progression, world_memory
+from app.api import auth, baskets, briefs, business, career, commitment, consumer_borrowing, contract_timing, day, daily, deals, debt, debt_behavior, economy, economy_presentation, events, finance, financial_survival, forecasting, gameplay, guided_sandbox, health, housing, internal, jobs, macro, market, marketplace, onboarding, personal_shocks, player, population_pressure, portfolio, progression, reputation_trust, side_income, soft_launch, stocks, strategic_planning, strategy, supply_chain, wealth_progression, world_memory
 from app.core.security import load_jwt_secret
 from app.db.database import Base, engine, SessionLocal, log_database_schema_diagnostics
 from app import models  # noqa: F401
@@ -49,14 +49,6 @@ def _run_schema_migrations() -> None:
         "ALTER TABLE players ADD COLUMN IF NOT EXISTS gender VARCHAR(20)",
         # Step 5: track which day the economy engine last processed.
         "ALTER TABLE game_states ADD COLUMN economy_processed_for_day INTEGER",
-        # Step 5.5: off-chain reward accounting fields on players.
-        "ALTER TABLE players ADD COLUMN pending_reward_points FLOAT NOT NULL DEFAULT 0.0",
-        "ALTER TABLE players ADD COLUMN pending_token_amount FLOAT NOT NULL DEFAULT 0.0",
-        "ALTER TABLE players ADD COLUMN total_lifetime_token_claimed FLOAT NOT NULL DEFAULT 0.0",
-        "ALTER TABLE players ADD COLUMN reward_eligibility_status VARCHAR(20) NOT NULL DEFAULT 'eligible'",
-        "ALTER TABLE players ADD COLUMN anti_cheat_flag BOOLEAN NOT NULL DEFAULT FALSE",
-        "ALTER TABLE players ADD COLUMN account_created_day INTEGER",
-        "ALTER TABLE players ADD COLUMN wallet_linked BOOLEAN NOT NULL DEFAULT FALSE",
         # Step 6: expanded stock columns and new tables.
         "ALTER TABLE stocks ADD COLUMN company_name VARCHAR(120)",
         "ALTER TABLE stocks ADD COLUMN sector VARCHAR(40) NOT NULL DEFAULT 'consumer'",
@@ -90,6 +82,8 @@ def _run_schema_migrations() -> None:
         "ALTER TABLE players ADD COLUMN net_worth NUMERIC(14,2) NOT NULL DEFAULT 1000",
         "ALTER TABLE players ADD COLUMN housing_stability INTEGER NOT NULL DEFAULT 100",
         "ALTER TABLE players ADD COLUMN has_active_housing BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE players ADD COLUMN account_created_day INTEGER",
+        "ALTER TABLE players ADD COLUMN lifetime_xgp_earned FLOAT NOT NULL DEFAULT 0.0",
         # Step 8b: player_housing pressure tracking.
         "ALTER TABLE player_housings ADD COLUMN affordability_pressure FLOAT NOT NULL DEFAULT 1.0",
         "ALTER TABLE player_housings ADD COLUMN cumulative_housing_paid NUMERIC(12,2) NOT NULL DEFAULT 0",
@@ -105,12 +99,6 @@ def _run_schema_migrations() -> None:
         "ALTER TABLE debt_accounts ADD COLUMN consecutive_missed_payments INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE debt_accounts ADD COLUMN penalty_rate_modifier FLOAT NOT NULL DEFAULT 1.0",
         "ALTER TABLE debt_accounts ADD COLUMN last_delinquency_day INTEGER",
-        # Step 1 (monetary constitution): new PFT reward accounting fields on players.
-        "ALTER TABLE players ADD COLUMN wallet_address VARCHAR(100)",
-        "ALTER TABLE players ADD COLUMN lifetime_xgp_earned FLOAT NOT NULL DEFAULT 0.0",
-        "ALTER TABLE players ADD COLUMN lifetime_contribution_score FLOAT NOT NULL DEFAULT 0.0",
-        "ALTER TABLE players ADD COLUMN last_claimed_epoch INTEGER",
-        "ALTER TABLE players ADD COLUMN is_reward_eligible BOOLEAN NOT NULL DEFAULT FALSE",
         # Step 2 (gameplay loop): job assignment field on players.
         # main_job already exists in the Player model; this migration guard ensures
         # any DB that pre-dates the column creation will get it safely.
@@ -453,7 +441,6 @@ def create_app() -> FastAPI:
     application.include_router(consumer_borrowing.router, prefix="/borrowing", tags=["Consumer Borrowing"])
     application.include_router(economy.router, prefix="/economy", tags=["economy"])
     application.include_router(market.router, prefix="/market", tags=["market"])
-    application.include_router(rewards.router, prefix="/rewards", tags=["rewards"])
     application.include_router(stocks.router, prefix="/stocks", tags=["stocks"])
     application.include_router(business.router, prefix="/business", tags=["business"])
     application.include_router(housing.router, prefix="/housing", tags=["housing"])

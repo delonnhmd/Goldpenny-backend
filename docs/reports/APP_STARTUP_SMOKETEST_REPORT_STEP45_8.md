@@ -35,7 +35,7 @@
 | `/gameplay` | `app/gameplay/index.tsx` | ✅ | Imports resolve; uses AsyncStorage key `gameplay:lastPlayerId` |
 | `/gameplay/[playerId]` | `app/gameplay/[playerId].tsx` | ✅ | Delegates to `GameDashboardPage` |
 | `/settings` | `app/(tabs)/settings.tsx` | ✅ | Backend URL, admin token, auto-update — no broken imports |
-| Stub routes | `account/`, `admin/`, `claim/`, `leaderboard/`, `post/`, `user/` | ✅ | Empty directories — expo-router ignores empty dirs, no crash |
+| Stub routes | `account/`, `admin/`, `leaderboard/`, `post/`, `user/` | ✅ | Empty directories — expo-router ignores empty dirs, no crash |
 
 **No missing screens. No old removed tabs referenced. No dead navigation targets. No route group mismatches.**
 

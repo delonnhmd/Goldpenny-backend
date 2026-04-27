@@ -239,7 +239,7 @@ A **full EAS rebuild is required** when:
 | `android/app/src/main/java/com/yourcompany/nnt/` directory path | Source directory name doesn't match package. Does NOT break builds — Gradle compiles all .kt files recursively. | Optional housekeeping: `git mv` the directory to `com/pennyfloat/goldpenny/` |
 | EAS env vars not configured for preview/production | `EXPO_PUBLIC_BACKEND` must be set per channel in EAS secrets | Run: `eas secret:create --scope project --name EXPO_PUBLIC_BACKEND --value https://your-api.com --client eas` for each channel |
 | No `android/` `.gitignore` for build output | `android/build/` and `.gradle/` are not excluded | Add standard Android ignores to `android/.gitignore` |
-| `app/(tabs)` folder structure has unused routes | `post/`, `claim/`, `leaderboard/`, `account/` | Review each; redirect or guard with 404 as needed |
+| `app/(tabs)` folder structure has unused routes | `post/`, `leaderboard/`, `account/` | Review each; redirect or guard with 404 as needed |
 
 ---
 

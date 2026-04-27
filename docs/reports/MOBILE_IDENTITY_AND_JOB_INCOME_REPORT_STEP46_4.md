@@ -142,7 +142,7 @@ Changes:
 - Job switching system
 - Career ladder / promotions
 - Expenses engine
-- Blockchain / claim logic
+- Blockchain / payout logic
 - `incomeSummary` in end-of-day feedback (income data loads async after feedback is set — clean integration requires a separate step or effect)
 
 ---

@@ -7,7 +7,7 @@ export default function ConnectPage() {
   return (
     <BridgeShell
       title="Wallet Connect Prep"
-      subtitle="Future-ready connection surface for token integration, intentionally isolated from gameplay execution and claim flows."
+      subtitle="Future-ready connection surface for token integration, intentionally isolated from gameplay execution."
     >
       <section className="content-grid">
         <WalletPrepCard />
@@ -24,7 +24,7 @@ export default function ConnectPage() {
         <article className="content-card content-col-6">
           <h3>What Is Not Included</h3>
           <ul className="copy-list">
-            <li>No claim, payout, or transfer actions.</li>
+            <li>No payout or transfer actions.</li>
             <li>No local token math or economy simulation.</li>
             <li>No replacement of mobile progression or action runtime.</li>
           </ul>

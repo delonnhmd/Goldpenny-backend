@@ -113,41 +113,9 @@ class Player(Base):
     housing_stability = Column(Integer, nullable=False, default=100)   # 0-100
     has_active_housing = Column(Boolean, nullable=False, default=False)
 
-    # ── Step 5.5: Off-chain reward accounting ─────────────────────────────────
-    # Accumulated since last process-month run.
-    pending_reward_points = Column(Float, nullable=False, default=0.0)
-    # Off-chain token amount approved and awaiting future on-chain claim.
-    pending_token_amount = Column(Float, nullable=False, default=0.0)
-    # Total token units successfully claimed on-chain across all time.
-    total_lifetime_token_claimed = Column(Float, nullable=False, default=0.0)
-    # "eligible" | "suspended" | "banned"
-    reward_eligibility_status = Column(String(20), nullable=False, default="eligible")
-    # Raised when suspicious activity crosses severity threshold.
-    anti_cheat_flag = Column(Boolean, nullable=False, default=False)
-    # In-game day number when this player account first appeared in gameplay.
+    # V1 progression metrics used by lifecycle and wealth systems.
     account_created_day = Column(Integer, nullable=True)
-    # True once a wallet_link row has been verified for this player.
-    wallet_linked = Column(Boolean, nullable=False, default=False)
-
-    # ── Step 1: Monetary constitution — PFT reward accounting ────────────────
-    # Optional on-chain wallet address for future PFT claim flow.
-    # Nullable: claiming is disabled in Step 1, so a missing wallet is fine.
-    wallet_address = Column(String(100), nullable=True)
-
-    # Cumulative XGP earned across the entire lifetime of the account,
-    # updated by the settlement engine on each income event.
     lifetime_xgp_earned = Column(Float, nullable=False, default=0.0)
-
-    # Cumulative contribution score across all epochs (historical sum).
-    lifetime_contribution_score = Column(Float, nullable=False, default=0.0)
-
-    # The epoch id (integer index) of the last epoch for which PFT was claimed.
-    # Null until the first successful claim is processed.
-    last_claimed_epoch = Column(Integer, nullable=True)
-
-    # Boolean shortcut used by the reward engine eligibility check.
-    # True when the player passes all qualification gates for the current epoch.
-    is_reward_eligible = Column(Boolean, nullable=False, default=False)
 
     # ── Step 12: Marketplace reputation fields ──────────────────────────────────
     # completed_trades_count: number of Step 12 marketplace trades as seller.
