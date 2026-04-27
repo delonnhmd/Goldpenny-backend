@@ -154,7 +154,7 @@ The mapping layer translates that object into fields the current engines already
 
 Fallback one: cache yesterday's event and replay it with a quiet-day frame if generation fails: "The world is quiet today; yesterday's pressure is still working through your city." This fits the existing chain language in [backend/app/services/daily_brief_service.py] and chain fields in [backend/app/models/daily_economy_event.py].
 
-Fallback two: maintain a hand-curated bank of 50 generic events as last resort. [backend/app/engine/event_catalog.py] is already a static catalog of economy events and can be the pattern for that bank. Fallback three: AI cost is capped at $0.05-$0.20 per MAU per month. Above that, throttle enrichment and serve cached/static events.
+Fallback two: maintain a hand-curated bank of 50 generic events as last resort. [backend/app/engine/event_catalog.py] is already a static catalog of economy events and can be the pattern for that bank. Fallback three: AI cost is capped at Fallback three: when per-MAU AI cost exceeds the hard circuit-breaker defined in the Cost and Latency Budget section ($0.20/MAU/month), the system automatically falls through to cached and static events from [backend/app/engine/event_catalog.py] and emails the operator. See Cost and Latency Budget for the operational target and the breaker logic.
 
 ### Safety
 
