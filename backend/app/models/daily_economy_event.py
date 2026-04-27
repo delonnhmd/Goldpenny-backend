@@ -1,13 +1,31 @@
-"""Step 19 / 19.5: Daily economy event — one event per game day, with chain support."""
+"""Step 19 / 19.5: Daily economy event — one event per game day, with chain support.
+
+Phase 3-B-1 (task 2) added real-world-anchored fields to support events
+generated from FRED data. Convention:
+
+For static catalog events ``is_realworld_anchored`` is False and the new
+fields (``source_summary``, ``source_urls``, ``generated_at``,
+``affected_sectors``, ``duration_days``, ``magnitude``) are null.
+
+For real-world-anchored events ``is_realworld_anchored`` is True and
+``source_urls``, ``affected_sectors``, ``magnitude``, ``duration_days``,
+``generated_at`` are populated. ``source_urls`` enforcement (i.e. the
+verifier that requires at least N reputable sources) is Phase 3-B-2.
+"""
 
 from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import Column, DateTime, Integer, Numeric, String, Text, func
-from sqlalchemy.dialects.postgresql import UUID
+import sqlalchemy as sa
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, Numeric, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.db.database import Base
+
+
+# JSON column that becomes JSONB on Postgres, plain JSON on SQLite (test DB).
+_JSON_PORTABLE = sa.JSON().with_variant(JSONB(), "postgresql")
 
 
 class DailyEconomyEvent(Base):
@@ -41,6 +59,17 @@ class DailyEconomyEvent(Base):
     continuation_probability = Column(Numeric(6, 4), nullable=True)   # probability chain continues
     decay_factor = Column(Numeric(6, 4), nullable=True)               # impact decay multiplier
     chain_debug_json = Column(Text, nullable=True)                    # chain selection debug info
+
+    # ── Phase 3-B-1: Real-world anchored event metadata ───────────────────────
+    is_realworld_anchored = Column(
+        Boolean, nullable=False, default=False, server_default=sa.false()
+    )
+    source_summary = Column(Text, nullable=True)
+    source_urls = Column(_JSON_PORTABLE, nullable=True)               # list[str]
+    generated_at = Column(DateTime(timezone=True), nullable=True)
+    affected_sectors = Column(_JSON_PORTABLE, nullable=True)          # list[str]
+    duration_days = Column(Integer, nullable=True)
+    magnitude = Column(Float, nullable=True)                          # 0.0–1.0 by convention; not enforced
 
     # ── Debug ─────────────────────────────────────────────────────────────────
     debug_json = Column(Text, nullable=True)
