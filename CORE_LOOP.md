@@ -78,6 +78,8 @@ This is a five-to-twelve-minute mobile session, not a desktop session and not a 
 
 Honest narration finding: I cannot write the promised tomorrow-morning ten-minute player narration yet without faking it, because the repo has a Daily Brief surface and deterministic in-game event engine but no real-world news ingestion service and no Expo push-notification opt-in path. The honest current session is: I open Life, read an in-game brief, check cash/stress/health, tap Map, run a few actions, settle, and read tomorrow focus. The distinctive "oil spiked overnight, my food truck margin is bleeding today" story is the product premise, but it is not wired yet.
 
+**Interim ritual (until pipeline ships).** Today's actual player session uses the existing deterministic event system: [backend/app/engine/event_service.py] selects from the static catalog in [backend/app/engine/event_catalog.py], the day's brief renders through [backend/app/services/daily_brief_service.py] and [expo/src/components/gameplay/DailyBriefCard.tsx], and the player makes 3-7 decisions through [expo/src/features/gameplayLoop/screens/MapDashboardScreen.tsx] before settling the day from [expo/src/features/gameplayLoop/screens/LifeScreen.tsx]. The post-pipeline narration described above is the target state, not today's state. This paragraph exists so future readers do not mistake the design intent for the current implementation.
+
 ## The Running Campaign
 
 The campaign is the player's finance life aging one real day at a time. Wealth trajectory is already measurable through [backend/app/services/net_worth_service.py], [backend/app/engine/wealth_progression_service.py], [backend/app/models/player_net_worth_snapshot.py], [backend/app/models/player_wealth_trend_history.py], and visible net worth in [expo/src/features/gameplayLoop/screens/MarketScreen.tsx]. Business empire shape is already represented by active business state in [backend/app/engine/business_engine.py], operating results in [backend/app/engine/business_balance_engine.py], growth phases in [expo/src/lib/businessSandbox.ts], and the player-facing business screen in [expo/src/features/gameplayLoop/screens/BusinessScreen.tsx].
@@ -86,7 +88,9 @@ Survival record is stored through settled days and pressure logs: [backend/app/m
 
 Milestones the player chases: first 10,000 XGP net worth from [backend/app/services/net_worth_service.py] and [expo/src/features/gameplayLoop/screens/MarketScreen.tsx]; first stage-3 business from [expo/src/lib/businessSandbox.ts] and [expo/src/features/gameplayLoop/screens/BusinessScreen.tsx]; first survived multi-day macro chain from [backend/app/engine/event_service.py] and [backend/app/models/daily_economy_event.py]; first 30-day and 365-day life record from [backend/app/models/player_progression_state.py] and [backend/app/api/progression.py].
 
-Campaign endings are not implemented today. The two soft endings this game should point at are bankruptcy retirement from the current run when net worth and distress stay critical for multiple settled days, and voluntary retirement when the player reaches a durable net-worth target. The data to evaluate those endings exists in [backend/app/engine/wealth_progression_service.py], [backend/app/services/net_worth_service.py], [backend/app/api/finance.py], and [backend/app/models/player_daily_state.py], but no end-state route, modal, or reset flow exists in [expo/app/gameplay/loop/[playerId]/*].
+Campaign endings are not implemented today. Bankruptcy ending. Triggered when the player has 7 consecutive settled days with negative net worth and distress score > 0.8. Data sources: net worth from [backend/app/services/net_worth_service.py], distress / pressure from [backend/app/engine/retention_engine.py] and [backend/app/models/player_daily_state.py]. End-state route, modal, and reset flow do not yet exist in [expo/app/gameplay/loop/[playerId]/*] — flag as Phase 3 build item. Voluntary retirement ending. Unlocks when the player holds $250,000 XGP net worth for 30 consecutive days with at least one stage-3 business active. Data sources: [backend/app/services/net_worth_service.py], [backend/app/engine/wealth_progression_service.py], [backend/app/models/player_wealth_trend_history.py], business growth phases in [expo/src/lib/businessSandbox.ts]. End-state surface does not yet exist in Expo — flag as Phase 3 build item. These thresholds will be wrong on first ship and will be tuned in patches. They are committed now so Phase 3 has concrete targets to build endings against.
+
+**Player absence behavior.** The player's life pauses for the first 14 consecutive real-world days of absence. Cash, businesses, portfolio, and pressure stats are frozen at the state of the last settled day. Beginning on day 15 of continuous absence, catastrophic decay begins: missed days are settled in batches with intensified macro pressure, business inventory spoilage from [backend/app/engine/business_balance_engine.py], and rising debt service from [backend/app/engine/housing_engine.py]. A returning player is shown a "What you missed" recap before resuming play. The decay logic and the returning-player recap do not yet exist — flag as Phase 3 build items. This rule is committed now so Phase 3 retention surfaces (streak, anticipation timer, lifelong-run timeline) can be built against a defined absence model.
 
 ## The Lifelong Run
 
@@ -96,9 +100,13 @@ The personal "you survived" timeline should tie a player's run to macro/event hi
 
 The annual recap card should summarize days lived, starting and ending net worth, best business, worst macro event survived, longest streak, and biggest recovery. The ingredients exist in [backend/app/models/player_daily_state.py], [backend/app/models/player_wealth_trend_history.py], [backend/app/models/daily_economy_event.py], [backend/app/api/progression.py], and [backend/app/api/portfolio.py]. The recap card, export flow, and public share surface do not exist in Expo.
 
+Phase 3 build order for Lifelong Run surfaces. (1) Streak counter first — [expo/src/components/gameplay/StreaksCard.tsx] already exists and only needs to be pinned into [expo/src/components/gameMap/PlayerStatusBar.tsx] with persistent visibility, lowest dev cost. (2) Annual recap card second — highest shareability per dev hour, ingredients exist across [backend/app/models/player_daily_state.py], [backend/app/models/player_wealth_trend_history.py], [backend/app/models/daily_economy_event.py], [backend/app/api/progression.py], and [backend/app/api/portfolio.py]; needs a new export and share surface in Expo. (3) "You survived" event timeline third — requires the longest data accumulation runway and depends on the AI pipeline producing labeled macro arcs over time.
+
 ## Must-Open Moment
 
-The must-open moment is the morning brief. Once per day, at the player's chosen local time, a push notification should say one of: "The world moved overnight. Your Gold Penny brief is ready.", "Oil, jobs, and prices shifted. See what hit your life today.", or "Today's economy event is live. Check your businesses before you act." It should deep-link to [expo/app/gameplay/loop/[playerId]/life.tsx], where [expo/src/components/gameplay/DailyBriefCard.tsx] renders the brief.
+The must-open moment is the morning brief. Once per day, at the player's chosen local time, the push notification should deep-link to [expo/app/gameplay/loop/[playerId]/life.tsx], where [expo/src/components/gameplay/DailyBriefCard.tsx] renders the brief.
+
+The notification copy template uses today's AI-generated event directly: "{event_name}: {one-line specific hook}. See your brief." Concrete example for a fuel-margin event day: "Fuel Margin Squeeze: oil spiked, your food truck is bleeding today. See your brief." The hook line is generated as part of the structured event object (see Real-World Event Pipeline → Mapping). Generic fallback copy is only used when no AI event is available, and pulls from the static catalog in [backend/app/engine/event_catalog.py].
 
 Opt-in belongs in onboarding, not Settings after the fact. The correct home is the existing onboarding provider and route flow in [expo/src/features/onboarding/context.tsx] plus the gameplay entry in [expo/app/gameplay/index.tsx]. The limit is hard: one push notification per player per day, never more, and no marketing pushes. The notification system does not yet exist in Expo: [expo/package.json] lacks `expo-notifications`, [expo/src/lib/api/gameplay.ts] only handles in-app notifications, and [backend/app/models/player_daily_state.py] marks notification data as a future layer. This is a Phase 3 build item.
 
@@ -109,6 +117,8 @@ Opt-in belongs in onboarding, not Settings after the fact. The correct home is t
 Launch with exactly three sources. First, Alpha Vantage Market News & Sentiment for broad financial/business news and ticker/topic tagging; its docs expose market news and sentiment, but its terms make commercial use a written-agreement issue, so launch must use an approved commercial/premium arrangement, not a hobby key. Second, Polygon.io/Massive financial market data and news coverage for U.S. stocks and company-level signals; use a paid business/commercial plan, not a personal/non-pro plan. Third, FRED API for macro anchors such as CPI, unemployment, rates, oil-related series, and recession context; it is an official St. Louis Fed API governed by its API terms.
 
 No fourth source goes into V1. More sources add licensing, dedupe, and moderation load before the loop is proven.
+
+Launch monthly cost. Polygon.io Stocks Starter at $99/mo, Alpha Vantage Premium at $49.99/mo, FRED at $0/mo with attribution. Source subtotal: approximately $149/mo. AI generation at $0.50/day global single-call: approximately $15/mo. Operational floor before any player joins: approximately $164/mo. This is the runway math V1 launches against. Plan changes (e.g., upgrading Polygon.io tiers) require an explicit `V1_SCOPE.md` update.
 
 ### Cadence
 
@@ -125,6 +135,7 @@ The AI output is not prose-only. It emits a structured object:
   "event_id": "realworld-2026-04-27-oil-margin-squeeze",
   "generated_at": "2026-04-27T04:00:00Z",
   "source_summary": "Oil rose after supply concerns while grocery distributors warned about higher shipping costs.",
+  "source_urls": ["https://example.com/article-1", "https://example.com/article-2"],
   "event_name": "Fuel Margin Squeeze",
   "narrative": "Fuel costs moved against small operators overnight.",
   "affected_sectors": ["energy", "food", "transportation", "consumer"],
@@ -135,7 +146,9 @@ The AI output is not prose-only. It emits a structured object:
 }
 ```
 
-The mapping layer translates that object into fields the current engines already understand: `event_id`/`event_name`/`narrative` map to `event_key`, `headline`, and `summary` in [backend/app/models/daily_economy_event.py]; `tone` maps to `sentiment`; `severity` maps to `severity`; `affected_sectors` and `magnitude` map to `impact_tags_json`. Those impact tags are then consumed through [backend/app/engine/event_service.py], [backend/app/engine/macro_engine.py], [backend/app/engine/economy_engine.py], [backend/app/engine/stock_engine.py], and [backend/app/engine/business_balance_engine.py]. The AI is a content generator for parameters the engines already accept; it is not a parallel game system.
+The AI must populate `event_id`, `generated_at`, `source_summary`, `source_urls`, `event_name`, `narrative`, `affected_sectors`, `magnitude`, `duration_days`, `severity`, and `tone`. Publication through [backend/app/api/events.py] and [backend/app/services/daily_brief_service.py] without `source_urls` is forbidden by the publication path.
+
+The mapping layer translates that object into fields the current engines already understand: `event_id`/`event_name`/`narrative` map to `event_key`, `headline`, and `summary` in [backend/app/models/daily_economy_event.py]; `tone` maps to `sentiment`; `severity` maps to `severity`; `affected_sectors` and `magnitude` map to `impact_tags_json`. Those impact tags are then consumed through [backend/app/engine/event_service.py], [backend/app/engine/macro_engine.py], [backend/app/engine/economy_engine.py], [backend/app/engine/stock_engine.py], and [backend/app/engine/business_balance_engine.py]. The AI is a content generator for parameters the engines already accept; it is not a parallel game system. The AI never writes directly to player state. Its output is a parameter input that engines consume identically to any other input. Engines remain authoritative for all player-facing effects. Any Phase 3 work that tries to bypass an engine and write player state from AI output is rejected by this document.
 
 ### Fallback
 
@@ -147,17 +160,21 @@ Fallback two: maintain a hand-curated bank of 50 generic events as last resort. 
 
 Two filters are mandatory between generation and publication. First, an automatic content classifier blocks violence, death, political persuasion, hate, sexual, self-harm, targeted harassment, and sensitive-personal categories before the event reaches [backend/app/models/daily_economy_event.py]. Second, a human reviews the generated event every day for the first six months of operation before it is allowed to publish through [backend/app/api/events.py] and [backend/app/services/daily_brief_service.py].
 
+Source verification. Every published event must include at least one entry in `source_urls`. The human reviewer's daily task includes opening each source URL and confirming that the event description, affected sectors, and tone match what the source actually reports. An event with `source_urls = []`, broken links, or content that does not match its sources is blocked from publication. This rule is enforced because the AI will occasionally hallucinate events, misattribute real events to wrong companies, or fabricate plausible-sounding but false financial news. Publishing unverified AI-generated financial news as game events is a brand-existential risk.
+
 This is not optional polish. It is launch process. The review queue, reviewer tooling, and staffing decision do not exist in the repo today; they are Phase 3 operational scope and likely a contractor role before a full-time hire.
 
 ## Variable Reward
 
 Variable reward comes from daily random events in [expo/src/lib/gameEvents.ts], macro and price movement in [backend/app/engine/macro_engine.py] and [backend/app/engine/economy_engine.py], stock movement in [backend/app/engine/stock_engine.py], rideshare trip outcomes in [backend/app/engine/rideshare_engine.py], and business operating variance in [backend/app/engine/business_balance_engine.py]. The current surprise distribution is small day-to-day deltas most days, occasional positive or negative daily events from [expo/src/lib/gameEvents.ts], and rarer larger swings when macro, stock, rideshare, or business systems stack in the same direction. The rare event the player is chasing is a day where the brief, action results, and settlement all line up: extra income, favorable market/business movement, controlled stress/health, and a visible net-worth jump in [expo/src/features/gameplayLoop/screens/MarketScreen.tsx].
 
+Designed rare event — black swan. Once every 20–40 in-game days, the Real-World Event Pipeline is permitted to publish a "black swan" event tagged in the structured event object with magnitude > 0.9 and severity > 2.0. Black swans are surfaced full-screen as a dedicated moment, not as a brief card flip, and produce outsized in-game outcomes via the existing engines. Cap: maximum one black swan per real-world calendar month. The black swan event tag, full-screen surface, and monthly cap do not yet exist — flag as Phase 3 build items. This is the rare event the player will remember and screenshot.
+
 ## Cost and Latency Budget
 
 - Brief render time on app open: < 200ms, achieved by pre-generating once daily and serving the result from cache through [backend/app/api/gameplay.py] and [backend/app/services/daily_brief_service.py].
 - AI generation cost per global daily event: < $0.50, because generation is one global event per day, not one event per player.
-- Per-MAU AI cost cap: $0.05-$0.20/month. Above this, throttle enrichment or fall back to cached/static events from [backend/app/engine/event_catalog.py].
+- Per-MAU AI cost: operational target $0.10/MAU/month. Hard circuit-breaker $0.20/MAU/month — above this threshold, the system automatically falls through to the static event catalog in [backend/app/engine/event_catalog.py] and emails the operator. The circuit breaker is implemented in code, not as a soft throttle. The breaker logic does not yet exist — flag as Phase 3 build item.
 
 ## Gaps the Loop Reveals
 
