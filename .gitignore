@@ -21,6 +21,7 @@ backend/.venv/
 backend/venv/
 backend/env/
 backend/alembic/versions/__pycache__/
+backend/app/services/realworld/_cache/
 
 # --- Node / Expo ---
 expo/node_modules/

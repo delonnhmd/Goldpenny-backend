@@ -10,3 +10,4 @@ passlib[bcrypt]
 python-dotenv
 email-validator
 pytz
+httpx
