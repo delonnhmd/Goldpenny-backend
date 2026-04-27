@@ -330,6 +330,8 @@ export default function GameplayLoopScaffold({
           stress={Number(stats?.stress ?? 0)}
           health={Number(stats?.health ?? 100)}
           dayNumber={Number(loop.authoritativeState?.day_number ?? 1)}
+          currentStreak={loop.streakBadge.currentStreak}
+          longestStreak={loop.streakBadge.longestStreak}
         />
       )}
       bottomNavItems={bottomNavItems}

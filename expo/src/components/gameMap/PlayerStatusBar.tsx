@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
 
+import StreakBadge from '@/components/gameplay/StreakBadge';
 import { alpha, theme } from '@/design/theme';
 import { formatMoney } from '@/lib/gameplayFormatters';
 
@@ -9,6 +10,8 @@ interface PlayerStatusBarProps {
   stress: number;
   health: number;
   dayNumber: number;
+  currentStreak?: number;
+  longestStreak?: number;
   maxStress?: number;
   maxHealth?: number;
 }
@@ -39,6 +42,8 @@ export default function PlayerStatusBar({
   stress,
   health,
   dayNumber,
+  currentStreak = 0,
+  longestStreak = 0,
   maxStress = 100,
   maxHealth = 100,
 }: PlayerStatusBarProps) {
@@ -87,6 +92,8 @@ export default function PlayerStatusBar({
         <Text style={styles.statIcon}>{'\u{1F4C5}'}</Text>
         <Text style={styles.dayValue}>Day {dayNumber}</Text>
       </View>
+
+      <StreakBadge currentStreak={currentStreak} longestStreak={longestStreak} />
     </View>
   );
 }
@@ -96,7 +103,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 14,
+    paddingHorizontal: 10,
     paddingVertical: 8,
     marginHorizontal: 12,
     marginTop: 4,
@@ -104,19 +111,21 @@ const styles = StyleSheet.create({
     backgroundColor: theme.gameUi.hudGlass,
     borderWidth: 1,
     borderColor: theme.gameUi.hudBorder,
-    gap: 6,
+    gap: 5,
     ...theme.shadow.sm,
   },
   statItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    flexShrink: 1,
   },
   cashItem: {
     backgroundColor: alpha(theme.gameUi.success, 0.12),
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
     paddingVertical: 3,
     borderRadius: 12,
+    flexShrink: 1,
   },
   statIcon: {
     fontSize: 14,
@@ -125,6 +134,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     color: theme.gameUi.status.cash,
+    flexShrink: 1,
   },
   dayValue: {
     fontSize: 11,
@@ -132,7 +142,7 @@ const styles = StyleSheet.create({
     color: theme.gameUi.textPrimary,
   },
   miniBarTrack: {
-    width: 40,
+    width: 32,
     height: 6,
     borderRadius: 999,
     backgroundColor: theme.ui.border,

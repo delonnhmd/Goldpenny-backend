@@ -10,6 +10,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "node ./scripts/audit-ui-colors.js && expo lint",
+    "test": "tsx --tsconfig tsconfig.test.json --test tests/*.test.ts tests/*.test.tsx",
     "typecheck": "node ./scripts/audit-ui-colors.js && tsc --noEmit",
     "doctor": "npx expo-doctor",
     "config:public": "expo config --type public",
@@ -62,10 +63,13 @@
   "devDependencies": {
     "@babel/core": "^7.28.4",
     "@types/react": "~19.1.0",
+    "@types/react-test-renderer": "^19.1.0",
     "babel-plugin-module-resolver": "^5.0.2",
     "babel-plugin-transform-remove-console": "^6.9.4",
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
+    "react-test-renderer": "^19.1.0",
+    "tsx": "^4.21.0",
     "typescript": "~5.9.2"
   },
   "private": true,

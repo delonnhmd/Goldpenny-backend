@@ -24,6 +24,7 @@ import {
   executeAction as executeGameplayAction,
   getTransactionHistory,
 } from '@/lib/api/gameplay';
+import { getPlayerStreaks } from '@/lib/api/progression';
 import { BALANCE } from '@/lib/balanceConfig';
 import { createGameplayCanonicalState } from '@/lib/gameplayRuntimeState';
 import { recordInfo, recordWarning } from '@/lib/logger';
@@ -34,6 +35,7 @@ import {
   GameplayAuthoritativeState,
   TransactionHistoryResponse,
 } from '@/types/gameplay';
+import { StreakItem } from '@/types/progression';
 
 import {
   loadActionPreviewWithFallback,
@@ -52,6 +54,12 @@ interface FeedbackState {
 interface PendingTradeState {
   stockId: string;
   side: 'buy' | 'sell';
+}
+
+interface StreakBadgeState {
+  currentStreak: number;
+  longestStreak: number;
+  sourceKey: string | null;
 }
 
 interface RefreshOptions {
@@ -78,6 +86,7 @@ interface GameplayLoopContextValue {
   lastSyncedAt: string | null;
   dailyActivity: TransactionHistoryResponse | null;
   feedbackPromptDay: number | null;
+  streakBadge: StreakBadgeState;
   requestFeedbackPrompt: (gameDay: number) => void;
   dismissFeedbackPrompt: () => void;
   summaryAutoOpenDay: number | null;
@@ -203,6 +212,20 @@ function deriveSuggestedRemainingTimeUnits(bundle: GameplayLoopBundle | null): n
   return undefined;
 }
 
+function deriveStreakBadge(streaks: StreakItem[]): StreakBadgeState {
+  const loginStreak = streaks.find((streak) => streak.streak_key === 'login_play_streak');
+  const fallback = streaks.reduce<StreakItem | null>((best, streak) => {
+    if (!best) return streak;
+    return Number(streak.current_count) > Number(best.current_count) ? streak : best;
+  }, null);
+  const selected = loginStreak || fallback;
+  return {
+    currentStreak: Math.max(0, Math.round(Number(selected?.current_count) || 0)),
+    longestStreak: Math.max(0, Math.round(Number(selected?.best_count) || 0)),
+    sourceKey: selected?.streak_key || null,
+  };
+}
+
 function resolveDailyActivityDay(
   bundle: GameplayLoopBundle,
   sessionStatus: 'active' | 'ended',
@@ -270,6 +293,11 @@ export function GameplayLoopProvider({
   const [feedbackPromptDay, setFeedbackPromptDay] = useState<number | null>(null);
   const [summaryAutoOpenDay, setSummaryAutoOpenDay] = useState<number | null>(null);
   const [dailyActivity, setDailyActivity] = useState<TransactionHistoryResponse | null>(null);
+  const [streakBadge, setStreakBadge] = useState<StreakBadgeState>({
+    currentStreak: 0,
+    longestStreak: 0,
+    sourceKey: null,
+  });
 
   const [selectedPreviewAction, setSelectedPreviewAction] = useState<DailyActionItem | null>(null);
   const [actionPreview, setActionPreview] = useState<ActionPreviewResponse | null>(null);
@@ -364,6 +392,18 @@ export function GameplayLoopProvider({
         return null;
       });
       setDailyActivity(txHistory);
+
+      const streakPayload = await getPlayerStreaks(playerId).catch((streakError) => {
+        recordWarning('gameplayLoop', 'Failed to load streak badge data.', {
+          action: 'streak_badge_load',
+          context: { playerId },
+          error: streakError,
+        });
+        return null;
+      });
+      if (streakPayload) {
+        setStreakBadge(deriveStreakBadge(streakPayload.streaks));
+      }
 
       const summary = nextBundle.endOfDaySummary;
       const debug = summary?.debug_meta || {};
@@ -900,6 +940,7 @@ export function GameplayLoopProvider({
     lastSyncedAt: bundle?.fetchedAt || null,
     dailyActivity,
     feedbackPromptDay,
+    streakBadge,
     requestFeedbackPrompt,
     dismissFeedbackPrompt,
     summaryAutoOpenDay,
@@ -944,6 +985,7 @@ export function GameplayLoopProvider({
     error,
     dailyActivity,
     feedbackPromptDay,
+    streakBadge,
     requestFeedbackPrompt,
     dismissFeedbackPrompt,
     summaryAutoOpenDay,

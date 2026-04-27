@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": [
+        "src/*",
+        "./*"
+      ],
+      "react-native": [
+        "node_modules/react-native-web/dist/index"
+      ]
+    }
+  }
+}
