@@ -24,7 +24,7 @@ import {
   executeAction as executeGameplayAction,
   getTransactionHistory,
 } from '@/lib/api/gameplay';
-import { getPlayerStreaks } from '@/lib/api/progression';
+import { getPlayerStreaks, getWeeklyNetWorthDelta } from '@/lib/api/progression';
 import { BALANCE } from '@/lib/balanceConfig';
 import { createGameplayCanonicalState } from '@/lib/gameplayRuntimeState';
 import { recordInfo, recordWarning } from '@/lib/logger';
@@ -35,7 +35,7 @@ import {
   GameplayAuthoritativeState,
   TransactionHistoryResponse,
 } from '@/types/gameplay';
-import { StreakItem } from '@/types/progression';
+import { StreakItem, WeeklyNetWorthDeltaResponse } from '@/types/progression';
 
 import {
   loadActionPreviewWithFallback,
@@ -87,6 +87,7 @@ interface GameplayLoopContextValue {
   dailyActivity: TransactionHistoryResponse | null;
   feedbackPromptDay: number | null;
   streakBadge: StreakBadgeState;
+  weeklyNetWorthDelta: WeeklyNetWorthDeltaResponse | null;
   requestFeedbackPrompt: (gameDay: number) => void;
   dismissFeedbackPrompt: () => void;
   summaryAutoOpenDay: number | null;
@@ -298,6 +299,7 @@ export function GameplayLoopProvider({
     longestStreak: 0,
     sourceKey: null,
   });
+  const [weeklyNetWorthDelta, setWeeklyNetWorthDelta] = useState<WeeklyNetWorthDeltaResponse | null>(null);
 
   const [selectedPreviewAction, setSelectedPreviewAction] = useState<DailyActionItem | null>(null);
   const [actionPreview, setActionPreview] = useState<ActionPreviewResponse | null>(null);
@@ -403,6 +405,18 @@ export function GameplayLoopProvider({
       });
       if (streakPayload) {
         setStreakBadge(deriveStreakBadge(streakPayload.streaks));
+      }
+
+      const weeklyDeltaPayload = await getWeeklyNetWorthDelta(playerId).catch((deltaError) => {
+        recordWarning('gameplayLoop', 'Failed to load weekly net-worth ladder data.', {
+          action: 'weekly_net_worth_delta_load',
+          context: { playerId },
+          error: deltaError,
+        });
+        return null;
+      });
+      if (weeklyDeltaPayload) {
+        setWeeklyNetWorthDelta(weeklyDeltaPayload);
       }
 
       const summary = nextBundle.endOfDaySummary;
@@ -941,6 +955,7 @@ export function GameplayLoopProvider({
     dailyActivity,
     feedbackPromptDay,
     streakBadge,
+    weeklyNetWorthDelta,
     requestFeedbackPrompt,
     dismissFeedbackPrompt,
     summaryAutoOpenDay,
@@ -986,6 +1001,7 @@ export function GameplayLoopProvider({
     dailyActivity,
     feedbackPromptDay,
     streakBadge,
+    weeklyNetWorthDelta,
     requestFeedbackPrompt,
     dismissFeedbackPrompt,
     summaryAutoOpenDay,

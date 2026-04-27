@@ -18,10 +18,17 @@ from app.engine.progression_service import (
     get_player_streaks,
     get_player_weekly_missions,
 )
+from app.services.net_worth_service import (
+    NetWorthError,
+    NetWorthNotFoundError,
+    NetWorthValidationError,
+    get_player_weekly_net_worth_delta,
+)
 from app.schemas.progression import (
     DailyGoalsResponse,
     ProgressionSummaryResponse,
     StreaksResponse,
+    WeeklyNetWorthDeltaResponse,
     WeeklyMissionsResponse,
 )
 
@@ -36,6 +43,16 @@ def _raise_progression_http_error(exc: Exception) -> None:
     if isinstance(exc, ProgressionError):
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
     raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unexpected progression service error.")
+
+
+def _raise_net_worth_http_error(exc: Exception) -> None:
+    if isinstance(exc, NetWorthNotFoundError):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    if isinstance(exc, NetWorthValidationError):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    if isinstance(exc, NetWorthError):
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unexpected net-worth service error.")
 
 
 @router.get("/player/{player_id}/daily-goals", response_model=DailyGoalsResponse)
@@ -116,3 +133,16 @@ def refresh_progression_route(
         db.rollback()
         _raise_progression_http_error(exc)
     return ProgressionSummaryResponse(**payload)
+
+
+@router.get("/player/{player_id}/weekly-net-worth-delta", response_model=WeeklyNetWorthDeltaResponse)
+def get_weekly_net_worth_delta_route(
+    player_id: str,
+    db: Session = Depends(get_db),
+) -> WeeklyNetWorthDeltaResponse:
+    """Return read-only weekly net-worth delta for the persistent ladder."""
+    try:
+        payload = get_player_weekly_net_worth_delta(db=db, player_id=player_id)
+    except Exception as exc:
+        _raise_net_worth_http_error(exc)
+    return WeeklyNetWorthDeltaResponse(**payload)

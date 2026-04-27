@@ -81,3 +81,16 @@ export interface ProgressionSummaryResponse {
   motivational_summary: string;
   debug_meta?: Record<string, unknown>;
 }
+
+export interface WeeklyNetWorthDeltaResponse {
+  player_id: string;
+  available: boolean;
+  current_day?: number | null;
+  baseline_day?: number | null;
+  current_net_worth_xgp?: number | null;
+  baseline_net_worth_xgp?: number | null;
+  delta_xgp?: number | null;
+  delta_pct?: number | null;
+  direction: 'up' | 'down' | 'flat' | 'tracking' | string;
+  debug_meta?: Record<string, unknown>;
+}

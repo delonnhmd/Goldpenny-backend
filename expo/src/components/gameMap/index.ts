@@ -1,4 +1,6 @@
 export { default as PlayerStatusBar } from './PlayerStatusBar';
+export { default as LadderRow } from './LadderRow';
+export type { BusinessLadderProps, CareerLadderProps, LadderRoute, NetWorthLadderProps } from './LadderRow';
 export { default as GameMap, zoomTierFor } from './GameMap';
 export type { MapNode, MapTileActionTag, SandboxCityMap, SandboxMapTile } from './mapData';
 export { buildSandboxCityMap, describeTileKind } from './mapData';

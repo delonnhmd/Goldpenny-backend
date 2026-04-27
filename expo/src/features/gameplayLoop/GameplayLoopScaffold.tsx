@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { router, usePathname } from 'expo-router';
 import { LayoutChangeEvent, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { PlayerStatusBar } from '@/components/gameMap';
+import { LadderRow, PlayerStatusBar } from '@/components/gameMap';
+import type { BusinessLadderProps, CareerLadderProps, NetWorthLadderProps } from '@/components/gameMap';
 import { OnboardingStepOverlay } from '@/components/onboarding';
 import AppShell from '@/components/layout/AppShell';
 import ContentStack from '@/components/layout/ContentStack';
@@ -17,7 +18,12 @@ import { useOnboarding } from '@/features/onboarding';
 import { OnboardingRouteKey } from '@/features/onboarding/context';
 import { FeedbackSheet, IssueReportSheet, SoftLaunchGate, useSoftLaunch } from '@/features/softLaunch';
 import { theme } from '@/design/theme';
+import {
+  defaultGrowthPhaseForBusinessType,
+  getGrowthPhase,
+} from '@/lib/businessSandbox';
 import { recordInfo, recordWarning } from '@/lib/logger';
+import type { BusinessGrowthPhaseKey, PlayerBusinessRecord } from '@/types/business';
 
 import { useGameplayLoop } from './context';
 import {
@@ -83,6 +89,58 @@ const PAGE_IDENTITY: Record<string, { eyebrow: string; mood: string; chips: stri
 
 const HIDDEN_TOP_CHROME_NAV_KEYS = new Set(['life', 'work', 'dashboard', 'business']);
 
+function deriveCareerLadder(loop: ReturnType<typeof useGameplayLoop>): CareerLadderProps {
+  const workState = loop.dashboard?.work_state || loop.actionHub?.work_state || null;
+  const progression = workState?.current_job_progression || loop.dashboard?.job_progress || null;
+  const rankLabel = String(
+    progression?.position_title
+    || progression?.promotion_tier
+    || workState?.current_job_display_name
+    || loop.dashboard?.stats?.current_job_display
+    || 'Entry path',
+  );
+  const level = Math.max(1, Math.round(Number(progression?.job_level) || Number(workState?.current_job_level) || 1));
+  const xp = Math.max(0, Number(progression?.job_xp ?? 0));
+  const xpToNext = Math.max(1, Number(progression?.job_xp_to_next_level ?? 1));
+  const progressPct = Math.max(0, Math.min(100, Math.round((xp / xpToNext) * 100)));
+  return {
+    rankLabel,
+    progressPct,
+    nextRankLabel: `Level ${level + 1}`,
+  };
+}
+
+function resolveBusinessPhase(business: PlayerBusinessRecord) {
+  const levelKey = String(business.level || '') as BusinessGrowthPhaseKey;
+  const fallbackKey = defaultGrowthPhaseForBusinessType(business.business_type);
+  const phase = levelKey ? getGrowthPhase(levelKey) : getGrowthPhase(fallbackKey);
+  return phase.key === levelKey || !levelKey ? phase : getGrowthPhase(fallbackKey);
+}
+
+function deriveBusinessLadder(businesses: PlayerBusinessRecord[] | undefined): BusinessLadderProps {
+  const activeBusinesses = (businesses || []).filter((business) => business.is_active);
+  if (activeBusinesses.length === 0) {
+    return { label: 'No business', extraCount: 0, hasBusiness: false };
+  }
+  const ranked = [...activeBusinesses].sort((left, right) => resolveBusinessPhase(right).stage - resolveBusinessPhase(left).stage);
+  const topPhase = resolveBusinessPhase(ranked[0]);
+  return {
+    label: topPhase.label,
+    extraCount: Math.max(0, activeBusinesses.length - 1),
+    hasBusiness: true,
+  };
+}
+
+function deriveNetWorthLadder(loop: ReturnType<typeof useGameplayLoop>): NetWorthLadderProps {
+  const delta = loop.weeklyNetWorthDelta;
+  if (!delta) return { available: false, deltaPct: null, direction: 'tracking' };
+  return {
+    available: Boolean(delta.available),
+    deltaPct: delta.delta_pct,
+    direction: delta.direction,
+  };
+}
+
 export default function GameplayLoopScaffold({
   title,
   subtitle,
@@ -126,6 +184,12 @@ export default function GameplayLoopScaffold({
   const errorText = String(loop.error || '');
   const economyOnlyFailure = errorText.toLowerCase().includes('basket pricing');
   const stats = loop.dashboard?.stats;
+  const careerLadder = useMemo(() => deriveCareerLadder(loop), [loop]);
+  const businessLadder = useMemo(
+    () => deriveBusinessLadder(loop.businesses?.businesses),
+    [loop.businesses?.businesses],
+  );
+  const netWorthLadder = useMemo(() => deriveNetWorthLadder(loop), [loop]);
   const identity = PAGE_IDENTITY[activeNavKey] || {
     eyebrow: 'Gold Penny',
     mood: subtitle,
@@ -325,14 +389,24 @@ export default function GameplayLoopScaffold({
       headerRight={headerRight}
       showTopBar={showTopBar}
       topStatusBar={(
-        <PlayerStatusBar
-          cash={Number(stats?.cash_xgp ?? 0)}
-          stress={Number(stats?.stress ?? 0)}
-          health={Number(stats?.health ?? 100)}
-          dayNumber={Number(loop.authoritativeState?.day_number ?? 1)}
-          currentStreak={loop.streakBadge.currentStreak}
-          longestStreak={loop.streakBadge.longestStreak}
-        />
+        <View style={styles.statusChrome}>
+          <PlayerStatusBar
+            cash={Number(stats?.cash_xgp ?? 0)}
+            stress={Number(stats?.stress ?? 0)}
+            health={Number(stats?.health ?? 100)}
+            dayNumber={Number(loop.authoritativeState?.day_number ?? 1)}
+            currentStreak={loop.streakBadge.currentStreak}
+            longestStreak={loop.streakBadge.longestStreak}
+          />
+          <LadderRow
+            career={careerLadder}
+            business={businessLadder}
+            netWorth={netWorthLadder}
+            onNavigate={(route) => {
+              navigateTo(route);
+            }}
+          />
+        </View>
       )}
       bottomNavItems={bottomNavItems}
       activeBottomNavKey={activeNavKey}
@@ -450,6 +524,9 @@ export default function GameplayLoopScaffold({
 const styles = StyleSheet.create({
   scroll: {
     flex: 1,
+  },
+  statusChrome: {
+    paddingBottom: 2,
   },
   scrollContent: {
     paddingTop: theme.spacing.md,

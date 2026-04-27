@@ -77,3 +77,16 @@ class StreaksResponse(BaseModel):
     as_of_date: str
     streaks: list[StreakItem] = Field(default_factory=list)
     debug_meta: dict[str, Any] = Field(default_factory=dict)
+
+
+class WeeklyNetWorthDeltaResponse(BaseModel):
+    player_id: str
+    available: bool
+    current_day: int | None = None
+    baseline_day: int | None = None
+    current_net_worth_xgp: float | None = None
+    baseline_net_worth_xgp: float | None = None
+    delta_xgp: float | None = None
+    delta_pct: float | None = None
+    direction: str
+    debug_meta: dict[str, Any] = Field(default_factory=dict)

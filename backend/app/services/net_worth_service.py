@@ -390,6 +390,94 @@ def get_player_net_worth_history(db: Session, player_id: str | UUID, limit: int 
     }
 
 
+def get_player_weekly_net_worth_delta(db: Session, player_id: str | UUID) -> dict:
+    """Return read-only 7-settled-day net-worth delta for one player."""
+    player = _resolve_player(db, player_id)
+    latest = (
+        db.query(PlayerNetWorthSnapshot)
+        .filter(PlayerNetWorthSnapshot.player_id == player.id)
+        .order_by(PlayerNetWorthSnapshot.day.desc(), PlayerNetWorthSnapshot.created_at.desc())
+        .first()
+    )
+    if latest is None:
+        return {
+            "player_id": str(player.id),
+            "available": False,
+            "current_day": None,
+            "baseline_day": None,
+            "current_net_worth_xgp": None,
+            "baseline_net_worth_xgp": None,
+            "delta_xgp": None,
+            "delta_pct": None,
+            "direction": "tracking",
+            "debug_meta": {"reason": "no_snapshots"},
+        }
+
+    target_day = int(latest.day or 0) - 7
+    if target_day <= 0:
+        return {
+            "player_id": str(player.id),
+            "available": False,
+            "current_day": int(latest.day or 0),
+            "baseline_day": None,
+            "current_net_worth_xgp": float(_money(_d(latest.net_worth_xgp))),
+            "baseline_net_worth_xgp": None,
+            "delta_xgp": None,
+            "delta_pct": None,
+            "direction": "tracking",
+            "debug_meta": {"reason": "fewer_than_7_settled_days"},
+        }
+
+    baseline = (
+        db.query(PlayerNetWorthSnapshot)
+        .filter(
+            PlayerNetWorthSnapshot.player_id == player.id,
+            PlayerNetWorthSnapshot.day == target_day,
+        )
+        .order_by(PlayerNetWorthSnapshot.created_at.desc())
+        .first()
+    )
+    if baseline is None:
+        return {
+            "player_id": str(player.id),
+            "available": False,
+            "current_day": int(latest.day or 0),
+            "baseline_day": target_day,
+            "current_net_worth_xgp": float(_money(_d(latest.net_worth_xgp))),
+            "baseline_net_worth_xgp": None,
+            "delta_xgp": None,
+            "delta_pct": None,
+            "direction": "tracking",
+            "debug_meta": {"reason": "missing_baseline_snapshot"},
+        }
+
+    current_value = _money(_d(latest.net_worth_xgp))
+    baseline_value = _money(_d(baseline.net_worth_xgp))
+    delta = _money(current_value - baseline_value)
+    if baseline_value == 0:
+        delta_pct = None
+    else:
+        delta_pct = _q4((delta / abs(baseline_value)) * Decimal("100"))
+    direction = "flat"
+    if delta > 0:
+        direction = "up"
+    elif delta < 0:
+        direction = "down"
+
+    return {
+        "player_id": str(player.id),
+        "available": True,
+        "current_day": int(latest.day or 0),
+        "baseline_day": int(baseline.day or target_day),
+        "current_net_worth_xgp": float(current_value),
+        "baseline_net_worth_xgp": float(baseline_value),
+        "delta_xgp": float(delta),
+        "delta_pct": float(delta_pct) if delta_pct is not None else None,
+        "direction": direction,
+        "debug_meta": {},
+    }
+
+
 def get_player_asset_allocation(db: Session, player_id: str | UUID) -> dict:
     """Return latest snapshot allocation for one player."""
     latest = get_latest_player_net_worth_snapshot(db, player_id)

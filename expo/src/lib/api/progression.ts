@@ -5,6 +5,7 @@ import {
   ProgressionSummaryResponse,
   StreakItem,
   StreaksResponse,
+  WeeklyNetWorthDeltaResponse,
   WeeklyMissionItem,
   WeeklyMissionsResponse,
 } from '@/types/progression';
@@ -132,6 +133,21 @@ function normalizeSummary(raw: Record<string, unknown>, playerId: string): Progr
   };
 }
 
+function normalizeWeeklyNetWorthDelta(raw: Record<string, unknown>, playerId: string): WeeklyNetWorthDeltaResponse {
+  return {
+    player_id: toString(raw.player_id, playerId),
+    available: Boolean(raw.available),
+    current_day: raw.current_day == null ? null : Math.max(0, Math.round(toNumber(raw.current_day))),
+    baseline_day: raw.baseline_day == null ? null : Math.max(0, Math.round(toNumber(raw.baseline_day))),
+    current_net_worth_xgp: raw.current_net_worth_xgp == null ? null : toNumber(raw.current_net_worth_xgp),
+    baseline_net_worth_xgp: raw.baseline_net_worth_xgp == null ? null : toNumber(raw.baseline_net_worth_xgp),
+    delta_xgp: raw.delta_xgp == null ? null : toNumber(raw.delta_xgp),
+    delta_pct: raw.delta_pct == null ? null : toNumber(raw.delta_pct),
+    direction: toString(raw.direction, 'tracking'),
+    debug_meta: (raw.debug_meta as Record<string, unknown>) || {},
+  };
+}
+
 export async function getDailyGoals(playerId: string): Promise<DailyGoalsResponse> {
   const raw = await fetchApiWithFallback<Record<string, unknown>>([
     `/progression/player/${playerId}/daily-goals`,
@@ -171,4 +187,11 @@ export async function refreshProgression(playerId: string): Promise<ProgressionS
     },
   );
   return normalizeSummary(raw, playerId);
+}
+
+export async function getWeeklyNetWorthDelta(playerId: string): Promise<WeeklyNetWorthDeltaResponse> {
+  const raw = await fetchApiWithFallback<Record<string, unknown>>([
+    `/progression/player/${playerId}/weekly-net-worth-delta`,
+  ]);
+  return normalizeWeeklyNetWorthDelta(raw, playerId);
 }
