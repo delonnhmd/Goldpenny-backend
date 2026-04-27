@@ -184,6 +184,7 @@ export default function GameplayLoopScaffold({
   const errorText = String(loop.error || '');
   const economyOnlyFailure = errorText.toLowerCase().includes('basket pricing');
   const stats = loop.dashboard?.stats;
+  const actionsRemainingToday = Number(loop.dashboard?.actions_remaining_today ?? 0);
   const careerLadder = useMemo(() => deriveCareerLadder(loop), [loop]);
   const businessLadder = useMemo(
     () => deriveBusinessLadder(loop.businesses?.businesses),
@@ -397,6 +398,13 @@ export default function GameplayLoopScaffold({
             dayNumber={Number(loop.authoritativeState?.day_number ?? 1)}
             currentStreak={loop.streakBadge.currentStreak}
             longestStreak={loop.streakBadge.longestStreak}
+            actionsRemainingToday={actionsRemainingToday}
+            onActionsIndicatorPress={() => {
+              if (actionsRemainingToday <= 0) {
+                loop.requestSettlementFocus();
+              }
+              navigateTo('life');
+            }}
           />
           <LadderRow
             career={careerLadder}

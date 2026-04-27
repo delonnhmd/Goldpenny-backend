@@ -1,4 +1,5 @@
 export { default as PlayerStatusBar } from './PlayerStatusBar';
+export { default as ActionsRemainingIndicator } from './ActionsRemainingIndicator';
 export { default as LadderRow } from './LadderRow';
 export type { BusinessLadderProps, CareerLadderProps, LadderRoute, NetWorthLadderProps } from './LadderRow';
 export { default as GameMap, zoomTierFor } from './GameMap';

@@ -1424,6 +1424,53 @@ def _build_authoritative_gameplay_state(
     }
 
 
+def _derive_actions_remaining_today(work_state: dict[str, Any]) -> int:
+    """Read-only count of remaining major work/rideshare actions for the HUD."""
+    if bool((work_state or {}).get("day_settled")):
+        return 0
+
+    testing_mode = (
+        (work_state or {}).get("testing_mode")
+        if isinstance((work_state or {}).get("testing_mode"), dict)
+        else {}
+    )
+    max_daily_main_shifts = int(
+        testing_mode.get("max_daily_main_shifts")
+        or (work_state or {}).get("max_daily_main_shifts")
+        or 1
+    )
+    shifts_completed_today = int(
+        testing_mode.get("shifts_completed_today")
+        or (work_state or {}).get("shifts_completed_today")
+        or 0
+    )
+    has_job = bool((work_state or {}).get("authoritative_current_job_id") or (work_state or {}).get("main_job_key"))
+    work_available = (
+        has_job
+        and not bool((work_state or {}).get("main_shift_active_flag"))
+        and not bool((work_state or {}).get("is_weekend"))
+        and not bool((work_state or {}).get("no_shift_scheduled"))
+        and not bool((work_state or {}).get("daily_shift_limit_reached") or testing_mode.get("daily_shift_limit_reached"))
+    )
+    remaining_work_shifts = max(0, max_daily_main_shifts - shifts_completed_today) if work_available else 0
+
+    rideshare_state = (
+        (work_state or {}).get("rideshare_state")
+        if isinstance((work_state or {}).get("rideshare_state"), dict)
+        else {}
+    )
+    remaining_rideshare = int(
+        (work_state or {}).get("trips_remaining")
+        or rideshare_state.get("remaining_trips")
+        or rideshare_state.get("trips_remaining")
+        or 0
+    )
+    if not bool((work_state or {}).get("rideshare_unlocked", rideshare_state.get("can_rideshare", False))):
+        remaining_rideshare = 0
+
+    return max(0, int(remaining_work_shifts) + max(0, int(remaining_rideshare)))
+
+
 def _build_dashboard_payload(
     db: Session,
     *,
@@ -1605,6 +1652,7 @@ def _build_dashboard_payload(
         "economy_risk_overview": economy_risk_overview,
         "recommended_actions": recommended_actions,
         "job_progress": job_progress,
+        "actions_remaining_today": _derive_actions_remaining_today(work_state or {}),
         "work_state": work_state,
         "authoritative_state": authoritative_state,
         "debug_meta": {

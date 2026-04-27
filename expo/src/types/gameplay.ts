@@ -628,6 +628,7 @@ export interface PlayerDashboardResponse {
   economy_risk_overview?: EconomyRiskOverview | null;
   recommended_actions: ActionRecommendation[];
   job_progress?: JobProgressSnapshot | null;
+  actions_remaining_today?: number;
   work_state?: WorkStateSnapshot | null;
   authoritative_state?: GameplayAuthoritativeState | null;
   debug_meta?: Record<string, unknown>;

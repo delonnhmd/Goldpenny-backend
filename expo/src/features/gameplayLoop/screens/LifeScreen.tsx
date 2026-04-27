@@ -159,7 +159,7 @@ export default function LifeScreen() {
     [xgpSpendHistory],
   );
 
-  const showFooterAction = hasSummary || summaryMissingAfterSettlement || sessionEnded;
+  const showFooterAction = hasSummary || summaryMissingAfterSettlement || sessionEnded || loop.settlementFocusRequested;
   const primaryLabel = hasSummary || summaryMissingAfterSettlement
     ? 'Start Next Day'
     : loop.endingDay
@@ -168,7 +168,10 @@ export default function LifeScreen() {
 
   const onPrimaryPress = hasSummary || summaryMissingAfterSettlement
     ? () => void loop.startNextDay()
-    : () => void loop.endCurrentDay();
+    : () => {
+      loop.clearSettlementFocus();
+      void loop.endCurrentDay();
+    };
 
   return (
     <GameplayLoopScaffold

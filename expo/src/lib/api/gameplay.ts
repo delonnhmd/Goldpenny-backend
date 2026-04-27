@@ -445,6 +445,7 @@ function normalizeDashboard(raw: Record<string, unknown>, playerId: string): Pla
       jobProgressRaw,
       toString(stats.current_job || ''),
     ),
+    actions_remaining_today: Math.max(0, Math.round(toNumber(raw.actions_remaining_today, 0))),
     work_state: workState,
     authoritative_state: authoritativeState,
     debug_meta: debugMeta,

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
 
+import ActionsRemainingIndicator from '@/components/gameMap/ActionsRemainingIndicator';
 import StreakBadge from '@/components/gameplay/StreakBadge';
 import { alpha, theme } from '@/design/theme';
 import { formatMoney } from '@/lib/gameplayFormatters';
@@ -12,6 +13,8 @@ interface PlayerStatusBarProps {
   dayNumber: number;
   currentStreak?: number;
   longestStreak?: number;
+  actionsRemainingToday?: number;
+  onActionsIndicatorPress?: () => void;
   maxStress?: number;
   maxHealth?: number;
 }
@@ -44,6 +47,8 @@ export default function PlayerStatusBar({
   dayNumber,
   currentStreak = 0,
   longestStreak = 0,
+  actionsRemainingToday = 0,
+  onActionsIndicatorPress,
   maxStress = 100,
   maxHealth = 100,
 }: PlayerStatusBarProps) {
@@ -94,6 +99,11 @@ export default function PlayerStatusBar({
       </View>
 
       <StreakBadge currentStreak={currentStreak} longestStreak={longestStreak} />
+
+      <ActionsRemainingIndicator
+        actionsRemainingToday={actionsRemainingToday}
+        onPress={onActionsIndicatorPress}
+      />
     </View>
   );
 }
@@ -111,7 +121,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.gameUi.hudGlass,
     borderWidth: 1,
     borderColor: theme.gameUi.hudBorder,
-    gap: 5,
+    gap: 4,
     ...theme.shadow.sm,
   },
   statItem: {
@@ -142,7 +152,7 @@ const styles = StyleSheet.create({
     color: theme.gameUi.textPrimary,
   },
   miniBarTrack: {
-    width: 32,
+    width: 28,
     height: 6,
     borderRadius: 999,
     backgroundColor: theme.ui.border,

@@ -88,6 +88,9 @@ interface GameplayLoopContextValue {
   feedbackPromptDay: number | null;
   streakBadge: StreakBadgeState;
   weeklyNetWorthDelta: WeeklyNetWorthDeltaResponse | null;
+  settlementFocusRequested: boolean;
+  requestSettlementFocus: () => void;
+  clearSettlementFocus: () => void;
   requestFeedbackPrompt: (gameDay: number) => void;
   dismissFeedbackPrompt: () => void;
   summaryAutoOpenDay: number | null;
@@ -300,6 +303,7 @@ export function GameplayLoopProvider({
     sourceKey: null,
   });
   const [weeklyNetWorthDelta, setWeeklyNetWorthDelta] = useState<WeeklyNetWorthDeltaResponse | null>(null);
+  const [settlementFocusRequested, setSettlementFocusRequested] = useState(false);
 
   const [selectedPreviewAction, setSelectedPreviewAction] = useState<DailyActionItem | null>(null);
   const [actionPreview, setActionPreview] = useState<ActionPreviewResponse | null>(null);
@@ -558,6 +562,14 @@ export function GameplayLoopProvider({
     setFeedbackPromptDay(null);
   }, []);
 
+  const requestSettlementFocus = useCallback(() => {
+    setSettlementFocusRequested(true);
+  }, []);
+
+  const clearSettlementFocus = useCallback(() => {
+    setSettlementFocusRequested(false);
+  }, []);
+
   useEffect(() => {
     void refresh({ includeEndOfDaySummary: false });
   }, [playerId, refresh]);
@@ -779,6 +791,7 @@ export function GameplayLoopProvider({
 
     try {
       const result = await settleDay(playerId);
+      setSettlementFocusRequested(false);
       dailySession.endDay();
       await dailyProgression.markDayAdvanced(result.settled_day);
       const { summary, note } = await loadEndOfDaySummaryWithFallback(playerId);
@@ -827,6 +840,7 @@ export function GameplayLoopProvider({
     dailySession.resetSession({ nextDay });
     setBundle((current) => (current ? { ...current, endOfDaySummary: null } : current));
     setSummaryAutoOpenDay(null);
+    setSettlementFocusRequested(false);
     setFeedback({
       tone: 'info',
       message: `Day ${nextDay} started. New brief and markets loaded.`,
@@ -956,6 +970,9 @@ export function GameplayLoopProvider({
     feedbackPromptDay,
     streakBadge,
     weeklyNetWorthDelta,
+    settlementFocusRequested,
+    requestSettlementFocus,
+    clearSettlementFocus,
     requestFeedbackPrompt,
     dismissFeedbackPrompt,
     summaryAutoOpenDay,
@@ -1002,6 +1019,9 @@ export function GameplayLoopProvider({
     feedbackPromptDay,
     streakBadge,
     weeklyNetWorthDelta,
+    settlementFocusRequested,
+    requestSettlementFocus,
+    clearSettlementFocus,
     requestFeedbackPrompt,
     dismissFeedbackPrompt,
     summaryAutoOpenDay,
