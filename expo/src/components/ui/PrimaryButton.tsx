@@ -10,6 +10,7 @@ export default function PrimaryButton({
   loading,
   style,
   tone = 'primary',
+  testID,
 }: {
   label: string;
   onPress?: () => void;
@@ -17,6 +18,7 @@ export default function PrimaryButton({
   loading?: boolean;
   style?: StyleProp<ViewStyle>;
   tone?: 'primary' | 'danger';
+  testID?: string;
 }) {
   const blocked = Boolean(disabled || loading || !onPress);
   const palette = tone === 'danger'
@@ -25,6 +27,7 @@ export default function PrimaryButton({
 
   return (
     <Pressable
+      testID={testID}
       onPress={onPress}
       disabled={blocked}
       style={({ pressed }) => [

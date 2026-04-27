@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import DailyBriefCard from '@/components/gameplay/DailyBriefCard';
-import EndOfDaySummaryCard from '@/components/gameplay/EndOfDaySummaryCard';
 import AnimatedMoneyValue from '@/components/motion/AnimatedMoneyValue';
 import SlideFadeInOnChange from '@/components/motion/SlideFadeInOnChange';
 import { OnboardingHighlight } from '@/components/onboarding';
@@ -19,9 +18,7 @@ import {
   GameplayCompactMetricRows,
   GameplayStickyActionArea,
   GameplaySummaryCard,
-  GameplayTrendChip,
   GameplayWarningBanner,
-  toneFromSignedValue,
 } from '../components/GameplayUIParts';
 import GameplayLoopScaffold from '../GameplayLoopScaffold';
 
@@ -64,11 +61,7 @@ export default function LifeScreen() {
   const cashTone: 'positive' | 'neutral' | 'danger' = cash > 0 ? 'positive' : cash < 0 ? 'danger' : 'neutral';
   const currentHousing = (stats?.region_key ?? 'suburban') as 'suburban' | 'downtown';
 
-  const summary = loop.endOfDaySummary;
-  const hasSummary = Boolean(summary);
   const sessionEnded = loop.dailySession.sessionStatus === 'ended';
-  const summaryMissingAfterSettlement = !hasSummary && sessionEnded;
-  const netTone = toneFromSignedValue(summary?.net_change_xgp ?? 0);
 
   const dailyActivity = loop.dailyActivity;
   const transactions = dailyActivity?.transactions ?? [];
@@ -159,19 +152,19 @@ export default function LifeScreen() {
     [xgpSpendHistory],
   );
 
-  const showFooterAction = hasSummary || summaryMissingAfterSettlement || sessionEnded || loop.settlementFocusRequested;
-  const primaryLabel = hasSummary || summaryMissingAfterSettlement
-    ? 'Start Next Day'
-    : loop.endingDay
-      ? 'Settling Day...'
-      : 'Run Settlement';
+  const actionsRemainingToday = Number(loop.dashboard?.actions_remaining_today ?? 1);
+  const showFooterAction = !sessionEnded && (loop.settlementFocusRequested || actionsRemainingToday <= 0);
+  const primaryLabel = loop.endingDay ? 'Settling Day...' : 'Run Settlement';
 
-  const onPrimaryPress = hasSummary || summaryMissingAfterSettlement
-    ? () => void loop.startNextDay()
-    : () => {
+  const onPrimaryPress = () => {
+    void (async () => {
       loop.clearSettlementFocus();
-      void loop.endCurrentDay();
-    };
+      const settled = await loop.endCurrentDay();
+      if (settled) {
+        onboarding.navigateTo('summary');
+      }
+    })();
+  };
 
   return (
     <GameplayLoopScaffold
@@ -182,13 +175,8 @@ export default function LifeScreen() {
         <GameplayStickyActionArea
           primaryLabel={primaryLabel}
           onPrimaryPress={onPrimaryPress}
-          primaryLoading={!hasSummary && !summaryMissingAfterSettlement && loop.endingDay}
-          primaryDisabled={
-            !hasSummary
-            && !summaryMissingAfterSettlement
-            && sessionEnded
-            && (!loop.dailyProgression.canAdvanceDay || loop.endingDay)
-          }
+          primaryLoading={loop.endingDay}
+          primaryDisabled={!loop.dailyProgression.canAdvanceDay || loop.endingDay}
         />
       )}
     >
@@ -589,66 +577,17 @@ export default function LifeScreen() {
       </GameplaySummaryCard>
 
       {sessionEnded ? (
-        <OnboardingHighlight target="summary-day-results">
-          <SlideFadeInOnChange
-            watchValue={`life_settlement_state_${workState?.current_game_day || 1}_${loop.dailySession.sessionStatus}_${loop.dailySession.actionsTakenToday.length}`}
-            delayMs={160}
-          >
-            <GameplaySummaryCard eyebrow="Day closeout" title="Settlement Status">
-              <View style={styles.chipRow}>
-                <GameplayTrendChip
-                  label="Session"
-                  value="Ended"
-                  tone="warning"
-                />
-                <GameplayTrendChip
-                  label="Actions"
-                  value={String(loop.dailySession.actionsTakenToday.length)}
-                  tone="neutral"
-                />
-                <GameplayTrendChip
-                  label="Ending cash"
-                  value={formatMoney(loop.dashboard?.stats.cash_xgp ?? 0)}
-                  tone="neutral"
-                />
-              </View>
-            </GameplaySummaryCard>
-          </SlideFadeInOnChange>
-        </OnboardingHighlight>
-      ) : null}
-
-      {summary ? (
-        <>
-          <GameplaySummaryCard
-            eyebrow="Today's result"
-            title={summary.net_change_xgp >= 0
-              ? 'Nice finish today.'
-              : 'Tough day - tomorrow can recover this.'}
-          >
-            <GameplayCompactMetricRows
-              items={[
-                { label: 'Net', value: formatMoney(summary.net_change_xgp), tone: netTone },
-                { label: 'Earned', value: formatMoney(summary.total_earned_xgp), tone: 'positive' },
-                { label: 'Spent', value: formatMoney(summary.total_spent_xgp), tone: 'danger' },
-                { label: 'Stress delta', value: formatDelta(summary.stress_delta), tone: summary.stress_delta > 0 ? 'danger' : 'positive' },
-                { label: 'Health delta', value: formatDelta(summary.health_delta), tone: summary.health_delta >= 0 ? 'positive' : 'warning' },
-              ]}
-            />
-          </GameplaySummaryCard>
-          <EndOfDaySummaryCard summary={summary} />
-        </>
-      ) : summaryMissingAfterSettlement ? (
         <EmptyStateView
-          title="Summary temporarily unavailable"
-          subtitle="Settlement completed. Continue to the next day - refresh later for full recap."
+          title="Day settled"
+          subtitle="Open the End Of Day screen to continue tomorrow."
         />
-      ) : !sessionEnded ? (
+      ) : (
         <GameplayWarningBanner
           title="Day still active"
           message="Run settlement here when you are done with your actions."
           tone="info"
         />
-      ) : null}
+      )}
     </GameplayLoopScaffold>
   );
 }
