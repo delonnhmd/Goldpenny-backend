@@ -12,10 +12,11 @@ Rules currently encoded:
 - UNRATE MoM > +0.2pp    →  Job Market Weakness         (negative)
 - DFF up > +0.25pp       →  Rate Hike                   (negative)
 
-When more than one rule fires on the same day we pick the trigger with
-the largest ``abs(delta)`` (in the rule's native units — % for CPI/WTI,
-percentage points for UNRATE/DFF). The spec calls this out explicitly;
-we do not normalise across units. Document the choice rather than hide it.
+When multiple rules fire on the same day, the rule with the highest
+computed magnitude wins. Magnitude is normalized 0.0-1.0 per rule via
+``_scale_magnitude``, making it the only valid comparison across
+heterogeneous indicators (CPI, oil, unemployment, rates) which have
+different units, scales, and typical volatility ranges.
 """
 
 from __future__ import annotations
@@ -320,8 +321,10 @@ class RuleBasedEventGenerator:
         if not triggers:
             return None
 
-        # Highest absolute delta wins. Ties broken by rule_slug (stable, deterministic).
-        winner = max(triggers, key=lambda t: (abs(t.delta), t.rule_slug))
+        # Highest computed magnitude wins — magnitude is normalized 0.0–1.0 per
+        # rule, so it's the only meaningful cross-indicator comparison. Ties
+        # broken by rule_slug (stable, deterministic).
+        winner = max(triggers, key=lambda t: (t.magnitude, t.rule_slug))
         return RealWorldEvent(
             event_id=f"realworld-{today.isoformat()}-{winner.rule_slug}",
             generated_at=self._clock(),

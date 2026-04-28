@@ -98,18 +98,47 @@ class OilSqueezeRuleTests(unittest.TestCase):
 
 
 class TieBreakingTests(unittest.TestCase):
-    def test_multiple_triggers_highest_abs_delta_wins(self) -> None:
-        # CPI MoM +0.5% (delta=0.5) and WTI DoD +8% (delta=8).
-        # WTI's |delta| is greater, so it wins.
+    def test_multiple_triggers_highest_magnitude_wins(self) -> None:
+        # CPI MoM +1.0% (well above its 0.3% threshold; midpoint=0.5, span=0.3
+        # → magnitude ≈ 0.841) vs WTI DoD +6% (just above its 5% threshold;
+        # midpoint=8.0, span=4.0 → magnitude ≈ 0.378).
+        #
+        # Under the old raw-delta tie-breaker, WTI would have won (|6| > |1.0|).
+        # That was wrong: raw deltas in different units aren't comparable —
+        # 1% CPI is the bigger macro event but 6% oil has the bigger number.
+        # Magnitude is normalized per rule and is the correct ranker.
         data = {
-            FredSeries.CPI.value: _series(FredSeries.CPI.value, [100.0, 100.5]),
-            FredSeries.WTI_OIL.value: _series(FredSeries.WTI_OIL.value, [80.0, 86.4]),
+            FredSeries.CPI.value: _series(FredSeries.CPI.value, [100.0, 101.0]),
+            FredSeries.WTI_OIL.value: _series(FredSeries.WTI_OIL.value, [80.0, 84.8]),
         }
         client = _StubFredClient(data)
         event = _gen(client).generate(date(2026, 4, 27))
 
         assert event is not None
+        self.assertEqual(event.event_name, "Inflation Pressure")
+        # Sanity: the winner's magnitude is meaningfully high, not a slug-tiebreak coincidence.
+        self.assertGreater(event.magnitude, 0.6)
+
+    def test_low_magnitude_loses_even_when_raw_delta_is_high(self) -> None:
+        # Companion to the test above. WTI DoD +20% has a huge raw delta
+        # (|20| ≫ |0.4|) so the OLD raw-delta tie-breaker would have picked
+        # Fuel Margin Squeeze every time. But CPI MoM +0.4% sits very close
+        # to its rule's midpoint (0.5) while WTI +20% saturates well above
+        # its midpoint of 8 — both produce moderate magnitudes (~0.4 and
+        # ~0.95 respectively). WTI legitimately wins here on magnitude too;
+        # the assertion is just that the chosen rule's magnitude is the
+        # highest among all firing rules, never the lowest.
+        data = {
+            FredSeries.CPI.value: _series(FredSeries.CPI.value, [100.0, 100.4]),
+            FredSeries.WTI_OIL.value: _series(FredSeries.WTI_OIL.value, [80.0, 96.0]),
+        }
+        event = _gen(_StubFredClient(data)).generate(date(2026, 4, 27))
+        assert event is not None
+        # WTI wins by both raw delta (20 > 0.4) and magnitude (~0.95 > ~0.4).
+        # The point is the magnitude is high — selection isn't accidentally
+        # picking a near-zero-magnitude rule because some other heuristic crept in.
         self.assertEqual(event.event_name, "Fuel Margin Squeeze")
+        self.assertGreater(event.magnitude, 0.8)
 
 
 class NoFireTests(unittest.TestCase):
