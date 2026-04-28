@@ -5,6 +5,7 @@ rule-based generator that turns observations into DailyEconomyEvent rows.
 No LLM calls, no paid sources — that's Phase 3-B-2.
 """
 
+from app.services.realworld.daily_generation_job import run_daily_generation
 from app.services.realworld.fred_client import FredClient, FredObservation
 from app.services.realworld.fred_series import FredSeries
 from app.services.realworld.rule_generator import RealWorldEvent, RuleBasedEventGenerator
@@ -15,4 +16,5 @@ __all__ = [
     "FredSeries",
     "RealWorldEvent",
     "RuleBasedEventGenerator",
+    "run_daily_generation",
 ]

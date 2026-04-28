@@ -12,7 +12,7 @@ from sqlalchemy import text
 # Load environment variables from the project root `.env` file at app import/startup time.
 load_dotenv()
 
-from app.api import auth, baskets, briefs, business, career, commitment, consumer_borrowing, contract_timing, day, daily, deals, debt, debt_behavior, economy, economy_presentation, events, finance, financial_survival, forecasting, gameplay, guided_sandbox, health, housing, internal, jobs, macro, market, marketplace, onboarding, personal_shocks, player, population_pressure, portfolio, progression, reputation_trust, side_income, soft_launch, stocks, strategic_planning, strategy, supply_chain, wealth_progression, world_memory
+from app.api import admin_realworld, auth, baskets, briefs, business, career, commitment, consumer_borrowing, contract_timing, day, daily, deals, debt, debt_behavior, economy, economy_presentation, events, finance, financial_survival, forecasting, gameplay, guided_sandbox, health, housing, internal, jobs, macro, market, marketplace, onboarding, personal_shocks, player, population_pressure, portfolio, progression, reputation_trust, side_income, soft_launch, stocks, strategic_planning, strategy, supply_chain, wealth_progression, world_memory
 from app.core.security import load_jwt_secret
 from app.db.database import Base, engine, SessionLocal, log_database_schema_diagnostics
 from app import models  # noqa: F401
@@ -469,6 +469,7 @@ def create_app() -> FastAPI:
     application.include_router(soft_launch.router, prefix="/soft-launch", tags=["Soft Launch"])
     application.include_router(gameplay.router, prefix="/gameplay", tags=["Gameplay"])
     application.include_router(guided_sandbox.router, prefix="/guided-sandbox", tags=["Guided Sandbox"])
+    application.include_router(admin_realworld.router, prefix="/admin", tags=["Admin · Real-World"])
     return application
 
 
