@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 from app.db.database import SessionLocal
 from app.models.daily_economy_event import DailyEconomyEvent
 from app.models.game_state import GameState
+from app.services.realworld.cost_breaker import HARD_BREAKER_THRESHOLD, CostBreaker
 from app.services.realworld.rule_generator import (
     RULE_TO_CATEGORY,
     RealWorldEvent,
@@ -134,10 +135,22 @@ def _run(
             "day": day,
         }
 
+    breaker = CostBreaker(db)
+    if breaker.is_tripped():
+        monthly_cost = breaker.monthly_cost_per_mau()
+        reason = (
+            "real-world generation skipped because cost breaker tripped: "
+            f"monthly_cost_per_mau={monthly_cost:.4f} threshold={HARD_BREAKER_THRESHOLD:.2f}"
+        )
+        logger.error("realworld_generation: %s", reason)
+        breaker.notify_operator(reason)
+        return _run_static_fallback(db, day)
+
     # ── Tier 1: rule generator ──
     rule_event = _try_rule_generator(target_date, generator)
     if rule_event is not None:
         row = _persist_realworld(db, day, rule_event)
+        breaker.record_generation_cost(row.event_key, 0.0)
         return {"source": "rule", "event_id": row.event_key, "day": day}
 
     # ── Tier 2: yesterday's real-world row ──
@@ -154,6 +167,10 @@ def _run(
         return {"source": "yesterday_fallback", "event_id": row.event_key, "day": day}
 
     # ── Tier 3: static catalog ──
+    return _run_static_fallback(db, day)
+
+
+def _run_static_fallback(db: Session, day: int) -> dict[str, Any]:
     try:
         # Imported lazily so the cron module doesn't pull engine internals at import time.
         from app.engine.event_service import run_daily_event_engine

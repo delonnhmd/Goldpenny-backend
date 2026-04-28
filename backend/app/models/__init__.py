@@ -110,6 +110,10 @@ from app.models.player_job_progression import PlayerJobProgression
 # Step 19 — Event engine models
 from app.models.daily_economy_event import DailyEconomyEvent
 from app.models.daily_economy_event_log import DailyEconomyEventLog
+from app.models.realworld_generation_cost import (
+    CostBreakerAlert,
+    RealWorldGenerationCost,
+)
 # Step 38 — Debt behavior meta-layer
 from app.models.player_debt_behavior_state import PlayerDebtBehaviorState
 from app.models.player_debt_trend_history import PlayerDebtTrendHistory
@@ -233,6 +237,8 @@ __all__ = [
     # Step 19 — Event engine
     "DailyEconomyEvent",
     "DailyEconomyEventLog",
+    "RealWorldGenerationCost",
+    "CostBreakerAlert",
     # Step 92 — Per-job progression tracks
     "PlayerJobProgression",
     # Step 38 — Debt behavior meta-layer

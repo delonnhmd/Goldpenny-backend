@@ -30,6 +30,10 @@ from sqlalchemy.orm import sessionmaker
 from app.db.database import Base
 from app.models.daily_economy_event import DailyEconomyEvent
 from app.models.game_state import GameState
+from app.models.realworld_generation_cost import (
+    CostBreakerAlert,
+    RealWorldGenerationCost,
+)
 from app.services.realworld.daily_generation_job import run_daily_generation
 from app.services.realworld.rule_generator import RULE_TO_CATEGORY, RealWorldEvent
 
@@ -71,7 +75,12 @@ class _BaseJobTest(unittest.TestCase):
         self.SessionLocal = sessionmaker(bind=self.engine, future=True, autocommit=False, autoflush=False)
         Base.metadata.create_all(
             bind=self.engine,
-            tables=[GameState.__table__, DailyEconomyEvent.__table__],
+            tables=[
+                GameState.__table__,
+                DailyEconomyEvent.__table__,
+                RealWorldGenerationCost.__table__,
+                CostBreakerAlert.__table__,
+            ],
         )
         self.db = self.SessionLocal()
         # Fix the global game day at 100; cron runs always target this slot.
