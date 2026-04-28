@@ -31,7 +31,7 @@ from app.db.database import Base
 from app.models.daily_economy_event import DailyEconomyEvent
 from app.models.game_state import GameState
 from app.services.realworld.daily_generation_job import run_daily_generation
-from app.services.realworld.rule_generator import RealWorldEvent
+from app.services.realworld.rule_generator import RULE_TO_CATEGORY, RealWorldEvent
 
 
 _FIXED_CLOCK = datetime(2026, 4, 27, 4, 0, 0, tzinfo=timezone.utc)
@@ -105,6 +105,7 @@ class HappyPathTests(_BaseJobTest):
         self.assertTrue(row.is_realworld_anchored)
         self.assertEqual(row.headline, "Fuel Margin Squeeze")
         self.assertEqual(row.summary, "Oil moved +8.0% overnight; small operators feel it first.")
+        self.assertEqual(row.event_category, "energy")
         self.assertEqual(row.sentiment, "negative")
         self.assertEqual(float(row.severity), 1.3)
         self.assertEqual(row.source_summary, "FRED DCOILWTICO moved +8.0% DoD (2026-04-25 → 2026-04-26).")
@@ -118,6 +119,32 @@ class HappyPathTests(_BaseJobTest):
         self.assertEqual({t["tag"] for t in tags}, {"energy", "transportation", "food"})
         self.assertTrue(all(t["direction"] == "down" for t in tags))   # negative → down
         self.assertTrue(all(t["magnitude"] == 0.5 for t in tags))
+
+    def test_each_rule_slug_persists_registered_static_catalog_category(self) -> None:
+        for offset, (rule_slug, expected_category) in enumerate(RULE_TO_CATEGORY.items()):
+            with self.subTest(rule_slug=rule_slug):
+                self.db.query(DailyEconomyEvent).delete()
+                self.db.query(GameState).delete()
+                self.db.add(GameState(current_day=100 + offset))
+                self.db.commit()
+
+                run_daily_generation(
+                    date(2026, 4, 27),
+                    db=self.db,
+                    generator=_StubGenerator(_make_event(rule_slug)),
+                )
+
+                row = self.db.query(DailyEconomyEvent).filter_by(day=100 + offset).one()
+                self.assertEqual(row.event_category, expected_category)
+
+    def test_unmapped_rule_slug_fails_loudly_on_persistence(self) -> None:
+        with self.assertRaisesRegex(ValueError, "has no event-category mapping"):
+            run_daily_generation(
+                date(2026, 4, 27),
+                db=self.db,
+                generator=_StubGenerator(_make_event("synthetic_unmapped_rule")),
+            )
+        self.assertEqual(self.db.query(DailyEconomyEvent).count(), 0)
 
 
 # ---------------------------------------------------------------------------

@@ -36,6 +36,18 @@ logger = logging.getLogger(__name__)
 Tone = Literal["positive", "neutral", "negative"]
 
 
+# Every rule must register its category here. New rules without a mapping fail loudly, on purpose.
+# Values must match strings already used by the static catalog in
+# backend/app/engine/event_catalog.py (consumer, energy, financial, labor, etc.).
+RULE_TO_CATEGORY: dict[str, str] = {
+    "inflation_pressure": "consumer",
+    "fuel_margin_squeeze": "energy",
+    "cheap_fuel_tailwind": "energy",
+    "job_market_weakness": "labor",
+    "rate_hike": "financial",
+}
+
+
 @dataclass(frozen=True)
 class RealWorldEvent:
     """Generator output. Mirrors the schema locked in CORE_LOOP.md."""

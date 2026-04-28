@@ -29,7 +29,11 @@ from sqlalchemy.orm import Session
 from app.db.database import SessionLocal
 from app.models.daily_economy_event import DailyEconomyEvent
 from app.models.game_state import GameState
-from app.services.realworld.rule_generator import RealWorldEvent, RuleBasedEventGenerator
+from app.services.realworld.rule_generator import (
+    RULE_TO_CATEGORY,
+    RealWorldEvent,
+    RuleBasedEventGenerator,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -199,9 +203,14 @@ def _impact_tags_for(event: RealWorldEvent) -> list[dict[str, Any]]:
 
 
 def _category_for(event: RealWorldEvent) -> str:
-    if event.affected_sectors:
-        return event.affected_sectors[0]
-    return "macro"
+    parts = event.event_id.split("-", 4)
+    if len(parts) != 5 or parts[0] != "realworld":
+        raise ValueError(f"Cannot derive rule slug from event_id={event.event_id!r}")
+    rule_slug = parts[4]
+    try:
+        return RULE_TO_CATEGORY[rule_slug]
+    except KeyError as exc:
+        raise ValueError(f"Rule slug {rule_slug!r} has no event-category mapping") from exc
 
 
 def _persist_realworld(db: Session, day: int, event: RealWorldEvent) -> DailyEconomyEvent:
