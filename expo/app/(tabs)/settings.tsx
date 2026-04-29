@@ -25,6 +25,9 @@ import {
   clearPlaytestData,
   PlaytestReport,
 } from '@/lib/playtestAnalytics';
+import { sendTestPushNotification } from '@/lib/api/notifications';
+import { registerAndSyncPushTokenAsync } from '@/lib/pushNotifications';
+import { KEY_LAST_PLAYER_ID } from '@/features/auth/storage';
 
 // ── Step 68: Day 1 balance presets (must stay in sync with balance_config.py) ──
 const BALANCE_PRESETS = {
@@ -60,6 +63,7 @@ export default function SettingsScreen() {
   const [playtestPlayerId, setPlaytestPlayerId] = useState('');
   const [playtestGameDay, setPlaytestGameDay] = useState('1');
   const [balancePreset, setBalancePreset] = useState<BalancePresetKey>('normal');
+  const [pushTestBusy, setPushTestBusy] = useState(false);
   const loaded = useRef(false);
 
   const appName = Constants.expoConfig?.name || 'Gold Penny';
@@ -99,7 +103,7 @@ export default function SettingsScreen() {
           AsyncStorage.getItem(KEY_BACKEND_OVERRIDE),
           AsyncStorage.getItem(KEY_ADMIN_TOKEN),
         ]);
-        const rememberedPlayerId = await AsyncStorage.getItem('goldpenny:gameplay:lastPlayerId');
+        const rememberedPlayerId = await AsyncStorage.getItem(KEY_LAST_PLAYER_ID);
         if (rememberedPlayerId) setPlaytestPlayerId(rememberedPlayerId);
         setBackendUrl(url || '');
         setAdminToken(token || '');
@@ -294,6 +298,40 @@ export default function SettingsScreen() {
     }
   };
 
+  const handleSendTestPush = async () => {
+    const playerId = playtestPlayerId.trim() || (await AsyncStorage.getItem(KEY_LAST_PLAYER_ID)) || '';
+    if (!playerId.trim()) {
+      Alert.alert('Player ID Required', 'Sign in or enter a player ID before sending a test push.');
+      return;
+    }
+
+    setPushTestBusy(true);
+    try {
+      const registration = await registerAndSyncPushTokenAsync(playerId.trim());
+      if (!registration.ok || !registration.pushToken) {
+        Alert.alert('Push Not Registered', registration.message || 'This device could not register for push notifications.');
+        return;
+      }
+
+      const result = await sendTestPushNotification(playerId.trim(), 'Test', 'Push is working');
+      if (result.ok) {
+        Alert.alert('Push Sent', `Sent to ${result.sent} device${result.sent === 1 ? '' : 's'}.`);
+        return;
+      }
+
+      Alert.alert('Push Test Failed', result.message || result.errors?.[0] || 'Expo did not accept the push request.');
+    } catch (error) {
+      recordError('settings', 'Send test push failed.', {
+        action: 'send_test_push',
+        error,
+      });
+      Alert.alert('Push Test Failed', error instanceof Error ? error.message : String(error));
+    } finally {
+      setPushTestBusy(false);
+      await loadDiagnostics();
+    }
+  };
+
   return (
     <AppShell title="Settings" subtitle="Gold Penny app preferences">
       <PageContainer>
@@ -334,6 +372,23 @@ export default function SettingsScreen() {
                   loading={applyingUpdate}
                 />
               </View>
+            </SectionCard>
+
+            <SectionCard
+              title="Push Notifications"
+              summary="Temporary Phase 3-C device registration and Expo push smoke test."
+            >
+              <View style={styles.buttonRow}>
+                <PrimaryButton
+                  label={pushTestBusy ? 'Sending...' : 'Send Test Push'}
+                  onPress={pushTestBusy ? undefined : handleSendTestPush}
+                  loading={pushTestBusy}
+                  disabled={pushTestBusy}
+                />
+              </View>
+              <Text style={styles.note}>
+                Uses the signed-in player ID, or the Playtest Review player ID if entered below.
+              </Text>
             </SectionCard>
 
             <SectionCard

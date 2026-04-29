@@ -136,6 +136,7 @@ from app.models.soft_launch_access import SoftLaunchAccess
 from app.models.soft_launch_member import SoftLaunchMember
 from app.models.player_feedback import PlayerFeedback
 from app.models.issue_report import IssueReport
+from app.models.player_push_token import PlayerPushToken
 
 __all__ = [
     "User",
@@ -258,4 +259,5 @@ __all__ = [
     # Step 43 — Supply Chain Graph + Bottleneck Opportunity Engine
     "SupplyChainNodeState",
     "SupplyChainDailySnapshot",
+    "PlayerPushToken",
 ]
