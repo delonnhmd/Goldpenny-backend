@@ -19,8 +19,32 @@ from app.engine.life_balance_service import (
 )
 from app.models.player import Player
 from app.models.player_daily_state import PlayerDailyState
+from app.services.annual_recap_service import (
+    AnnualRecapError,
+    AnnualRecapNotFoundError,
+    AnnualRecapUnavailableError,
+    AnnualRecapValidationError,
+    build_player_annual_recap,
+)
+from app.services.black_swan_service import (
+    BlackSwanError,
+    BlackSwanNotFoundError,
+    get_pending_black_swan_event,
+    mark_black_swan_seen,
+)
 from app.models.user import User
 from app.services.player_onboarding_service import create_survival_player_profile
+from app.services.run_end_service import (
+    RunEndError,
+    RunEndNotFoundError,
+    get_player_run_status,
+    retire_player_run,
+)
+from app.services.timeline_service import (
+    TimelineError,
+    TimelineNotFoundError,
+    build_player_timeline,
+)
 
 router = APIRouter()
 
@@ -79,6 +103,50 @@ class PlayerLifeHistoryResponse(BaseModel):
     trailing_7d_avg_productivity: float = 0.0
 
 
+class AnnualRecapResponse(BaseModel):
+    year: int
+    days_survived: int
+    starting_net_worth: float
+    ending_net_worth: float
+    net_worth_change: float
+    cash: float
+    debt: float
+    credit_score: int
+    businesses_owned: int
+    land_owned: int
+    best_streak: int
+    total_income: float
+    total_expenses: float
+    biggest_win: str
+    biggest_loss: str
+    top_event: str
+    title: str
+
+
+class TimelineEventResponse(BaseModel):
+    day: int
+    type: str
+    title: str
+    description: str
+    impact_level: str
+    icon: str
+
+
+class BlackSwanEventResponse(BaseModel):
+    id: str
+    player_id: str
+    day: int
+    event_type: str
+    title: str
+    description: str
+    severity_score: float
+    source_event_id: str | None = None
+    payload: dict = Field(default_factory=dict)
+    push_payload: dict = Field(default_factory=dict)
+    seen_at: str | None = None
+    created_at: str | None = None
+
+
 def _raise_life_http_error(exc: Exception) -> None:
     if isinstance(exc, LifeBalanceNotFoundError):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
@@ -128,8 +196,89 @@ def get_profile(
         "hours_available": profile.hours_available,
         "total_hours_worked_today": profile.total_hours_worked_today,
         "work_actions_today": profile.work_actions_today,
+        "run_status": getattr(profile, "run_status", "active") or "active",
         "created_at": profile.created_at,
     }
+
+
+def _raise_annual_recap_http_error(exc: Exception) -> None:
+    if isinstance(exc, AnnualRecapNotFoundError):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    if isinstance(exc, AnnualRecapUnavailableError):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    if isinstance(exc, AnnualRecapValidationError):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    if isinstance(exc, AnnualRecapError):
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unexpected annual recap error.")
+
+
+def _raise_timeline_http_error(exc: Exception) -> None:
+    if isinstance(exc, TimelineNotFoundError):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    if isinstance(exc, TimelineError):
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unexpected timeline error.")
+
+
+def _raise_black_swan_http_error(exc: Exception) -> None:
+    if isinstance(exc, BlackSwanNotFoundError):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    if isinstance(exc, BlackSwanError):
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc))
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unexpected black swan error.")
+
+
+@router.get("/{player_id}/annual-recap", response_model=AnnualRecapResponse)
+def get_player_annual_recap_route(
+    player_id: str,
+    year: int = Query(default=1, ge=1, le=1),
+    debug: bool = Query(default=False),
+    db: Session = Depends(get_db),
+) -> AnnualRecapResponse:
+    try:
+        payload = build_player_annual_recap(db, player_id, year=year, debug=debug)
+    except Exception as exc:
+        _raise_annual_recap_http_error(exc)
+    return AnnualRecapResponse(**payload)
+
+
+@router.get("/{player_id}/black-swan/pending", response_model=BlackSwanEventResponse | None)
+def get_pending_black_swan_event_route(
+    player_id: str,
+    db: Session = Depends(get_db),
+) -> BlackSwanEventResponse | None:
+    try:
+        payload = get_pending_black_swan_event(db, player_id)
+    except Exception as exc:
+        _raise_black_swan_http_error(exc)
+    return BlackSwanEventResponse(**payload) if payload is not None else None
+
+
+@router.post("/{player_id}/black-swan/{event_id}/seen", response_model=BlackSwanEventResponse)
+def mark_black_swan_seen_route(
+    player_id: str,
+    event_id: str,
+    db: Session = Depends(get_db),
+) -> BlackSwanEventResponse:
+    try:
+        payload = mark_black_swan_seen(db, player_id, event_id)
+    except Exception as exc:
+        _raise_black_swan_http_error(exc)
+    return BlackSwanEventResponse(**payload)
+
+
+@router.get("/{player_id}/timeline", response_model=list[TimelineEventResponse])
+def get_player_timeline_route(
+    player_id: str,
+    limit: int = Query(default=100, ge=1, le=200),
+    db: Session = Depends(get_db),
+) -> list[TimelineEventResponse]:
+    try:
+        payload = build_player_timeline(db, player_id, limit=limit)
+    except Exception as exc:
+        _raise_timeline_http_error(exc)
+    return [TimelineEventResponse(**event) for event in payload]
 
 
 @router.get("/{player_id}/life", response_model=PlayerLifeSnapshot)
@@ -187,8 +336,40 @@ def _serialize_player(player: Player) -> dict:
         "account_created_day": int(player.account_created_day or 1),
         "main_shift_active_flag": bool(player.main_shift_active_flag or False),
         "main_shift_status": str(player.main_shift_status or "idle"),
+        "run_status": str(getattr(player, "run_status", "active") or "active"),
         "created_at": player.created_at.isoformat() if player.created_at else None,
     }
+
+
+def _raise_run_end_http_error(exc: Exception) -> None:
+    if isinstance(exc, RunEndNotFoundError):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    if isinstance(exc, RunEndError):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Unexpected run lifecycle error.")
+
+
+@router.get("/{player_id}/run-status")
+def get_player_run_status_route(
+    player_id: str,
+    db: Session = Depends(get_db),
+) -> dict:
+    try:
+        return get_player_run_status(db, player_id)
+    except Exception as exc:
+        _raise_run_end_http_error(exc)
+
+
+@router.post("/{player_id}/retire")
+def retire_player_run_route(
+    player_id: str,
+    db: Session = Depends(get_db),
+) -> dict:
+    try:
+        return retire_player_run(db, player_id)
+    except Exception as exc:
+        db.rollback()
+        _raise_run_end_http_error(exc)
 
 
 @router.get("/by-user-id/{user_id}")

@@ -7,6 +7,7 @@ import React, {
   useRef,
   useState,
 } from 'react';
+import { router } from 'expo-router';
 import { AppState, AppStateStatus } from 'react-native';
 
 import { useDailyProgression } from '@/hooks/useDailyProgression';
@@ -23,6 +24,7 @@ import {
   endDay as settleDay,
   executeAction as executeGameplayAction,
   getTransactionHistory,
+  retirePlayerRun,
 } from '@/lib/api/gameplay';
 import { getPlayerStreaks, getWeeklyNetWorthDelta } from '@/lib/api/progression';
 import { BALANCE } from '@/lib/balanceConfig';
@@ -31,8 +33,11 @@ import { recordInfo, recordWarning } from '@/lib/logger';
 import {
   ActionPreviewResponse,
   DailyActionItem,
+  EndStatePayload,
   EndOfDaySummaryResponse,
   GameplayAuthoritativeState,
+  PlayerRunStatusResponse,
+  RetireRunResponse,
   TransactionHistoryResponse,
 } from '@/types/gameplay';
 import { StreakItem, WeeklyNetWorthDeltaResponse } from '@/types/progression';
@@ -70,6 +75,8 @@ interface RefreshOptions {
 interface GameplayLoopContextValue {
   playerId: string;
   bundle: GameplayLoopBundle | null;
+  gameTime: GameplayLoopBundle['gameTime'] | null;
+  runStatus: PlayerRunStatusResponse | null;
   dashboard: GameplayLoopBundle['dashboard'] | null;
   actionHub: GameplayLoopBundle['actionHub'] | null;
   authoritativeState: GameplayLoopBundle['authoritativeState'] | null;
@@ -119,6 +126,7 @@ interface GameplayLoopContextValue {
   operateBusiness: () => Promise<boolean>;
   endingDay: boolean;
   endCurrentDay: () => Promise<boolean>;
+  retireRun: () => Promise<RetireRunResponse>;
   startNextDay: () => Promise<void>;
   pendingTrade: PendingTradeState | null;
   buyOneStock: (stockId: string) => Promise<void>;
@@ -279,6 +287,28 @@ function applyUpdatedStateToBundle(
     },
     authoritativeState: updatedState,
     fetchedAt: new Date().toISOString(),
+  };
+}
+
+function runStatusFromEndState(
+  fallback: PlayerRunStatusResponse | null | undefined,
+  endState: EndStatePayload | null | undefined,
+): PlayerRunStatusResponse | null {
+  if (!endState?.triggered || endState.run_status === 'active') return fallback || null;
+  return {
+    run_status: endState.run_status,
+    run_ended_at: fallback?.run_ended_at ?? null,
+    run_end_day: fallback?.run_end_day ?? endState.summary?.days_survived ?? null,
+    run_end_reason: endState.reason ?? fallback?.run_end_reason ?? null,
+    run_end_summary: endState.summary ?? fallback?.run_end_summary ?? null,
+    can_continue: false,
+    can_retire: false,
+    retirement_requirement: fallback?.retirement_requirement ?? {
+      min_day: 30,
+      min_net_worth: 10000,
+      current_day: Math.max(1, Math.round(Number(endState.summary?.days_survived) || 1)),
+      current_net_worth: Number(endState.summary?.net_worth || 0),
+    },
   };
 }
 
@@ -795,8 +825,21 @@ export function GameplayLoopProvider({
       dailySession.endDay();
       await dailyProgression.markDayAdvanced(result.settled_day);
       const { summary, note } = await loadEndOfDaySummaryWithFallback(playerId);
+      const resultRunStatus = runStatusFromEndState(result.run_status, result.end_state) || result.run_status || summary?.run_status || null;
 
-      setBundle((current) => (current ? { ...current, endOfDaySummary: summary } : current));
+      setBundle((current) => (current ? {
+        ...current,
+        gameTime: result.game_time || summary?.game_time || current.gameTime,
+        runStatus: resultRunStatus || current.runStatus,
+        endOfDaySummary: summary
+          ? {
+            ...summary,
+            run_status: summary.run_status || resultRunStatus,
+            end_state: summary.end_state || result.end_state || null,
+            risk_warnings: summary.risk_warnings || result.risk_warnings || [],
+          }
+          : summary,
+      } : current));
       if (summary) {
         setFeedback({
           tone: 'success',
@@ -822,6 +865,9 @@ export function GameplayLoopProvider({
         silent: true,
         includeEndOfDaySummary: true,
       });
+      if (result.black_swan_pending) {
+        router.push(`/gameplay/loop/${playerId}/black-swan`);
+      }
       return true;
     } catch (endDayError) {
       setFeedback({
@@ -850,6 +896,31 @@ export function GameplayLoopProvider({
       includeEndOfDaySummary: false,
     });
   }, [dailyProgression, dailySession, refresh]);
+
+  const retireRun = useCallback(async (): Promise<RetireRunResponse> => {
+    try {
+      const result = await retirePlayerRun(playerId);
+      setBundle((current) => (current ? {
+        ...current,
+        runStatus: result,
+        fetchedAt: new Date().toISOString(),
+      } : current));
+      setFeedback({
+        tone: result.eligible ? 'success' : 'error',
+        message: result.eligible
+          ? 'Run retired. Final summary is ready.'
+          : (result.reason || 'This run is not eligible for retirement yet.'),
+      });
+      if (result.eligible) {
+        await refresh({ silent: true, includeEndOfDaySummary: true });
+      }
+      return result;
+    } catch (retireError) {
+      const message = normalizeError(retireError);
+      setFeedback({ tone: 'error', message });
+      throw retireError;
+    }
+  }, [playerId, refresh]);
 
   const performTrade = useCallback(async (stockId: string, side: 'buy' | 'sell', shares = 1) => {
     setPendingTrade({ stockId, side });
@@ -952,6 +1023,8 @@ export function GameplayLoopProvider({
   const value = useMemo<GameplayLoopContextValue>(() => ({
     playerId,
     bundle,
+    gameTime: bundle?.gameTime || bundle?.endOfDaySummary?.game_time || bundle?.dashboard?.game_time || null,
+    runStatus: bundle?.runStatus || bundle?.endOfDaySummary?.run_status || bundle?.dashboard?.run_status || null,
     dashboard: bundle?.dashboard || null,
     actionHub: bundle?.actionHub || null,
     authoritativeState: bundle?.authoritativeState || null,
@@ -1001,6 +1074,7 @@ export function GameplayLoopProvider({
     operateBusiness,
     endingDay,
     endCurrentDay,
+    retireRun,
     startNextDay,
     pendingTrade,
     buyOneStock,
@@ -1049,6 +1123,7 @@ export function GameplayLoopProvider({
     operateBusiness,
     endingDay,
     endCurrentDay,
+    retireRun,
     startNextDay,
     pendingTrade,
     buyOneStock,

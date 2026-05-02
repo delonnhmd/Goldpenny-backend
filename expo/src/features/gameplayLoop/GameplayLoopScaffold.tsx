@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { router, usePathname } from 'expo-router';
 import { LayoutChangeEvent, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
@@ -17,12 +17,14 @@ import Chip from '@/components/ui/Chip';
 import { useOnboarding } from '@/features/onboarding';
 import { OnboardingRouteKey } from '@/features/onboarding/context';
 import { FeedbackSheet, IssueReportSheet, SoftLaunchGate, useSoftLaunch } from '@/features/softLaunch';
+import AbsenceModal from '@/components/gameplay/AbsenceModal';
 import { theme } from '@/design/theme';
 import {
   defaultGrowthPhaseForBusinessType,
   getGrowthPhase,
 } from '@/lib/businessSandbox';
 import { recordInfo, recordWarning } from '@/lib/logger';
+import { getPendingBlackSwanEvent } from '@/lib/api/gameplay';
 import type { BusinessGrowthPhaseKey, PlayerBusinessRecord } from '@/types/business';
 
 import { useGameplayLoop } from './context';
@@ -160,6 +162,21 @@ export default function GameplayLoopScaffold({
   const pathname = usePathname();
   const [showIssueReport, setShowIssueReport] = useState(false);
   const [measuredContentHeight, setMeasuredContentHeight] = useState<number | null>(null);
+  const absenceSummary = loop.bundle?.absenceSummary ?? null;
+  const lastAbsenceFetchRef = useRef<string | null>(null);
+  const lastBlackSwanCheckRef = useRef<string | null>(null);
+  const [absenceModalVisible, setAbsenceModalVisible] = useState(false);
+  useEffect(() => {
+    const fetchedAt = loop.bundle?.fetchedAt ?? null;
+    if (!absenceSummary || (absenceSummary.missed_days ?? 0) <= 0) {
+      return;
+    }
+    if (fetchedAt && lastAbsenceFetchRef.current === fetchedAt) {
+      return;
+    }
+    lastAbsenceFetchRef.current = fetchedAt;
+    setAbsenceModalVisible(true);
+  }, [absenceSummary, loop.bundle?.fetchedAt]);
 
   // Dev bypass: EXPO_PUBLIC_SOFT_LAUNCH_BYPASS=true skips the gate entirely.
   const bypassGate =
@@ -185,6 +202,13 @@ export default function GameplayLoopScaffold({
   const economyOnlyFailure = errorText.toLowerCase().includes('basket pricing');
   const stats = loop.dashboard?.stats;
   const actionsRemainingToday = Number(loop.dashboard?.actions_remaining_today ?? 0);
+  const showMorningBriefCountdown = loop.dailySession.sessionStatus === 'ended' || activeNavKey === 'summary';
+  const timingSeconds = showMorningBriefCountdown
+    ? loop.gameTime?.seconds_until_morning_brief
+    : loop.gameTime?.seconds_until_settlement;
+  const timingLabel = Number.isFinite(Number(timingSeconds))
+    ? (showMorningBriefCountdown ? 'Morning brief in' : 'Settlement in')
+    : null;
   const careerLadder = useMemo(() => deriveCareerLadder(loop), [loop]);
   const businessLadder = useMemo(
     () => deriveBusinessLadder(loop.businesses?.businesses),
@@ -205,6 +229,42 @@ export default function GameplayLoopScaffold({
   useEffect(() => {
     ensureRoute(activeNavKey as OnboardingRouteKey);
   }, [activeNavKey, ensureRoute]);
+
+  useEffect(() => {
+    const status = loop.runStatus?.run_status;
+    if (!status || status === 'active') return;
+    if (pathname.endsWith('/end')) return;
+    router.replace(`/gameplay/loop/${loop.playerId}/end`);
+  }, [loop.playerId, loop.runStatus?.run_status, pathname]);
+
+  useEffect(() => {
+    if (!loop.bundle) return;
+    if (pathname.endsWith('/black-swan')) return;
+    if (loop.runStatus?.run_status && loop.runStatus.run_status !== 'active') return;
+
+    const checkKey = `${loop.playerId}:${loop.bundle.fetchedAt || ''}`;
+    if (lastBlackSwanCheckRef.current === checkKey) return;
+    lastBlackSwanCheckRef.current = checkKey;
+
+    let cancelled = false;
+    void getPendingBlackSwanEvent(loop.playerId)
+      .then((event) => {
+        if (cancelled || !event) return;
+        router.replace(`/gameplay/loop/${loop.playerId}/black-swan`);
+      })
+      .catch((error) => {
+        if (!INTERACTION_DIAGNOSTICS_ENABLED) return;
+        recordWarning('gameplayLoop', 'Pending black swan check failed.', {
+          action: 'black_swan_pending_check',
+          context: { playerId: loop.playerId },
+          error,
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loop.bundle, loop.playerId, loop.runStatus?.run_status, pathname]);
 
   useEffect(() => {
     if (!INTERACTION_DIAGNOSTICS_ENABLED) return;
@@ -399,6 +459,8 @@ export default function GameplayLoopScaffold({
             currentStreak={loop.streakBadge.currentStreak}
             longestStreak={loop.streakBadge.longestStreak}
             actionsRemainingToday={actionsRemainingToday}
+            timingLabel={timingLabel}
+            timingSeconds={timingSeconds}
             onActionsIndicatorPress={() => {
               if (actionsRemainingToday <= 0) {
                 loop.requestSettlementFocus();
@@ -524,6 +586,13 @@ export default function GameplayLoopScaffold({
         visible={showIssueReport}
         onSubmit={(payload) => softLaunch.submitIssue(payload)}
         onDismiss={() => setShowIssueReport(false)}
+      />
+
+      {/* Phase 3-C absence summary — shown after a multi-day return */}
+      <AbsenceModal
+        visible={absenceModalVisible}
+        summary={absenceSummary}
+        onContinue={() => setAbsenceModalVisible(false)}
       />
     </AppShell>
   );

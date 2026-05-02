@@ -137,6 +137,8 @@ from app.models.soft_launch_member import SoftLaunchMember
 from app.models.player_feedback import PlayerFeedback
 from app.models.issue_report import IssueReport
 from app.models.player_push_token import PlayerPushToken
+from app.models.player_notification_log import PlayerNotificationLog
+from app.models.player_black_swan_event import PlayerBlackSwanEvent
 
 __all__ = [
     "User",
@@ -260,4 +262,6 @@ __all__ = [
     "SupplyChainNodeState",
     "SupplyChainDailySnapshot",
     "PlayerPushToken",
+    "PlayerNotificationLog",
+    "PlayerBlackSwanEvent",
 ]

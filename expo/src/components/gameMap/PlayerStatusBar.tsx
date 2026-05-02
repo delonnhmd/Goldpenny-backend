@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Animated, StyleSheet, Text, View } from 'react-native';
 
 import ActionsRemainingIndicator from '@/components/gameMap/ActionsRemainingIndicator';
@@ -15,6 +15,8 @@ interface PlayerStatusBarProps {
   longestStreak?: number;
   actionsRemainingToday?: number;
   onActionsIndicatorPress?: () => void;
+  timingLabel?: string | null;
+  timingSeconds?: number | null;
   maxStress?: number;
   maxHealth?: number;
 }
@@ -40,6 +42,13 @@ function stressEmoji(stress: number, max: number): string {
   return '\u{1F62B}';
 }
 
+function formatCountdown(seconds: number): string {
+  const totalMinutes = Math.max(0, Math.ceil(seconds / 60));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+}
+
 export default function PlayerStatusBar({
   cash,
   stress,
@@ -49,11 +58,17 @@ export default function PlayerStatusBar({
   longestStreak = 0,
   actionsRemainingToday = 0,
   onActionsIndicatorPress,
+  timingLabel = null,
+  timingSeconds = null,
   maxStress = 100,
   maxHealth = 100,
 }: PlayerStatusBarProps) {
   const cashPulse = useRef(new Animated.Value(1)).current;
   const prevCashRef = useRef(cash);
+  const normalizedTimingSeconds = Number.isFinite(Number(timingSeconds))
+    ? Math.max(0, Math.floor(Number(timingSeconds)))
+    : null;
+  const [displaySeconds, setDisplaySeconds] = useState(normalizedTimingSeconds ?? 0);
 
   useEffect(() => {
     if (prevCashRef.current !== cash) {
@@ -65,8 +80,23 @@ export default function PlayerStatusBar({
     }
   }, [cash, cashPulse]);
 
+  useEffect(() => {
+    setDisplaySeconds(normalizedTimingSeconds ?? 0);
+  }, [normalizedTimingSeconds, timingLabel]);
+
+  useEffect(() => {
+    if (!timingLabel || normalizedTimingSeconds == null) return undefined;
+    const timer = setInterval(() => {
+      setDisplaySeconds((current) => Math.max(0, current - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [normalizedTimingSeconds, timingLabel]);
+
   const sColor = stressColor(stress, maxStress);
   const hColor = healthColor(health, maxHealth);
+  const timingText = timingLabel && normalizedTimingSeconds != null
+    ? `${timingLabel} ${formatCountdown(displaySeconds)}`
+    : null;
 
   return (
     <View style={styles.bar}>
@@ -93,9 +123,12 @@ export default function PlayerStatusBar({
       </View>
 
       {/* Day */}
-      <View style={styles.statItem}>
-        <Text style={styles.statIcon}>{'\u{1F4C5}'}</Text>
-        <Text style={styles.dayValue}>Day {dayNumber}</Text>
+      <View style={[styles.statItem, styles.dayItem]}>
+        <View style={styles.dayRow}>
+          <Text style={styles.statIcon}>{'\u{1F4C5}'}</Text>
+          <Text style={styles.dayValue}>Day {dayNumber}</Text>
+        </View>
+        {timingText ? <Text style={styles.timerValue} numberOfLines={1}>{timingText}</Text> : null}
       </View>
 
       <StreakBadge currentStreak={currentStreak} longestStreak={longestStreak} />
@@ -150,6 +183,20 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: theme.gameUi.textPrimary,
+  },
+  dayItem: {
+    alignItems: 'flex-start',
+    maxWidth: 134,
+  },
+  dayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  timerValue: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: theme.gameUi.textSecondary,
   },
   miniBarTrack: {
     width: 28,

@@ -1,18 +1,39 @@
-import React, { useEffect, useRef } from 'react';
-import { Animated, BackHandler, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, BackHandler, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import type { DimensionValue } from 'react-native';
+import { router } from 'expo-router';
 
+import AnnualRecapCard from '@/components/gameplay/AnnualRecapCard';
 import EndOfDaySummaryCard from '@/components/gameplay/EndOfDaySummaryCard';
 import PrimaryButton from '@/components/ui/PrimaryButton';
 import EmptyStateView from '@/components/ui/EmptyStateView';
-import { theme } from '@/design/theme';
+import { alpha, theme } from '@/design/theme';
 import { useOnboarding } from '@/features/onboarding';
 import { useScreenTimer } from '@/hooks/useScreenTimer';
+import { getPlayerAnnualRecap } from '@/lib/api/gameplay';
 import { formatDelta, formatMoney } from '@/lib/gameplayFormatters';
-import { EndOfDaySummaryResponse, TransactionHistoryItem } from '@/types/gameplay';
+import {
+  AnnualRecapResponse,
+  EndOfDaySummaryResponse,
+  PlayerRunStatusResponse,
+  TransactionHistoryItem,
+} from '@/types/gameplay';
 
 import { useGameplayLoop } from '../context';
 import { toneFromSignedValue } from '../components/GameplayUIParts';
 import GameplayLoopScaffold from '../GameplayLoopScaffold';
+
+function formatBriefUnlockTime(value?: string | null): string {
+  const raw = String(value || '').trim();
+  const match = raw.match(/T(\d{2}):(\d{2})/);
+  if (!match) return '7:00 AM';
+  const hour24 = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isFinite(hour24) || !Number.isFinite(minute)) return '7:00 AM';
+  const period = hour24 >= 12 ? 'PM' : 'AM';
+  const hour12 = hour24 % 12 || 12;
+  return `${hour12}:${String(minute).padStart(2, '0')} ${period}`;
+}
 
 export function SummaryMomentView({
   summary,
@@ -20,6 +41,8 @@ export function SummaryMomentView({
   missingAfterSettlement = false,
   endingDay = false,
   canAdvanceDay = true,
+  retirementCard = null,
+  annualRecapEntry = null,
   onRunSettlement,
   onContinueToTomorrow,
 }: {
@@ -28,6 +51,8 @@ export function SummaryMomentView({
   missingAfterSettlement?: boolean;
   endingDay?: boolean;
   canAdvanceDay?: boolean;
+  retirementCard?: React.ReactNode;
+  annualRecapEntry?: React.ReactNode;
   onRunSettlement: () => void;
   onContinueToTomorrow: () => void;
 }) {
@@ -48,6 +73,7 @@ export function SummaryMomentView({
           title="Summary temporarily unavailable"
           subtitle="Settlement completed. Continue to tomorrow, then refresh later for full recap data."
         />
+        {annualRecapEntry}
         <PrimaryButton
           testID="summary-continue-button"
           label="Continue to Tomorrow"
@@ -64,6 +90,7 @@ export function SummaryMomentView({
           title="No settled summary yet"
           subtitle="Run settlement to generate today's closeout."
         />
+        {annualRecapEntry}
         <PrimaryButton
           testID="summary-run-settlement-button"
           label={endingDay ? 'Settling Day...' : 'Run End Of Day Settlement'}
@@ -154,8 +181,14 @@ export function SummaryMomentView({
 
       <View style={styles.tomorrowPanel}>
         <Text style={styles.panelTitle}>Tomorrow Focus</Text>
+        <Text style={styles.unlockText}>
+          Next brief unlocks at {formatBriefUnlockTime(summary.next_morning_brief_at || summary.tomorrow_preview_time)}
+        </Text>
         <Text style={styles.tomorrowText}>{tomorrowFocus}</Text>
       </View>
+
+      {retirementCard}
+      {annualRecapEntry}
 
       <PrimaryButton
         testID="summary-continue-button"
@@ -166,46 +199,330 @@ export function SummaryMomentView({
   );
 }
 
+function RetirementEligibilityCard({
+  runStatus,
+  retiring,
+  onRequestRetire,
+}: {
+  runStatus: PlayerRunStatusResponse | null;
+  retiring: boolean;
+  onRequestRetire: () => void;
+}) {
+  if (!runStatus || runStatus.run_status !== 'active') return null;
+
+  const requirement = runStatus.retirement_requirement;
+  const minDay = Math.max(1, Math.round(Number(requirement.min_day) || 30));
+  const currentDay = Math.max(1, Math.round(Number(requirement.current_day) || 1));
+  const minNetWorth = Math.max(1, Number(requirement.min_net_worth) || 10000);
+  const currentNetWorth = Math.max(0, Number(requirement.current_net_worth) || 0);
+  const dayProgress = `${Math.min(100, Math.max(0, (currentDay / minDay) * 100))}%` as DimensionValue;
+  const wealthProgress = `${Math.min(100, Math.max(0, (currentNetWorth / minNetWorth) * 100))}%` as DimensionValue;
+  const eligible = Boolean(runStatus.can_retire);
+
+  return (
+    <View style={[styles.retirementPanel, eligible ? styles.retirementEligible : null]}>
+      <View style={styles.retirementHeader}>
+        <View style={styles.retirementTitleBlock}>
+          <Text style={styles.panelTitle}>Retirement</Text>
+          <Text style={styles.retirementSubhead}>
+            {eligible ? 'Eligible to close this run.' : 'Progress toward a victory ending.'}
+          </Text>
+        </View>
+        <View style={[styles.eligibilityBadge, eligible ? styles.eligibilityBadgeReady : null]}>
+          <Text style={styles.eligibilityText}>{eligible ? 'Eligible' : 'Locked'}</Text>
+        </View>
+      </View>
+
+      <View style={styles.progressStack}>
+        <View style={styles.progressItem}>
+          <View style={styles.progressLabelRow}>
+            <Text style={styles.progressLabel}>Day {minDay}</Text>
+            <Text style={styles.progressValue}>{currentDay}/{minDay}</Text>
+          </View>
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: dayProgress }]} />
+          </View>
+        </View>
+        <View style={styles.progressItem}>
+          <View style={styles.progressLabelRow}>
+            <Text style={styles.progressLabel}>{formatMoney(minNetWorth)} net worth</Text>
+            <Text style={styles.progressValue}>{formatMoney(currentNetWorth)}</Text>
+          </View>
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: wealthProgress }]} />
+          </View>
+        </View>
+      </View>
+
+      <PrimaryButton
+        testID="summary-retire-button"
+        label={retiring ? 'Retiring...' : 'Retire Run'}
+        loading={retiring}
+        disabled={!eligible || retiring}
+        onPress={onRequestRetire}
+      />
+    </View>
+  );
+}
+
+function normalizeRecapError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error || '');
+  const trimmed = raw.trim();
+  if (!trimmed) return 'Recap is unavailable right now.';
+  const firstColon = trimmed.indexOf(':');
+  if (trimmed.startsWith('/player/') && firstColon > -1) {
+    return trimmed.slice(firstColon + 1).trim() || 'Recap is unavailable right now.';
+  }
+  return trimmed;
+}
+
+function AnnualRecapEntry({
+  currentDay,
+  recap,
+  loading,
+  loadingMode,
+  error,
+  onViewYear,
+  onViewDebug,
+  onViewTimeline,
+}: {
+  currentDay: number;
+  recap: AnnualRecapResponse | null;
+  loading: boolean;
+  loadingMode: 'year' | 'debug' | null;
+  error: string | null;
+  onViewYear: () => void;
+  onViewDebug: () => void;
+  onViewTimeline: () => void;
+}) {
+  const showYearButton = currentDay >= 365;
+  const showDebugButton = currentDay >= 30 && currentDay < 365;
+  if (!showYearButton && !showDebugButton && !recap && !error) return null;
+
+  const isDebugRecap = Boolean(recap && Number(recap.days_survived) < 365);
+
+  return (
+    <View style={styles.annualRecapPanel}>
+      <View style={styles.annualRecapHeader}>
+        <Text style={styles.panelTitle}>Year-End Recap</Text>
+        <Text style={styles.annualRecapSubhead}>
+          Day {Math.max(1, Math.round(Number(currentDay) || 1))}
+        </Text>
+      </View>
+
+      <View style={styles.annualRecapActions}>
+        {showYearButton ? (
+          <PrimaryButton
+            testID="summary-year-recap-button"
+            label={loading && loadingMode === 'year' ? 'Loading Recap...' : 'View Year Recap'}
+            loading={loading && loadingMode === 'year'}
+            disabled={loading}
+            onPress={onViewYear}
+            style={styles.annualRecapAction}
+          />
+        ) : null}
+        {showDebugButton ? (
+          <PrimaryButton
+            testID="summary-debug-recap-button"
+            label={loading && loadingMode === 'debug' ? 'Loading Preview...' : 'View 30-Day Recap Preview'}
+            loading={loading && loadingMode === 'debug'}
+            disabled={loading}
+            onPress={onViewDebug}
+            style={styles.annualRecapAction}
+          />
+        ) : null}
+      </View>
+
+      {error ? <Text style={styles.annualRecapError}>{error}</Text> : null}
+      {recap ? (
+        <AnnualRecapCard
+          recap={recap}
+          preview={isDebugRecap}
+          onViewFullStory={onViewTimeline}
+        />
+      ) : null}
+    </View>
+  );
+}
+
 export default function SummaryScreen() {
   useScreenTimer('summary');
   const loop = useGameplayLoop();
   const onboarding = useOnboarding();
   const summary = loop.endOfDaySummary;
   const missingAfterSettlement = !summary && loop.dailySession.sessionStatus === 'ended';
+  const refreshRef = useRef(loop.refresh);
+  const [retireConfirmVisible, setRetireConfirmVisible] = useState(false);
+  const [retiring, setRetiring] = useState(false);
+  const [annualRecap, setAnnualRecap] = useState<AnnualRecapResponse | null>(null);
+  const [annualRecapLoading, setAnnualRecapLoading] = useState(false);
+  const [annualRecapMode, setAnnualRecapMode] = useState<'year' | 'debug' | null>(null);
+  const [annualRecapError, setAnnualRecapError] = useState<string | null>(null);
+
+  const currentDay = useMemo(() => {
+    const candidates = [
+      summary?.day_number,
+      loop.runStatus?.retirement_requirement?.current_day,
+      loop.authoritativeState?.day_number,
+      loop.dashboard?.work_state?.current_game_day,
+      loop.actionHub?.work_state?.current_game_day,
+      loop.dailyProgression.currentGameDay,
+    ]
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    return Math.max(1, ...candidates.map((value) => Math.round(value)));
+  }, [
+    loop.actionHub?.work_state?.current_game_day,
+    loop.authoritativeState?.day_number,
+    loop.dailyProgression.currentGameDay,
+    loop.dashboard?.work_state?.current_game_day,
+    loop.runStatus?.retirement_requirement?.current_day,
+    summary?.day_number,
+  ]);
+
+  useEffect(() => {
+    refreshRef.current = loop.refresh;
+  }, [loop.refresh]);
+
+  useEffect(() => {
+    setAnnualRecap(null);
+    setAnnualRecapError(null);
+    setAnnualRecapLoading(false);
+    setAnnualRecapMode(null);
+  }, [loop.playerId]);
+
+  useEffect(() => {
+    void refreshRef.current({ silent: true, includeEndOfDaySummary: true });
+  }, [loop.playerId]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (retireConfirmVisible) {
+        setRetireConfirmVisible(false);
+        return true;
+      }
       if (summary || missingAfterSettlement) return true;
       return false;
     });
     return () => {
       subscription.remove();
     };
-  }, [missingAfterSettlement, summary]);
+  }, [missingAfterSettlement, retireConfirmVisible, summary]);
+
+  const handleConfirmRetire = async () => {
+    setRetiring(true);
+    try {
+      const result = await loop.retireRun();
+      setRetireConfirmVisible(false);
+      if (result.eligible) {
+        router.replace(`/gameplay/loop/${loop.playerId}/end`);
+      }
+    } finally {
+      setRetiring(false);
+    }
+  };
+
+  const handleLoadAnnualRecap = async (debug: boolean) => {
+    const mode = debug ? 'debug' : 'year';
+    setAnnualRecapMode(mode);
+    setAnnualRecapLoading(true);
+    setAnnualRecapError(null);
+    try {
+      const payload = await getPlayerAnnualRecap(loop.playerId, { year: 1, debug });
+      setAnnualRecap(payload);
+    } catch (error) {
+      const message = normalizeRecapError(error);
+      setAnnualRecap(null);
+      setAnnualRecapError(message);
+      loop.setFeedback({ tone: 'error', message });
+    } finally {
+      setAnnualRecapLoading(false);
+      setAnnualRecapMode(null);
+    }
+  };
 
   return (
-    <GameplayLoopScaffold
-      title="End Of Day"
-      subtitle="Today's closeout and tomorrow setup"
-      activeNavKey="summary"
-    >
-      <SummaryMomentView
-        summary={summary}
-        transactions={loop.dailyActivity?.transactions || []}
-        missingAfterSettlement={missingAfterSettlement}
-        endingDay={loop.endingDay}
-        canAdvanceDay={loop.dailyProgression.canAdvanceDay}
-        onRunSettlement={() => {
-          void loop.endCurrentDay();
-        }}
-        onContinueToTomorrow={() => {
-          void (async () => {
-            await loop.startNextDay();
-            onboarding.navigateTo('life');
-          })();
-        }}
-      />
-    </GameplayLoopScaffold>
+    <>
+      <GameplayLoopScaffold
+        title="End Of Day"
+        subtitle="Today's closeout and tomorrow setup"
+        activeNavKey="summary"
+      >
+        <SummaryMomentView
+          summary={summary}
+          transactions={loop.dailyActivity?.transactions || []}
+          missingAfterSettlement={missingAfterSettlement}
+          endingDay={loop.endingDay}
+          canAdvanceDay={loop.dailyProgression.canAdvanceDay}
+          retirementCard={(
+            <RetirementEligibilityCard
+              runStatus={loop.runStatus}
+              retiring={retiring}
+              onRequestRetire={() => setRetireConfirmVisible(true)}
+            />
+          )}
+          annualRecapEntry={(
+            <AnnualRecapEntry
+              currentDay={currentDay}
+              recap={annualRecap}
+              loading={annualRecapLoading}
+              loadingMode={annualRecapMode}
+              error={annualRecapError}
+              onViewYear={() => {
+                void handleLoadAnnualRecap(false);
+              }}
+              onViewDebug={() => {
+                void handleLoadAnnualRecap(true);
+              }}
+              onViewTimeline={() => {
+                router.push(`/gameplay/loop/${loop.playerId}/timeline`);
+              }}
+            />
+          )}
+          onRunSettlement={() => {
+            void loop.endCurrentDay();
+          }}
+          onContinueToTomorrow={() => {
+            void (async () => {
+              await loop.startNextDay();
+              onboarding.navigateTo('life');
+            })();
+          }}
+        />
+      </GameplayLoopScaffold>
+
+      <Modal
+        visible={retireConfirmVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRetireConfirmVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Retire Run?</Text>
+            <Text style={styles.modalText}>Retiring ends this run permanently. Continue?</Text>
+            <View style={styles.modalActions}>
+              <Pressable
+                testID="summary-retire-cancel-button"
+                style={styles.modalSecondaryButton}
+                disabled={retiring}
+                onPress={() => setRetireConfirmVisible(false)}
+              >
+                <Text style={styles.modalSecondaryText}>Cancel</Text>
+              </Pressable>
+              <PrimaryButton
+                testID="summary-retire-confirm-button"
+                label={retiring ? 'Retiring...' : 'Retire Run'}
+                loading={retiring}
+                tone="danger"
+                onPress={handleConfirmRetire}
+                style={styles.modalPrimaryButton}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
@@ -363,5 +680,172 @@ const styles = StyleSheet.create({
     color: theme.ui.text.onDark,
     ...theme.typography.bodySm,
     fontWeight: '700',
+  },
+  unlockText: {
+    color: theme.ui.info,
+    ...theme.typography.bodySm,
+    fontWeight: '800',
+  },
+  retirementPanel: {
+    borderWidth: 1,
+    borderColor: theme.ui.border,
+    borderRadius: theme.ui.radius.navTile,
+    backgroundColor: theme.ui.bg.cardRaised,
+    padding: theme.spacing.md,
+    gap: theme.spacing.md,
+  },
+  retirementEligible: {
+    borderColor: theme.ui.positive,
+  },
+  retirementHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: theme.spacing.md,
+  },
+  retirementTitleBlock: {
+    flex: 1,
+    gap: theme.spacing.xs,
+  },
+  retirementSubhead: {
+    color: theme.ui.text.onDarkMuted,
+    ...theme.typography.bodySm,
+    fontWeight: '700',
+  },
+  eligibilityBadge: {
+    borderWidth: 1,
+    borderColor: theme.ui.border,
+    borderRadius: 999,
+    paddingHorizontal: theme.spacing.sm,
+    paddingVertical: 4,
+    backgroundColor: theme.ui.bg.card,
+  },
+  eligibilityBadgeReady: {
+    borderColor: theme.ui.positive,
+  },
+  eligibilityText: {
+    color: theme.ui.text.onDark,
+    ...theme.typography.caption,
+    fontWeight: '900',
+    textTransform: 'uppercase',
+  },
+  progressStack: {
+    gap: theme.spacing.sm,
+  },
+  progressItem: {
+    gap: theme.spacing.xs,
+  },
+  progressLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: theme.spacing.sm,
+  },
+  progressLabel: {
+    color: theme.ui.text.onDark,
+    ...theme.typography.caption,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  progressValue: {
+    color: theme.ui.text.onDarkMuted,
+    ...theme.typography.caption,
+    fontWeight: '800',
+  },
+  progressTrack: {
+    height: 7,
+    borderRadius: 999,
+    overflow: 'hidden',
+    backgroundColor: theme.ui.bg.card,
+    borderWidth: 1,
+    borderColor: theme.ui.border,
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: theme.ui.positive,
+  },
+  annualRecapPanel: {
+    borderWidth: 1,
+    borderColor: theme.ui.border,
+    borderRadius: theme.ui.radius.navTile,
+    backgroundColor: theme.ui.bg.cardRaised,
+    padding: theme.spacing.md,
+    gap: theme.spacing.md,
+  },
+  annualRecapHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: theme.spacing.md,
+  },
+  annualRecapSubhead: {
+    color: theme.ui.text.onDarkMuted,
+    ...theme.typography.caption,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+  },
+  annualRecapActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: theme.spacing.sm,
+  },
+  annualRecapAction: {
+    flexGrow: 1,
+    minWidth: 180,
+  },
+  annualRecapError: {
+    color: theme.ui.danger,
+    ...theme.typography.bodySm,
+    fontWeight: '800',
+  },
+  modalBackdrop: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: theme.spacing.lg,
+    backgroundColor: alpha(theme.ui.bg.app, 0.78),
+  },
+  modalCard: {
+    borderWidth: 1,
+    borderColor: theme.ui.border,
+    borderRadius: theme.ui.radius.card,
+    backgroundColor: theme.ui.bg.card,
+    padding: theme.spacing.lg,
+    gap: theme.spacing.md,
+    ...theme.shadow.lg,
+  },
+  modalTitle: {
+    color: theme.ui.text.onDark,
+    ...theme.typography.headingSm,
+    fontWeight: '900',
+  },
+  modalText: {
+    color: theme.ui.text.onDarkMuted,
+    ...theme.typography.bodySm,
+    fontWeight: '700',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: theme.spacing.sm,
+  },
+  modalSecondaryButton: {
+    flex: 1,
+    minHeight: 52,
+    borderWidth: 1,
+    borderColor: theme.ui.border,
+    borderRadius: theme.ui.radius.navTile,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: theme.ui.bg.cardRaised,
+    paddingHorizontal: theme.spacing.md,
+  },
+  modalSecondaryText: {
+    color: theme.ui.text.onDark,
+    ...theme.typography.label,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  modalPrimaryButton: {
+    flex: 1,
+    minHeight: 52,
   },
 });

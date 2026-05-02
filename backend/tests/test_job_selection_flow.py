@@ -244,6 +244,15 @@ class JobSelectionFlowTests(unittest.TestCase):
         dashboard_state = bundle["dashboard"]["authoritative_state"]
         action_hub_state = bundle["action_hub"]["authoritative_state"]
 
+        self.assertIn("game_time", bundle)
+        self.assertIn("game_time", bundle["dashboard"])
+        self.assertIn("run_status", bundle)
+        self.assertIn("run_status", bundle["dashboard"])
+        self.assertEqual(bundle["run_status"]["run_status"], "active")
+        self.assertTrue(bundle["run_status"]["can_continue"])
+        self.assertEqual(bundle["game_time"]["timezone"], "America/Chicago")
+        self.assertIn("next_settlement_at", bundle["game_time"])
+        self.assertIn("next_morning_brief_at", bundle["game_time"])
         self.assertEqual(top_level["player_id"], str(self.player.id))
         self.assertEqual(dashboard_state["player_id"], str(self.player.id))
         self.assertEqual(action_hub_state["player_id"], str(self.player.id))

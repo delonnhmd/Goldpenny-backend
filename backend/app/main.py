@@ -12,7 +12,7 @@ from sqlalchemy import text
 # Load environment variables from the project root `.env` file at app import/startup time.
 load_dotenv()
 
-from app.api import admin_realworld, auth, baskets, briefs, business, career, commitment, consumer_borrowing, contract_timing, day, daily, deals, debt, debt_behavior, economy, economy_presentation, events, finance, financial_survival, forecasting, gameplay, guided_sandbox, health, housing, internal, jobs, macro, market, marketplace, notifications, onboarding, personal_shocks, player, population_pressure, portfolio, progression, reputation_trust, side_income, soft_launch, stocks, strategic_planning, strategy, supply_chain, wealth_progression, world_memory
+from app.api import admin_realworld, auth, baskets, briefs, business, career, commitment, consumer_borrowing, contract_timing, day, daily, deals, debt, debt_behavior, economy, economy_presentation, events, finance, financial_survival, forecasting, game_time, gameplay, guided_sandbox, health, housing, internal, jobs, macro, market, marketplace, notifications, onboarding, personal_shocks, player, population_pressure, portfolio, progression, reputation_trust, side_income, soft_launch, stocks, strategic_planning, strategy, supply_chain, wealth_progression, world_memory
 from app.core.security import load_jwt_secret
 from app.db.database import Base, engine, SessionLocal, log_database_schema_diagnostics
 from app import models  # noqa: F401
@@ -122,6 +122,12 @@ def _run_schema_migrations() -> None:
         "ALTER TABLE players ADD COLUMN IF NOT EXISTS main_shift_last_xp_gained INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE players ADD COLUMN IF NOT EXISTS main_shift_last_stress_delta INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE players ADD COLUMN IF NOT EXISTS main_shift_last_health_delta INTEGER NOT NULL DEFAULT 0",
+        # Phase 3-C Step 3: run lifecycle metadata for bankruptcy/retirement endings.
+        "ALTER TABLE players ADD COLUMN IF NOT EXISTS run_status VARCHAR(20) NOT NULL DEFAULT 'active'",
+        "ALTER TABLE players ADD COLUMN IF NOT EXISTS run_ended_at TIMESTAMPTZ",
+        "ALTER TABLE players ADD COLUMN IF NOT EXISTS run_end_day INTEGER",
+        "ALTER TABLE players ADD COLUMN IF NOT EXISTS run_end_reason VARCHAR(80)",
+        "ALTER TABLE players ADD COLUMN IF NOT EXISTS run_end_summary_json TEXT",
         # day_status and day_started_at extend the existing game_states table.
         "ALTER TABLE game_states ADD COLUMN day_status VARCHAR(20) NOT NULL DEFAULT 'open'",
         "ALTER TABLE game_states ADD COLUMN day_started_at TIMESTAMPTZ",
@@ -467,6 +473,7 @@ def create_app() -> FastAPI:
     application.include_router(forecasting.router, prefix="/forecast", tags=["Forecasting"])
     application.include_router(supply_chain.router, prefix="/supply-chain", tags=["Supply Chain"])
     application.include_router(soft_launch.router, prefix="/soft-launch", tags=["Soft Launch"])
+    application.include_router(game_time.router, tags=["Game Time"])
     application.include_router(gameplay.router, prefix="/gameplay", tags=["Gameplay"])
     application.include_router(guided_sandbox.router, prefix="/guided-sandbox", tags=["Guided Sandbox"])
     application.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])

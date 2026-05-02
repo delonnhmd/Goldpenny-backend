@@ -2,9 +2,12 @@ import { BusinessPlanResponse } from '@/types/strategicPlanning';
 import { PlayerBusinessesResponse } from '@/types/business';
 import { EconomyPresentationSummaryResponse } from '@/types/economyPresentation';
 import {
+  AbsenceSummary,
   DailyActionHubResponse,
   EndOfDaySummaryResponse,
+  GameTimePayload,
   GameplayAuthoritativeState,
+  PlayerRunStatusResponse,
   PlayerDashboardResponse,
 } from '@/types/gameplay';
 import { StockMarketSnapshotResponse } from '@/types/stocks';
@@ -19,6 +22,8 @@ export interface GameplayLoopDataSource {
 export interface GameplayLoopBundle {
   playerId: string;
   dashboard: PlayerDashboardResponse;
+  gameTime: GameTimePayload | null;
+  runStatus: PlayerRunStatusResponse | null;
   actionHub: DailyActionHubResponse;
   authoritativeState: GameplayAuthoritativeState | null;
   economySummary: EconomyPresentationSummaryResponse;
@@ -26,6 +31,7 @@ export interface GameplayLoopBundle {
   businesses: PlayerBusinessesResponse;
   businessPlan: BusinessPlanResponse;
   endOfDaySummary: EndOfDaySummaryResponse | null;
+  absenceSummary: AbsenceSummary | null;
   source: GameplayLoopDataSource;
   fetchedAt: string;
 }

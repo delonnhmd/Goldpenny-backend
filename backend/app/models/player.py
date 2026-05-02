@@ -87,6 +87,21 @@ class Player(Base):
     # Latest settled day for which the player acknowledged the auto summary.
     last_seen_settlement_day = Column(Integer, nullable=True)
 
+    # Phase 3-C Step 3: run lifecycle. Ended runs remain readable but cannot
+    # continue normal daily settlement.
+    run_status = Column(String(20), nullable=False, default="active")
+    run_ended_at = Column(DateTime(timezone=True), nullable=True)
+    run_end_day = Column(Integer, nullable=True)
+    run_end_reason = Column(String(80), nullable=True)
+    run_end_summary_json = Column(Text, nullable=True)
+
+    # Phase 3-C Player Absence Handling: anchors used by absence_handler_service.
+    # last_seen_at is updated whenever the gameplay loop bundle is fetched.
+    # last_settlement_at mirrors the wall-clock instant of the last successful
+    # daily settlement (last_settled_day already tracks the in-game day number).
+    last_seen_at = Column(DateTime(timezone=True), nullable=True)
+    last_settlement_at = Column(DateTime(timezone=True), nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(
         DateTime(timezone=True),

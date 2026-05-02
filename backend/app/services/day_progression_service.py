@@ -19,6 +19,7 @@ from app.services.basket_pricing_service import BasketPricingError, compute_dail
 from app.services.daily_brief_service import DailyBriefError, build_daily_economy_brief
 from app.services.daily_settlement_service import (
     DailySettlementError,
+    SettlementValidationError,
     get_next_player_day,
     settle_player_day,
 )
@@ -28,6 +29,8 @@ from app.services.market_daily_update_service import (
     MarketUpdateError,
     ensure_stock_market_day,
 )
+from app.services.game_time_service import get_game_time_payload
+from app.services.run_end_service import RUN_STATUS_ACTIVE, get_player_run_status
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +80,11 @@ def run_player_next_day(db: Session, player_id: str | UUID) -> dict:
     """Advance market day if needed, then settle one player day."""
     # Core logic freeze: keep this orchestration order stable unless a verified bug requires change.
     # Frontend summaries, settlement integrity, and progression tests assume this exact pipeline.
+    run_status_payload = get_player_run_status(db, player_id)
+    if run_status_payload.get("run_status") != RUN_STATUS_ACTIVE:
+        raise SettlementValidationError(
+            f"Player run has ended with status '{run_status_payload.get('run_status')}'. Start a new run to continue settlement."
+        )
     target_settlement_day = get_next_player_day(db, player_id)
     market_day = _latest_stock_day(db)
     try:
@@ -369,11 +377,21 @@ def run_player_next_day(db: Session, player_id: str | UUID) -> dict:
     overtime_hours = float(settlement.get("overtime_hours", 0.0))
     if overtime_hours > 0:
         headline += f" Overtime {overtime_hours:.1f}h."
+    game_time_payload = get_game_time_payload()
+    next_morning_brief_at = str(game_time_payload["next_morning_brief_at"])
 
     return {
         "player_id": settlement["player_id"],
         "market_day": int(market_day),
         "settled_day": int(settlement["settled_day"]),
+        "game_time": game_time_payload,
+        "run_status": settlement.get("run_status") or get_player_run_status(db, player_id),
+        "tomorrow_preview_time": next_morning_brief_at,
+        "next_morning_brief_at": next_morning_brief_at,
+        "black_swan_pending": bool(settlement.get("black_swan_pending", False)),
+        "black_swan_event_id": settlement.get("black_swan_event_id"),
+        "end_state": settlement.get("end_state"),
+        "risk_warnings": settlement.get("risk_warnings", []),
         "income_xgp": float(settlement["income_xgp"]),
         "expenses_xgp": float(settlement["expenses_xgp"]),
         "total_income": float(settlement.get("total_income", settlement["income_xgp"])),

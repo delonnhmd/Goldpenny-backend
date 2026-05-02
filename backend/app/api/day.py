@@ -80,6 +80,14 @@ class MarketAdvanceResponse(BaseModel):
 class PlayerSettleResponse(BaseModel):
     player_id: str
     settled_day: int
+    game_time: dict | None = None
+    run_status: dict | None = None
+    tomorrow_preview_time: str | None = None
+    next_morning_brief_at: str | None = None
+    black_swan_pending: bool = False
+    black_swan_event_id: str | None = None
+    end_state: dict | None = None
+    risk_warnings: list[str] = Field(default_factory=list)
     income_xgp: float
     expenses_xgp: float
     total_income: float = 0.0
@@ -228,6 +236,14 @@ class RunNextDayResponse(BaseModel):
     player_id: str
     market_day: int
     settled_day: int
+    game_time: dict | None = None
+    run_status: dict | None = None
+    tomorrow_preview_time: str | None = None
+    next_morning_brief_at: str | None = None
+    black_swan_pending: bool = False
+    black_swan_event_id: str | None = None
+    end_state: dict | None = None
+    risk_warnings: list[str] = Field(default_factory=list)
     income_xgp: float
     expenses_xgp: float
     total_income: float = 0.0
@@ -404,6 +420,14 @@ class RunNextDayResponse(BaseModel):
 class SettlementSummaryResponse(BaseModel):
     player_id: str
     day_number: int
+    game_time: dict | None = None
+    run_status: dict | None = None
+    tomorrow_preview_time: str | None = None
+    next_morning_brief_at: str | None = None
+    black_swan_pending: bool = False
+    black_swan_event_id: str | None = None
+    end_state: dict | None = None
+    risk_warnings: list[str] = Field(default_factory=list)
     income_xgp: float
     expenses_xgp: float
     total_income: float = 0.0

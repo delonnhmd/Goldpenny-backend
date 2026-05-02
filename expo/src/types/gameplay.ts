@@ -19,6 +19,125 @@ export type TrendDirection = 'up' | 'down' | 'flat' | 'mixed';
 
 export type ConfidenceLevel = 'high' | 'medium' | 'low' | 'unknown';
 
+export interface GameTimePayload {
+  server_now: string;
+  timezone: string;
+  next_settlement_at: string;
+  next_morning_brief_at: string;
+  seconds_until_settlement: number;
+  seconds_until_morning_brief: number;
+}
+
+export type PlayerRunStatus = 'active' | 'bankrupt' | 'retired';
+
+export interface RunEndSummary {
+  cash: number;
+  debt: number;
+  credit_score: number;
+  net_worth: number;
+  days_survived: number;
+  businesses_owned: number;
+  land_owned: number;
+  best_streak: number;
+  actual_cash?: number | null;
+  retirement_title?: string | null;
+  [key: string]: unknown;
+}
+
+export interface AnnualRecapResponse {
+  year: number;
+  days_survived: number;
+  starting_net_worth: number;
+  ending_net_worth: number;
+  net_worth_change: number;
+  cash: number;
+  debt: number;
+  credit_score: number;
+  businesses_owned: number;
+  land_owned: number;
+  best_streak: number;
+  total_income: number;
+  total_expenses: number;
+  biggest_win: string;
+  biggest_loss: string;
+  top_event: string;
+  title: string;
+}
+
+export interface BlackSwanPayload {
+  affected_systems: string[];
+  what_changed_today: string[];
+  what_this_means: string[];
+  source?: Record<string, unknown>;
+  push_payload?: {
+    type: 'black_swan';
+    screen: 'BlackSwan';
+    event_id: string;
+  };
+  [key: string]: unknown;
+}
+
+export interface BlackSwanEventResponse {
+  id: string;
+  player_id: string;
+  day: number;
+  event_type: string;
+  title: string;
+  description: string;
+  severity_score: number;
+  source_event_id?: string | null;
+  payload: BlackSwanPayload;
+  push_payload: {
+    type: 'black_swan';
+    screen: 'BlackSwan';
+    event_id: string;
+  };
+  seen_at?: string | null;
+  created_at?: string | null;
+}
+
+export type TimelineEventType = 'economy' | 'business' | 'life' | 'finance';
+export type TimelineImpactLevel = 'low' | 'medium' | 'high';
+
+export interface TimelineEventItem {
+  day: number;
+  type: TimelineEventType;
+  title: string;
+  description: string;
+  impact_level: TimelineImpactLevel;
+  icon: string;
+}
+
+export interface RetirementRequirement {
+  min_day: number;
+  min_net_worth: number;
+  current_day: number;
+  current_net_worth: number;
+}
+
+export interface PlayerRunStatusResponse {
+  run_status: PlayerRunStatus;
+  run_ended_at?: string | null;
+  run_end_day?: number | null;
+  run_end_reason?: string | null;
+  run_end_summary: RunEndSummary | null;
+  can_continue: boolean;
+  can_retire: boolean;
+  retirement_requirement: RetirementRequirement;
+}
+
+export interface RetireRunResponse extends PlayerRunStatusResponse {
+  eligible: boolean;
+  reason?: string | null;
+}
+
+export interface EndStatePayload {
+  triggered: boolean;
+  run_status: PlayerRunStatus;
+  reason?: string | null;
+  summary: RunEndSummary | null;
+}
+
 export interface DashboardStatSnapshot {
   cash_xgp: number;
   debt_xgp: number;
@@ -618,6 +737,8 @@ export interface ActionRecommendation {
 
 export interface PlayerDashboardResponse {
   player_id: string;
+  game_time?: GameTimePayload | null;
+  run_status?: PlayerRunStatusResponse | null;
   as_of_date: string;
   headline: string;
   daily_brief: string;
@@ -661,11 +782,25 @@ export interface DailyActionHubResponse {
   debug_meta?: Record<string, unknown>;
 }
 
+export interface AbsenceSummary {
+  missed_days: number;
+  truncated_days?: number;
+  health_change: number;
+  stress_change: number;
+  cash_change: number;
+  inventory_spoilage: number;
+  warnings: string[];
+  skipped_reason?: string | null;
+}
+
 export interface GameplayLoopCoreResponse {
   player_id: string;
+  game_time?: GameTimePayload | null;
+  run_status?: PlayerRunStatusResponse | null;
   dashboard: PlayerDashboardResponse;
   action_hub: DailyActionHubResponse;
   authoritative_state?: GameplayAuthoritativeState | null;
+  absence_summary?: AbsenceSummary | null;
   debug_meta?: Record<string, unknown>;
 }
 
@@ -701,6 +836,14 @@ export interface EndOfDaySummaryResponse {
   player_id: string;
   day_number?: number;
   as_of_date: string;
+  game_time?: GameTimePayload | null;
+  run_status?: PlayerRunStatusResponse | null;
+  end_state?: EndStatePayload | null;
+  risk_warnings?: string[];
+  black_swan_pending?: boolean;
+  black_swan_event_id?: string | null;
+  tomorrow_preview_time?: string | null;
+  next_morning_brief_at?: string | null;
   total_earned_xgp: number;
   total_spent_xgp: number;
   net_change_xgp: number;
@@ -818,6 +961,14 @@ export interface ActionExecutionResponse {
 export interface EndDayResponse {
   player_id: string;
   settled_day: number;
+  game_time?: GameTimePayload | null;
+  run_status?: PlayerRunStatusResponse | null;
+  end_state?: EndStatePayload | null;
+  risk_warnings?: string[];
+  black_swan_pending?: boolean;
+  black_swan_event_id?: string | null;
+  tomorrow_preview_time?: string | null;
+  next_morning_brief_at?: string | null;
   message: string;
   summary_headline?: string;
   summary?: string;

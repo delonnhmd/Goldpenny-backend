@@ -17,14 +17,19 @@ import {
   ActionExecutionResponse,
   ActionPreviewRequest,
   ActionPreviewResponse,
+  AnnualRecapResponse,
+  BlackSwanEventResponse,
+  BlackSwanPayload,
   ActionRecommendationState,
   ConfidenceLevel,
   CompletedShiftSnapshot,
   DailyActionHubResponse,
   DailyActionItem,
   EconomyRiskOverview,
+  EndStatePayload,
   EndDayResponse,
   EndOfDaySummaryResponse,
+  GameTimePayload,
   GameplayAuthoritativeState,
   GameplayActionKey,
   GameplayLoopCoreResponse,
@@ -33,7 +38,12 @@ import {
   PlayerDashboardResponse,
   PlayerNotificationItem,
   PlayerNotificationResponse,
+  PlayerRunStatus,
+  PlayerRunStatusResponse,
   RecoverySummarySnapshot,
+  RetireRunResponse,
+  RunEndSummary,
+  TimelineEventItem,
   TransactionHistoryItem,
   TransactionHistoryResponse,
   TrendDirection,
@@ -179,6 +189,215 @@ function toConfidence(value: unknown): ConfidenceLevel {
   if (normalized === 'medium' || normalized === 'moderate') return 'medium';
   if (normalized === 'low') return 'low';
   return 'unknown';
+}
+
+function normalizeGameTime(raw: unknown): GameTimePayload | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  return {
+    server_now: toString(obj.server_now, ''),
+    timezone: toString(obj.timezone, 'America/Chicago'),
+    next_settlement_at: toString(obj.next_settlement_at, ''),
+    next_morning_brief_at: toString(obj.next_morning_brief_at, ''),
+    seconds_until_settlement: Math.max(0, Math.floor(toNumber(obj.seconds_until_settlement, 0))),
+    seconds_until_morning_brief: Math.max(0, Math.floor(toNumber(obj.seconds_until_morning_brief, 0))),
+  };
+}
+
+function normalizeRunStatusValue(value: unknown): PlayerRunStatus {
+  const normalized = toString(value, 'active').trim().toLowerCase();
+  if (normalized === 'bankrupt' || normalized === 'retired') return normalized;
+  return 'active';
+}
+
+function normalizeRunEndSummary(raw: unknown): RunEndSummary | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  const hasMeaningfulValue = Object.keys(obj).length > 0;
+  if (!hasMeaningfulValue) return null;
+  return {
+    ...obj,
+    cash: normalizeMoneyValue(obj.cash, { allowNegative: true, fallback: 0 }),
+    debt: normalizeMoneyValue(obj.debt, { allowNegative: false, fallback: 0 }),
+    credit_score: normalizeCreditScore(obj.credit_score, 650),
+    net_worth: normalizeMoneyValue(obj.net_worth, { allowNegative: true, fallback: 0 }),
+    days_survived: Math.max(0, Math.round(toNumber(obj.days_survived, 0))),
+    businesses_owned: Math.max(0, Math.round(toNumber(obj.businesses_owned, 0))),
+    land_owned: Math.max(0, Math.round(toNumber(obj.land_owned, 0))),
+    best_streak: Math.max(0, Math.round(toNumber(obj.best_streak, 0))),
+    actual_cash: obj.actual_cash == null
+      ? null
+      : normalizeMoneyValue(obj.actual_cash, { allowNegative: true, fallback: 0 }),
+    retirement_title: obj.retirement_title == null ? null : toString(obj.retirement_title, ''),
+  };
+}
+
+function normalizeRetirementRequirement(raw: unknown): PlayerRunStatusResponse['retirement_requirement'] {
+  const obj = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  return {
+    min_day: Math.max(1, Math.round(toNumber(obj.min_day, 30))),
+    min_net_worth: normalizeMoneyValue(obj.min_net_worth, { allowNegative: false, fallback: 10000 }),
+    current_day: Math.max(1, Math.round(toNumber(obj.current_day, 1))),
+    current_net_worth: normalizeMoneyValue(obj.current_net_worth, { allowNegative: true, fallback: 0 }),
+  };
+}
+
+function normalizePlayerRunStatus(raw: unknown): PlayerRunStatusResponse | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  const status = normalizeRunStatusValue(obj.run_status);
+  return {
+    run_status: status,
+    run_ended_at: obj.run_ended_at == null ? null : toString(obj.run_ended_at, ''),
+    run_end_day: obj.run_end_day == null ? null : Math.max(0, Math.round(toNumber(obj.run_end_day, 0))),
+    run_end_reason: obj.run_end_reason == null ? null : toString(obj.run_end_reason, ''),
+    run_end_summary: normalizeRunEndSummary(obj.run_end_summary),
+    can_continue: obj.can_continue == null ? status === 'active' : Boolean(obj.can_continue),
+    can_retire: Boolean(obj.can_retire),
+    retirement_requirement: normalizeRetirementRequirement(obj.retirement_requirement),
+  };
+}
+
+function normalizeRetireRunResponse(raw: unknown): RetireRunResponse {
+  const obj = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const status = normalizePlayerRunStatus(obj) || {
+    run_status: 'active' as PlayerRunStatus,
+    run_ended_at: null,
+    run_end_day: null,
+    run_end_reason: null,
+    run_end_summary: null,
+    can_continue: true,
+    can_retire: false,
+    retirement_requirement: normalizeRetirementRequirement(null),
+  };
+  return {
+    ...status,
+    eligible: Boolean(obj.eligible),
+    reason: obj.reason == null ? null : toString(obj.reason, ''),
+  };
+}
+
+function normalizeAnnualRecap(raw: unknown): AnnualRecapResponse {
+  const obj = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  return {
+    year: Math.max(1, Math.round(toNumber(obj.year, 1))),
+    days_survived: Math.max(0, Math.round(toNumber(obj.days_survived, 0))),
+    starting_net_worth: normalizeMoneyValue(obj.starting_net_worth, { allowNegative: true, fallback: 0 }),
+    ending_net_worth: normalizeMoneyValue(obj.ending_net_worth, { allowNegative: true, fallback: 0 }),
+    net_worth_change: normalizeMoneyValue(obj.net_worth_change, { allowNegative: true, fallback: 0 }),
+    cash: normalizeMoneyValue(obj.cash, { allowNegative: true, fallback: 0 }),
+    debt: normalizeMoneyValue(obj.debt, { allowNegative: false, fallback: 0 }),
+    credit_score: normalizeCreditScore(obj.credit_score, 650),
+    businesses_owned: Math.max(0, Math.round(toNumber(obj.businesses_owned, 0))),
+    land_owned: Math.max(0, Math.round(toNumber(obj.land_owned, 0))),
+    best_streak: Math.max(0, Math.round(toNumber(obj.best_streak, 0))),
+    total_income: normalizeMoneyValue(obj.total_income, { allowNegative: false, fallback: 0 }),
+    total_expenses: normalizeMoneyValue(obj.total_expenses, { allowNegative: false, fallback: 0 }),
+    biggest_win: toString(obj.biggest_win, 'No major win recorded yet.'),
+    biggest_loss: toString(obj.biggest_loss, 'No major loss recorded yet.'),
+    top_event: toString(obj.top_event, 'No major event recorded yet.'),
+    title: toString(obj.title, 'Year Recap'),
+  };
+}
+
+function normalizeTimelineType(value: unknown): TimelineEventItem['type'] {
+  const normalized = toString(value, 'life').trim().toLowerCase();
+  if (
+    normalized === 'economy'
+    || normalized === 'business'
+    || normalized === 'finance'
+    || normalized === 'life'
+  ) {
+    return normalized;
+  }
+  return 'life';
+}
+
+function normalizeTimelineImpact(value: unknown): TimelineEventItem['impact_level'] {
+  const normalized = toString(value, 'low').trim().toLowerCase();
+  if (normalized === 'high' || normalized === 'medium' || normalized === 'low') {
+    return normalized;
+  }
+  return 'low';
+}
+
+function normalizeTimelineEvent(raw: unknown, index: number): TimelineEventItem {
+  const obj = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  return {
+    day: Math.max(1, Math.round(toNumber(obj.day, index + 1))),
+    type: normalizeTimelineType(obj.type),
+    title: toString(obj.title, 'Run event'),
+    description: toString(obj.description, 'A meaningful run event was recorded.'),
+    impact_level: normalizeTimelineImpact(obj.impact_level),
+    icon: toString(obj.icon, 'circle'),
+  };
+}
+
+function toStringList(value: unknown, fallback: string[] = []): string[] {
+  if (!Array.isArray(value)) return fallback;
+  return value.map((entry) => toString(entry, '').trim()).filter(Boolean);
+}
+
+function normalizeBlackSwanPayload(raw: unknown, eventId: string): BlackSwanPayload {
+  const obj = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+  const pushRaw = obj.push_payload && typeof obj.push_payload === 'object'
+    ? (obj.push_payload as Record<string, unknown>)
+    : {};
+  return {
+    ...obj,
+    affected_systems: toStringList(obj.affected_systems, ['Economy']),
+    what_changed_today: toStringList(obj.what_changed_today, ['A major event moved through the city today.']),
+    what_this_means: toStringList(obj.what_this_means, [
+      'Review the daily brief before committing time.',
+      'Watch cash, debt, and inventory pressure.',
+    ]).slice(0, 3),
+    source: obj.source && typeof obj.source === 'object' ? (obj.source as Record<string, unknown>) : {},
+    push_payload: {
+      type: 'black_swan',
+      screen: 'BlackSwan',
+      event_id: toString(pushRaw.event_id, eventId),
+    },
+  };
+}
+
+function normalizeBlackSwanEvent(raw: unknown): BlackSwanEventResponse | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  const id = toString(obj.id, '');
+  if (!id) return null;
+  const payload = normalizeBlackSwanPayload(obj.payload, id);
+  const pushRaw = obj.push_payload && typeof obj.push_payload === 'object'
+    ? (obj.push_payload as Record<string, unknown>)
+    : {};
+  return {
+    id,
+    player_id: toString(obj.player_id, ''),
+    day: normalizeCurrentDay(obj.day, 1),
+    event_type: toString(obj.event_type, 'economy_event'),
+    title: toString(obj.title, 'Major Event'),
+    description: toString(obj.description, 'A major event moved through the city today.'),
+    severity_score: toNumber(obj.severity_score, 0),
+    source_event_id: obj.source_event_id == null ? null : toString(obj.source_event_id, ''),
+    payload,
+    push_payload: {
+      type: 'black_swan',
+      screen: 'BlackSwan',
+      event_id: toString(pushRaw.event_id, payload.push_payload?.event_id || id),
+    },
+    seen_at: obj.seen_at == null ? null : toString(obj.seen_at, ''),
+    created_at: obj.created_at == null ? null : toString(obj.created_at, ''),
+  };
+}
+
+function normalizeEndState(raw: unknown): EndStatePayload | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  return {
+    triggered: Boolean(obj.triggered),
+    run_status: normalizeRunStatusValue(obj.run_status),
+    reason: obj.reason == null ? null : toString(obj.reason, ''),
+    summary: normalizeRunEndSummary(obj.summary),
+  };
 }
 
 function normalizeActionStatus(value: unknown): ActionRecommendationState {
@@ -383,6 +602,8 @@ function normalizeDashboard(raw: Record<string, unknown>, playerId: string): Pla
 
   return {
     player_id: toString(raw.player_id, playerId),
+    game_time: normalizeGameTime(raw.game_time),
+    run_status: normalizePlayerRunStatus(raw.run_status),
     as_of_date: toString(raw.as_of_date || raw.date || raw.settled_day, ''),
     headline: toString(raw.headline || raw.summary_headline, 'Today at Gold Penny'),
     daily_brief: toString(raw.daily_brief || raw.summary, 'No daily brief available yet.'),
@@ -1131,6 +1352,16 @@ function normalizeEndOfDaySummary(raw: Record<string, unknown>, playerId: string
     player_id: toString(raw.player_id, playerId),
     day_number: dayNumber > 0 ? dayNumber : undefined,
     as_of_date: toString(raw.as_of_date || raw.settled_day || raw.day_number, ''),
+    game_time: normalizeGameTime(raw.game_time),
+    run_status: normalizePlayerRunStatus(raw.run_status),
+    end_state: normalizeEndState(raw.end_state),
+    risk_warnings: Array.isArray(raw.risk_warnings)
+      ? raw.risk_warnings.map((entry) => toString(entry)).filter(Boolean)
+      : [],
+    black_swan_pending: Boolean(raw.black_swan_pending),
+    black_swan_event_id: raw.black_swan_event_id == null ? null : toString(raw.black_swan_event_id, ''),
+    tomorrow_preview_time: raw.tomorrow_preview_time == null ? null : toString(raw.tomorrow_preview_time, ''),
+    next_morning_brief_at: raw.next_morning_brief_at == null ? null : toString(raw.next_morning_brief_at, ''),
     total_earned_xgp: earned,
     total_spent_xgp: spent,
     net_change_xgp: net,
@@ -1297,6 +1528,16 @@ function normalizeEndDay(raw: Record<string, unknown>, playerId: string): EndDay
   return {
     player_id: toString(raw.player_id, playerId),
     settled_day: normalizeCurrentDay(raw.settled_day ?? raw.day_number ?? raw.day, 1),
+    game_time: normalizeGameTime(raw.game_time),
+    run_status: normalizePlayerRunStatus(raw.run_status),
+    end_state: normalizeEndState(raw.end_state),
+    risk_warnings: Array.isArray(raw.risk_warnings)
+      ? raw.risk_warnings.map((entry) => toString(entry)).filter(Boolean)
+      : [],
+    black_swan_pending: Boolean(raw.black_swan_pending),
+    black_swan_event_id: raw.black_swan_event_id == null ? null : toString(raw.black_swan_event_id, ''),
+    tomorrow_preview_time: raw.tomorrow_preview_time == null ? null : toString(raw.tomorrow_preview_time, ''),
+    next_morning_brief_at: raw.next_morning_brief_at == null ? null : toString(raw.next_morning_brief_at, ''),
     message: toString(raw.message, 'Day settled.'),
     summary_headline: toString(raw.summary_headline || raw.headline, ''),
     summary: toString(raw.summary, ''),
@@ -1402,11 +1643,115 @@ export async function getPlayerLoopBundle(
   );
   return {
     player_id: toString(raw.player_id, playerId),
+    game_time: normalizeGameTime(raw.game_time ?? dashboard.game_time),
+    run_status: normalizePlayerRunStatus(raw.run_status ?? dashboard.run_status),
     dashboard,
     action_hub: actionHub,
     authoritative_state: authoritativeState,
+    absence_summary: normalizeAbsenceSummary(raw.absence_summary),
     debug_meta: (raw.debug_meta as Record<string, unknown>) || {},
   };
+}
+
+function normalizeAbsenceSummary(raw: unknown): import('@/types/gameplay').AbsenceSummary | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
+  const missed = Number(obj.missed_days ?? 0);
+  if (!Number.isFinite(missed)) return null;
+  const warningsRaw = Array.isArray(obj.warnings) ? obj.warnings : [];
+  const warnings = warningsRaw.filter((w): w is string => typeof w === 'string');
+  const skippedReason = obj.skipped_reason;
+  return {
+    missed_days: Math.max(0, Math.trunc(missed)),
+    truncated_days: Math.max(0, Math.trunc(Number(obj.truncated_days ?? 0) || 0)),
+    health_change: Math.trunc(Number(obj.health_change ?? 0) || 0),
+    stress_change: Math.trunc(Number(obj.stress_change ?? 0) || 0),
+    cash_change: Number(obj.cash_change ?? 0) || 0,
+    inventory_spoilage: Number(obj.inventory_spoilage ?? 0) || 0,
+    warnings,
+    skipped_reason: typeof skippedReason === 'string' ? skippedReason : null,
+  };
+}
+
+export async function getGameTime(): Promise<GameTimePayload> {
+  const raw = await fetchApi<Record<string, unknown>>('/game-time');
+  return normalizeGameTime(raw) || {
+    server_now: '',
+    timezone: 'America/Chicago',
+    next_settlement_at: '',
+    next_morning_brief_at: '',
+    seconds_until_settlement: 0,
+    seconds_until_morning_brief: 0,
+  };
+}
+
+export async function getPlayerRunStatus(playerId: string): Promise<PlayerRunStatusResponse> {
+  const raw = await fetchApi<Record<string, unknown>>(`/player/${playerId}/run-status`);
+  return normalizePlayerRunStatus(raw) || {
+    run_status: 'active',
+    run_ended_at: null,
+    run_end_day: null,
+    run_end_reason: null,
+    run_end_summary: null,
+    can_continue: true,
+    can_retire: false,
+    retirement_requirement: normalizeRetirementRequirement(null),
+  };
+}
+
+export async function retirePlayerRun(playerId: string): Promise<RetireRunResponse> {
+  const raw = await fetchApi<Record<string, unknown>>(`/player/${playerId}/retire`, {
+    method: 'POST',
+    body: '{}',
+  });
+  return normalizeRetireRunResponse(raw);
+}
+
+export async function getPlayerAnnualRecap(
+  playerId: string,
+  options?: { year?: number; debug?: boolean },
+): Promise<AnnualRecapResponse> {
+  const year = Math.max(1, Math.round(Number(options?.year) || 1));
+  const params = new URLSearchParams({ year: String(year) });
+  if (options?.debug) {
+    params.set('debug', 'true');
+  }
+  const path = `/player/${playerId}/annual-recap?${params.toString()}`;
+  logCanonicalRoute('annual_recap', playerId, path);
+  const raw = await fetchApi<Record<string, unknown>>(path);
+  return normalizeAnnualRecap(raw);
+}
+
+export async function getPlayerTimeline(
+  playerId: string,
+  options?: { limit?: number },
+): Promise<TimelineEventItem[]> {
+  const limit = Math.max(1, Math.min(200, Math.round(Number(options?.limit) || 100)));
+  const path = `/player/${playerId}/timeline?limit=${limit}`;
+  logCanonicalRoute('timeline', playerId, path);
+  const raw = await fetchApi<unknown>(path);
+  if (!Array.isArray(raw)) return [];
+  return raw.map((entry, index) => normalizeTimelineEvent(entry, index));
+}
+
+export async function getPendingBlackSwanEvent(playerId: string): Promise<BlackSwanEventResponse | null> {
+  const path = `/player/${playerId}/black-swan/pending`;
+  logCanonicalRoute('black_swan_pending', playerId, path);
+  const raw = await fetchApi<unknown>(path);
+  return normalizeBlackSwanEvent(raw);
+}
+
+export async function markBlackSwanSeen(
+  playerId: string,
+  eventId: string,
+): Promise<BlackSwanEventResponse | null> {
+  const path = `/player/${playerId}/black-swan/${eventId}/seen`;
+  logCanonicalRoute('black_swan_seen', playerId, path);
+  const raw = await fetchApi<unknown>(path, {
+    method: 'POST',
+    body: '{}',
+  });
+  return normalizeBlackSwanEvent(raw);
 }
 
 export async function getPlayerWorkState(playerId: string): Promise<WorkStateSnapshot | null> {

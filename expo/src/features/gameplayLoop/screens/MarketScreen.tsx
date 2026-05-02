@@ -1,4 +1,5 @@
 import { useFocusEffect } from '@react-navigation/native';
+import { router } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
@@ -7,6 +8,7 @@ import PriceTrendsCard from '@/components/gameplay/PriceTrendsCard';
 import StockMarketCard from '@/components/gameplay/StockMarketCard';
 import { OnboardingHighlight } from '@/components/onboarding';
 import EmptyStateView from '@/components/ui/EmptyStateView';
+import PrimaryButton from '@/components/ui/PrimaryButton';
 import { alpha, theme } from '@/design/theme';
 import { useOnboarding } from '@/features/onboarding';
 import { useScreenTimer } from '@/hooks/useScreenTimer';
@@ -260,6 +262,12 @@ export default function MarketScreen() {
         {portfolioError ? (
           <Text style={styles.warningText}>Portfolio endpoint fallback active: {portfolioError}</Text>
         ) : null}
+
+        <PrimaryButton
+          testID="portfolio-timeline-button"
+          label="View Timeline"
+          onPress={() => router.push(`/gameplay/loop/${loop.playerId}/timeline`)}
+        />
       </GameplaySummaryCard>
 
       <GameplaySummaryCard eyebrow="Owned Land" title="Slots & Land">

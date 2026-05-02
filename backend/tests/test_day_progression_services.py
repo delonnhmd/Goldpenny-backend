@@ -35,7 +35,7 @@ from app.models.player_transaction_log import PlayerTransactionLog
 from app.models.stock_daily_price import StockDailyPrice
 from app.models.user import User
 from app.services.basket_pricing_service import BasketPricingError
-from app.services.daily_settlement_service import settle_player_day
+from app.services.daily_settlement_service import get_latest_settlement_summary, settle_player_day
 from app.services.day_progression_service import run_player_next_day
 from app.services.market_daily_update_service import (
     ensure_stock_market_day,
@@ -79,7 +79,7 @@ class DayProgressionServiceTests(unittest.TestCase):
         self.db.flush()
 
         player = Player(
-            user_id=user.id,
+            user_id=str(user.id),
             display_name="Day Test Player",
             cash=Decimal("1000.00"),
             debt_xgp=Decimal("100.00"),
@@ -245,7 +245,14 @@ class DayProgressionServiceTests(unittest.TestCase):
         self.assertIn("credit_score_change", result)
         self.assertIn("ending_credit_score", result)
         self.assertIn("delinquency_flag", result)
+        self.assertIn("game_time", result)
+        self.assertIn("tomorrow_preview_time", result)
+        self.assertIn("next_morning_brief_at", result)
+        self.assertEqual(result["game_time"]["timezone"], "America/Chicago")
         summary = result.get("summary_json", {})
+        self.assertIn("game_time", summary)
+        self.assertIn("tomorrow_preview_time", summary)
+        self.assertIn("next_morning_brief_at", summary)
         self.assertIn("opening_debt_xgp", summary)
         self.assertIn("payment_due_xgp", summary)
         self.assertIn("payment_made_xgp", summary)
@@ -275,6 +282,11 @@ class DayProgressionServiceTests(unittest.TestCase):
         self.assertIsNotNone(pds)
         self.assertTrue(bool(pds.did_settlement))
         self.assertIsNotNone(log)
+        latest = get_latest_settlement_summary(self.db, str(self.player.id))
+        self.assertIn("game_time", latest)
+        self.assertIn("tomorrow_preview_time", latest)
+        self.assertIn("next_morning_brief_at", latest)
+        self.assertEqual(latest["game_time"]["timezone"], "America/Chicago")
 
     def test_player_cash_changes_after_settlement(self) -> None:
         cash_before = float(self.player.cash_xgp)
@@ -444,6 +456,10 @@ class DayProgressionServiceTests(unittest.TestCase):
         self.assertIn("basket_pricing_summary", result)
         self.assertIn("job_market_summary", result)
         self.assertIn("daily_economy_brief", result)
+        self.assertIn("game_time", result)
+        self.assertIn("tomorrow_preview_time", result)
+        self.assertIn("next_morning_brief_at", result)
+        self.assertEqual(result["game_time"]["timezone"], "America/Chicago")
         self.assertIn("net_worth_xgp", result)
         self.assertIn("total_assets_xgp", result)
         self.assertIn("stock_market_value_xgp", result)

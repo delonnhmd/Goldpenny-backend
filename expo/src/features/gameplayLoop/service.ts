@@ -1,7 +1,9 @@
 import { getPlayerBusinesses } from '@/lib/api/business';
 import {
   getEndOfDaySummary,
+  getGameTime,
   getPlayerLoopBundle,
+  getPlayerRunStatus,
   previewPlayerAction,
 } from '@/lib/api/gameplay';
 import { getEconomyPresentationSummary } from '@/lib/api/economyPresentation';
@@ -129,7 +131,7 @@ export async function loadGameplayLoopBundle(
     currentHealth: options?.currentHealth,
   };
 
-  const [coreLoop, economySummary, stockMarket, businesses, businessPlan, endOfDaySummary] =
+  const [coreLoop, gameTime, runStatus, economySummary, stockMarket, businesses, businessPlan, endOfDaySummary] =
     await Promise.all([
       resolveSection(
         playerId,
@@ -143,6 +145,16 @@ export async function loadGameplayLoopBundle(
           debug_meta: {},
         }),
         { allowMockFallback: false },
+      ),
+      resolveOptionalSection(
+        playerId,
+        'game_time',
+        () => getGameTime(),
+      ),
+      resolveOptionalSection(
+        playerId,
+        'run_status',
+        () => getPlayerRunStatus(playerId),
       ),
       resolveSection(
         playerId,
@@ -183,7 +195,7 @@ export async function loadGameplayLoopBundle(
 
   const sourceSections = [coreLoop, economySummary, stockMarket, businesses, businessPlan];
   const mockCount = sourceSections.filter((entry) => entry.usedMock).length;
-  const notes = [...sourceSections, endOfDaySummary]
+  const notes = [...sourceSections, gameTime, runStatus, endOfDaySummary]
     .map((entry) => entry.note)
     .filter((entry): entry is string => Boolean(entry));
 
@@ -200,6 +212,8 @@ export async function loadGameplayLoopBundle(
   return {
     playerId,
     dashboard: coreLoop.value.dashboard,
+    gameTime: gameTime.value || coreLoop.value.game_time || coreLoop.value.dashboard.game_time || null,
+    runStatus: runStatus.value || coreLoop.value.run_status || coreLoop.value.dashboard.run_status || null,
     actionHub: coreLoop.value.action_hub,
     authoritativeState: coreLoop.value.authoritative_state || null,
     economySummary: economySummary.value,
@@ -207,6 +221,7 @@ export async function loadGameplayLoopBundle(
     businesses: businesses.value,
     businessPlan: businessPlan.value,
     endOfDaySummary: endOfDaySummary.value,
+    absenceSummary: coreLoop.value.absence_summary || null,
     source: {
       mode: deriveSourceMode(mockCount, sourceSections.length),
       notes,

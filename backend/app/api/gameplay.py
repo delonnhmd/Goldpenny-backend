@@ -48,6 +48,7 @@ from app.services.daily_settlement_service import (
     SettlementValidationError,
     get_latest_settlement_summary,
 )
+from app.services.absence_handler_service import run_absence_check
 from app.services.dinner_survival_service import apply_manual_meal_action
 from app.services.city_map_service import (
     build_city_map_snapshot,
@@ -110,6 +111,8 @@ from app.services.gameplay_transaction_service import (
     record_gameplay_transaction,
 )
 from app.services.player_transaction_log_service import record_player_transaction
+from app.services.game_time_service import get_game_time_payload
+from app.services.run_end_service import get_player_run_status
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -1481,6 +1484,8 @@ def _build_dashboard_payload(
     economy_payload: dict[str, Any] | None,
     job_payload: dict[str, Any] | None,
     degraded_sections: list[str],
+    game_time: dict[str, Any] | None = None,
+    run_status: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     is_first_session = _is_new_player_first_session(player)
     authoritative_job = normalize_main_job_key(
@@ -1629,6 +1634,8 @@ def _build_dashboard_payload(
     )
     return {
         "player_id": str(player.id),
+        "game_time": game_time or get_game_time_payload(),
+        "run_status": run_status or get_player_run_status(db, player.id),
         "as_of_date": str(
             (brief_payload or {}).get("day")
             or (work_state or {}).get("current_houston_date")
@@ -1757,6 +1764,7 @@ def get_gameplay_dashboard(
         job_payload = None
         degraded_sections.append("job_summary")
 
+    run_status = get_player_run_status(db, player.id)
     dashboard = _build_dashboard_payload(
         db,
         player=player,
@@ -1766,6 +1774,8 @@ def get_gameplay_dashboard(
         economy_payload=economy_payload,
         job_payload=job_payload,
         degraded_sections=degraded_sections,
+        game_time=get_game_time_payload(),
+        run_status=run_status,
     )
     _log_salary_ui_payload_rendered(
         route="/gameplay/player/{player_id}/dashboard",
@@ -1840,6 +1850,7 @@ def get_gameplay_loop_bundle(
     )
 
     degraded_sections: list[str] = []
+    run_status = get_player_run_status(db, player.id)
 
     effective_stress = _normalize_optional_stat_override(current_stress)
     effective_health = _normalize_optional_stat_override(current_health)
@@ -1892,6 +1903,7 @@ def get_gameplay_loop_bundle(
         degraded_sections.append("job_summary")
 
     try:
+        game_time = get_game_time_payload()
         dashboard = _build_dashboard_payload(
             db,
             player=player,
@@ -1901,12 +1913,17 @@ def get_gameplay_loop_bundle(
             economy_payload=economy_payload,
             job_payload=job_payload,
             degraded_sections=degraded_sections,
+            game_time=game_time,
+            run_status=run_status,
         )
     except Exception as exc:
         _log_loop_section_failure(section="loop_core.dashboard", player_id=resolved_player_id, exc=exc)
         degraded_sections.append("dashboard")
+        game_time = get_game_time_payload()
         dashboard = {
             "player_id": resolved_player_id,
+            "game_time": game_time,
+            "run_status": run_status,
             "dashboard_unavailable": True,
             "message": "Day 1 dashboard temporarily unavailable. Starter actions still available.",
             "debug_meta": {
@@ -1945,12 +1962,40 @@ def get_gameplay_loop_bundle(
             "authoritative_state": authoritative_state,
         }
 
+    absence_summary: dict[str, Any]
+    try:
+        absence_summary = run_absence_check(db, player)
+        if absence_summary.get("missed_days"):
+            db.commit()
+            db.refresh(player)
+        else:
+            db.commit()
+    except Exception as exc:
+        _log_loop_section_failure(section="absence_summary", player_id=resolved_player_id, exc=exc)
+        degraded_sections.append("absence_summary")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        absence_summary = {
+            "missed_days": 0,
+            "health_change": 0,
+            "stress_change": 0,
+            "cash_change": 0.0,
+            "inventory_spoilage": 0.0,
+            "warnings": [],
+            "skipped_reason": "error",
+        }
+
     debug_meta = dict(dashboard.get("debug_meta") or {})
     return {
         "player_id": resolved_player_id,
+        "game_time": game_time,
+        "run_status": run_status,
         "dashboard": dashboard,
         "action_hub": action_hub,
         "authoritative_state": authoritative_state,
+        "absence_summary": absence_summary,
         "debug_meta": {
             **debug_meta,
             "degraded_sections": sorted({str(s) for s in degraded_sections if str(s).strip()}),
@@ -2091,6 +2136,7 @@ def get_gameplay_end_of_day_summary(player_id: str, db: Session = Depends(get_db
         player = _resolve_player(db, player_id)
         _sync_player_work_state(db, player)
         payload = get_latest_settlement_summary(db, str(player.id))
+        payload["run_status"] = get_player_run_status(db, player.id)
         latest_completed_day = int(payload.get("day_number") or 0)
         summary_seen_day = int(getattr(player, "last_seen_settlement_day", 0) or 0)
         summary_seen_for_day = summary_seen_day >= latest_completed_day and latest_completed_day > 0

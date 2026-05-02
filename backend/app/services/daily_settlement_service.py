@@ -48,6 +48,14 @@ from app.models.player_progression_state import PlayerProgressionState
 from app.services.player_daily_state_service import ensure_player_daily_state
 from app.services.player_transaction_log_service import record_player_transaction
 from app.services.shift_state_service import get_houston_now, sync_shift_day_rules_if_needed
+from app.services.game_time_service import get_game_time_payload
+from app.services.run_end_service import (
+    RUN_STATUS_ACTIVE,
+    evaluate_bankruptcy_for_player,
+    get_player_run_status,
+    normalize_run_status,
+)
+from app.services.black_swan_service import evaluate_black_swan_for_player
 
 MONEY_Q = Decimal("0.01")
 Q4 = Decimal("0.0001")
@@ -500,6 +508,11 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
     # write-once log behavior, and accounting field meanings unless fixing a proven defect.
     try:
         player = _resolve_player(db, player_id)
+        run_status = normalize_run_status(player)
+        if run_status != RUN_STATUS_ACTIVE:
+            raise SettlementValidationError(
+                f"Player run has ended with status '{run_status}'. Start a new run to continue settlement."
+            )
         settled_day = get_next_player_day(db, player.id)
         settlement_day_key = f"{player.id}:{settled_day}"
 
@@ -1051,7 +1064,8 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
             + financial_survival_late_fee_non_debt_xgp
             + financial_survival_additional_required_paid_xgp
         )
-        ending_cash = _money(max(Decimal("0.00"), cash_before + shock_income_bonus - settlement_expenses))
+        bankruptcy_cash_basis = _money(cash_before + shock_income_bonus - settlement_expenses)
+        ending_cash = _money(max(Decimal("0.00"), bankruptcy_cash_basis))
         net_cash_delta = _money(ending_cash - cash_before)
         total_earned = _money(
             job_income
@@ -1124,6 +1138,13 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
         player.health = health_after
         player.hours_available = HOURS_RESET
         player.last_settled_day = settled_day
+        # Phase 3-C absence anchor: pure metadata, no economy effect.
+        try:
+            from app.services.absence_handler_service import stamp_settlement_now
+
+            stamp_settlement_now(player)
+        except Exception:  # pragma: no cover - defensive
+            pass
         player.main_job_hours_today = 0
         player.side_job_hours_today = 0
         player.total_hours_worked_today = 0
@@ -1390,6 +1411,16 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
         except Exception:
             pass  # non-fatal: columns may not exist on un-migrated schemas
 
+        bankruptcy_result = evaluate_bankruptcy_for_player(
+            db,
+            player,
+            day_number=settled_day,
+            cash_basis=bankruptcy_cash_basis,
+            commit=False,
+        )
+        end_state_payload = bankruptcy_result.get("end_state")
+        risk_warnings = list(bankruptcy_result.get("risk_warnings") or [])
+
         income_breakdown_payload = {
             key: float(_money(_d(value)))
             for key, value in (settlement_breakdown.get("income_breakdown") or {}).items()
@@ -1408,8 +1439,16 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
             "weekly_or_monthly_charge_flags": cadence_audit_payload,
         }
 
+        game_time_payload = get_game_time_payload()
+        next_morning_brief_at = str(game_time_payload["next_morning_brief_at"])
+
         summary_payload = {
             "headline": f"Day {settled_day} settled.",
+            "game_time": game_time_payload,
+            "tomorrow_preview_time": next_morning_brief_at,
+            "next_morning_brief_at": next_morning_brief_at,
+            "end_state": end_state_payload,
+            "risk_warnings": risk_warnings,
             "guided_day_number": guided_day_number,
             "guided_learning_title": guided_learning_title,
             "guided_earned_summary": guided_earned_summary,
@@ -1600,6 +1639,24 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
             "retention_summary": retention_summary,
         }
 
+        black_swan_event = None
+        try:
+            black_swan_event = evaluate_black_swan_for_player(
+                db,
+                player,
+                day_number=settled_day,
+                commit=False,
+            )
+        except Exception:
+            logger.exception(
+                "daily_settlement.black_swan_promotion_failed",
+                extra={"player_id": str(player.id), "day_number": int(settled_day)},
+            )
+        black_swan_pending = bool(black_swan_event is not None and black_swan_event.seen_at is None)
+        black_swan_event_id = str(black_swan_event.id) if black_swan_event is not None else None
+        summary_payload["black_swan_pending"] = black_swan_pending
+        summary_payload["black_swan_event_id"] = black_swan_event_id
+
         log = DailySettlementLog(
             player_id=player.id,
             day_number=settled_day,
@@ -1701,6 +1758,14 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
         return {
             "player_id": str(player.id),
             "settled_day": int(settled_day),
+            "game_time": game_time_payload,
+            "run_status": get_player_run_status(db, player.id),
+            "tomorrow_preview_time": next_morning_brief_at,
+            "next_morning_brief_at": next_morning_brief_at,
+            "black_swan_pending": black_swan_pending,
+            "black_swan_event_id": black_swan_event_id,
+            "end_state": end_state_payload,
+            "risk_warnings": risk_warnings,
             "income_xgp": float(total_income),
             "expenses_xgp": float(total_expense),
             "total_income": float(total_income),
@@ -1858,6 +1923,9 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
         }
         db.rollback()
         raise
+    except DailySettlementError:
+        db.rollback()
+        raise
     except Exception as exc:
         db.rollback()
         raise DailySettlementError("Unexpected settlement error.") from exc
@@ -1879,9 +1947,20 @@ def get_latest_settlement_summary(db: Session, player_id: str | UUID) -> dict:
     except Exception:
         summary_payload = {}
 
+    game_time_payload = get_game_time_payload()
+    next_morning_brief_at = str(game_time_payload["next_morning_brief_at"])
+
     return {
         "player_id": str(player.id),
         "day_number": int(log.day_number),
+        "game_time": game_time_payload,
+        "run_status": get_player_run_status(db, player.id),
+        "tomorrow_preview_time": next_morning_brief_at,
+        "next_morning_brief_at": next_morning_brief_at,
+        "black_swan_pending": bool(summary_payload.get("black_swan_pending", False)),
+        "black_swan_event_id": summary_payload.get("black_swan_event_id"),
+        "end_state": summary_payload.get("end_state"),
+        "risk_warnings": summary_payload.get("risk_warnings", []),
         "income_xgp": float(log.income_xgp),
         "expenses_xgp": float(log.expenses_xgp),
         "total_income": float(summary_payload.get("total_income_xgp", _money(_d(log.income_xgp)))),
