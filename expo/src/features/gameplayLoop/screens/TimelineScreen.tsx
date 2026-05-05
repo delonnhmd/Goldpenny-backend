@@ -150,7 +150,7 @@ export default function TimelineScreen() {
     <GameplayLoopScaffold
       title="Timeline"
       subtitle="The key moments from this run"
-      activeNavKey="market"
+      activeNavKey="portfolio"
     >
       <GameplaySummaryCard
         eyebrow="Run Story"
@@ -158,7 +158,7 @@ export default function TimelineScreen() {
         right={(
           <PrimaryButton
             label="Portfolio"
-            onPress={() => router.push(`/gameplay/loop/${loop.playerId}/market`)}
+            onPress={() => router.push(`/gameplay/loop/${loop.playerId}/portfolio`)}
             style={styles.headerButton}
           />
         )}

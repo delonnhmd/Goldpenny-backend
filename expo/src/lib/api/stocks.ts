@@ -2,7 +2,6 @@ import { fetchApiWithFallback } from '@/lib/apiClient';
 import { normalizeCurrentDay, normalizeFiniteNumber, normalizeMoneyValue } from '@/lib/economySafety';
 import {
   StockMarketSnapshotResponse,
-  StockTradeExecutionResponse,
   StockVolatilityLabel,
 } from '@/types/stocks';
 
@@ -129,43 +128,3 @@ export async function getStockMarketSnapshot(playerId: string): Promise<StockMar
   };
 }
 
-export async function buyStock(playerId: string, stockId: string, shares = 1): Promise<StockTradeExecutionResponse> {
-  const raw = await fetchApiWithFallback<Record<string, unknown>>(['/stocks/buy'], {
-    method: 'POST',
-    body: JSON.stringify({ player_id: playerId, ticker: stockId, shares }),
-  });
-
-  return {
-    player_id: playerId,
-    stock_id: toStringValue(raw.ticker, stockId).toUpperCase(),
-    trade_type: 'buy',
-    shares: normalizeFiniteNumber(raw.shares_bought ?? shares, { fallback: shares, min: 1, round: 'floor' }),
-    execution_price: normalizeMoneyValue(raw.execution_price, { allowNegative: false, fallback: 0 }),
-    gross_amount: normalizeMoneyValue(raw.gross_amount, { allowNegative: false, fallback: 0 }),
-    fee_amount: normalizeMoneyValue(raw.fee_amount, { allowNegative: false, fallback: 0 }),
-    net_amount: normalizeMoneyValue(raw.total_cost, { allowNegative: false, fallback: 0 }),
-    remaining_cash_xgp: normalizeMoneyValue(raw.remaining_cash, { allowNegative: true, fallback: 0 }),
-    remaining_holding_shares: normalizeFiniteNumber(raw.updated_holding_shares, { fallback: 0, min: 0, round: 'floor' }),
-  };
-}
-
-export async function sellStock(playerId: string, stockId: string, shares = 1): Promise<StockTradeExecutionResponse> {
-  const raw = await fetchApiWithFallback<Record<string, unknown>>(['/stocks/sell'], {
-    method: 'POST',
-    body: JSON.stringify({ player_id: playerId, ticker: stockId, shares }),
-  });
-
-  return {
-    player_id: playerId,
-    stock_id: toStringValue(raw.ticker, stockId).toUpperCase(),
-    trade_type: 'sell',
-    shares: normalizeFiniteNumber(raw.shares_sold ?? shares, { fallback: shares, min: 1, round: 'floor' }),
-    execution_price: normalizeMoneyValue(raw.execution_price, { allowNegative: false, fallback: 0 }),
-    gross_amount: normalizeMoneyValue(raw.gross_amount, { allowNegative: false, fallback: 0 }),
-    fee_amount: normalizeMoneyValue(raw.fee_amount, { allowNegative: false, fallback: 0 }),
-    net_amount: normalizeMoneyValue(raw.net_amount, { allowNegative: false, fallback: 0 }),
-    remaining_cash_xgp: normalizeMoneyValue(raw.remaining_cash, { allowNegative: true, fallback: 0 }),
-    remaining_holding_shares: normalizeFiniteNumber(raw.remaining_holding_shares, { fallback: 0, min: 0, round: 'floor' }),
-    realized_pnl_xgp: normalizeMoneyValue(raw.realized_pnl, { allowNegative: true, fallback: 0 }),
-  };
-}

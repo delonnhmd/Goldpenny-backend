@@ -108,8 +108,8 @@ function MetricTile({ label, value, tone = 'neutral' }: {
   );
 }
 
-export default function MarketScreen() {
-  useScreenTimer('market');
+export default function PortfolioScreen() {
+  useScreenTimer('portfolio');
   const loop = useGameplayLoop();
   const onboarding = useOnboarding();
   const simplified = onboarding.isSimplifiedMode;
@@ -226,8 +226,8 @@ export default function MarketScreen() {
   return (
     <GameplayLoopScaffold
       title="Portfolio"
-      subtitle="Cash, stocks, land, business value, and inventory in one place"
-      activeNavKey="market"
+      subtitle="Cash, land, business value, inventory, and net worth in one place"
+      activeNavKey="portfolio"
     >
       <GameplaySummaryCard eyebrow="Net Worth" title="Asset Summary">
         <View style={styles.netWorthCard}>
@@ -382,22 +382,10 @@ export default function MarketScreen() {
       )}
 
       {!simplified && loop.stockMarket ? (
-        <GameplaySummaryCard eyebrow="Stocks" title="Stock Market">
+        <GameplaySummaryCard eyebrow="Holdings" title="Stock Exposure">
           <StockMarketCard
             market={loop.stockMarket}
             portfolioMetrics={portfolioMetrics}
-            sessionActive={loop.dailySession.sessionStatus === 'active'}
-            pendingTradeStockId={loop.pendingTrade?.stockId || null}
-            pendingTradeSide={loop.pendingTrade?.side || null}
-            onBuyOne={(stockId) => {
-              void loop.buyOneStock(stockId);
-            }}
-            onSellOne={(stockId) => {
-              void loop.sellOneStock(stockId);
-            }}
-            onSellAll={(stockId, quantity) => {
-              void loop.sellAllStock(stockId, quantity);
-            }}
           />
         </GameplaySummaryCard>
       ) : null}

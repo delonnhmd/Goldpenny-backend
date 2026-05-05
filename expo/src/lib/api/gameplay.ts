@@ -1825,7 +1825,6 @@ export async function getWeeklySummary(playerId: string): Promise<WeeklyPlayerSu
   const raw = await fetchApiWithFallback<Record<string, unknown>>([
     `/gameplay/player/${playerId}/weekly-summary`,
     `/player/${playerId}/weekly-summary`,
-    `/strategy/player/${playerId}/weekly`,
   ]);
   return normalizeWeekly(raw, playerId);
 }
@@ -2144,22 +2143,9 @@ export async function executeAction(
 
 export async function endDay(playerId: string): Promise<EndDayResponse> {
   const canonicalEndDayPath = `/gameplay/player/${playerId}/end-day`;
-  try {
-    logCanonicalRoute('end_day', playerId, canonicalEndDayPath);
-    const unified = await fetchApi<Record<string, unknown>>(canonicalEndDayPath, { method: 'POST', body: '{}' });
-    return normalizeEndDay(unified, playerId);
-  } catch {
-    // Fallback to legacy day progression endpoints below.
-  }
-
-  const raw = await fetchApiWithFallback<Record<string, unknown>>(
-    [
-      `/day/run/${playerId}`,
-      `/day/settle/${playerId}`,
-    ],
-    { method: 'POST', body: '{}' },
-  );
-  return normalizeEndDay(raw, playerId);
+  logCanonicalRoute('end_day', playerId, canonicalEndDayPath);
+  const unified = await fetchApi<Record<string, unknown>>(canonicalEndDayPath, { method: 'POST', body: '{}' });
+  return normalizeEndDay(unified, playerId);
 }
 
 export async function getPlayerNotifications(playerId: string): Promise<PlayerNotificationResponse> {

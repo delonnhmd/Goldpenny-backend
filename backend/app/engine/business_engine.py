@@ -883,8 +883,7 @@ class BusinessEngine:
         # MVP: block the final food_truck tier
         if next_tier == "restaurant_future":
             raise ValueError(
-                "The 'restaurant_future' upgrade is not yet available. "
-                "Stay tuned for a future update."
+                "The 'restaurant_future' upgrade is outside V1 scope."
             )
 
         upgrade_cost = self._money(defn.upgrade_costs.get(current_tier, 0.0))

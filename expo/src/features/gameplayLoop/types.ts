@@ -1,4 +1,3 @@
-import { BusinessPlanResponse } from '@/types/strategicPlanning';
 import { PlayerBusinessesResponse } from '@/types/business';
 import { EconomyPresentationSummaryResponse } from '@/types/economyPresentation';
 import {
@@ -29,7 +28,6 @@ export interface GameplayLoopBundle {
   economySummary: EconomyPresentationSummaryResponse;
   stockMarket: StockMarketSnapshotResponse;
   businesses: PlayerBusinessesResponse;
-  businessPlan: BusinessPlanResponse;
   endOfDaySummary: EndOfDaySummaryResponse | null;
   absenceSummary: AbsenceSummary | null;
   source: GameplayLoopDataSource;

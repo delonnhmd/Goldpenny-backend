@@ -154,7 +154,6 @@ export function useDailyProgression(
         ...(current || createEmptyPersistedGameplayState(playerId, nextDay)),
         currentDay: nextDay,
         session: null,
-        randomEvent: null,
       }));
     } catch (error) {
       recordWarning('dailyProgression', 'Failed to persist current day.', {

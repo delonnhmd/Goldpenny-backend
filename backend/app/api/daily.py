@@ -402,14 +402,6 @@ def admin_advance_day(db: Session = Depends(get_db)):
     """
     state = advance_global_day(db)
 
-    # Step 13: expire any open co-op deals whose window has passed.
-    from app.engine.coop_deal_engine import expire_open_deals as _expire_deals
-    _expire_deals(db, int(state.current_day))
-
-    # Step 14: run daily NPC firm P&L, balance snapshots, distress, job openings, market share.
-    from app.engine.firm_engine import run_daily_firm_cycle as _firm_cycle
-    _firm_cycle(db, int(state.current_day))
-
     started_at = None
     if state.day_started_at is not None:
         started_at = state.day_started_at.isoformat()

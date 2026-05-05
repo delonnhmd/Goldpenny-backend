@@ -262,6 +262,8 @@ def run_absence_check(
     if update_last_seen:
         player.last_seen_at = server_now_chi
 
+    db.flush()
+
     logger.info(
         "absence.run_absence_check applied",
         extra={

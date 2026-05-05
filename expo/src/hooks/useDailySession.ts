@@ -207,14 +207,6 @@ export function useDailySession(playerId: string) {
       ...(current || createEmptyPersistedGameplayState(playerId, currentDay)),
       currentDay,
       session: snapshot,
-      randomEvent:
-        current?.randomEvent && current.randomEvent.sourceDay === currentDay
-          ? current.randomEvent
-          : current?.randomEvent && current.randomEvent.isResolved && current.randomEvent.sourceDay === currentDay
-            ? current.randomEvent
-            : current?.randomEvent && current.randomEvent.sourceDay < currentDay
-              ? null
-              : current?.randomEvent || null,
     })).catch((error) => {
       recordWarning('dailySession', 'Failed to persist daily session snapshot.', {
         action: 'persist_snapshot',

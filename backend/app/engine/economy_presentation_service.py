@@ -811,7 +811,6 @@ def build_commute_pressure_summary(
         "Move or rent closer to core work zones to cut commute, accepting higher housing cost.",
     ]
 
-    future_locked_solutions = _future_locked_solution_titles()
     estimated_burden = (
         f"~{float(_q4(effective_hours)):.1f}h/day (includes ~{float(_q4(congestion_hours)):.1f}h "
         "population congestion load)"
@@ -827,7 +826,6 @@ def build_commute_pressure_summary(
         "time_impact_label": time_impact,
         "housing_tradeoff_summary": housing_tradeoff_summary,
         "suggested_current_responses": suggested_current_responses,
-        "future_locked_solutions": future_locked_solutions,
         "debug_meta": {
             "day": int(day),
             "baseline_commute_hours": float(_q4(baseline_hours)),
@@ -999,7 +997,6 @@ def build_economy_presentation_summary(
     margins = build_business_margin_summary(db=db, player_id=player.id, as_of_date=resolved_date)
     commute = build_commute_pressure_summary(db=db, player_id=player.id, as_of_date=resolved_date)
     explainer = build_player_economy_explainer(db=db, player_id=player.id, as_of_date=resolved_date)
-    teasers = build_future_opportunity_teasers(db=db, player_id=player.id, as_of_date=resolved_date)
     degraded_sections: list[str] = []
     try:
         daily_brief = build_daily_economy_brief(db=db, as_of_date=resolved_date, day=day)
@@ -1048,7 +1045,6 @@ def build_economy_presentation_summary(
         "business_margins": margins,
         "commute_pressure": commute,
         "explainer": explainer,
-        "future_teasers": teasers,
         "daily_brief": {
             **daily_brief,
             "as_of_date": resolved_date.isoformat(),

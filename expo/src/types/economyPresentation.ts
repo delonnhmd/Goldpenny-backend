@@ -66,7 +66,6 @@ export interface CommutePressureResponse {
   time_impact_label: string;
   housing_tradeoff_summary: string;
   suggested_current_responses: string[];
-  future_locked_solutions: string[];
   debug_meta?: Record<string, unknown>;
 }
 
@@ -80,22 +79,6 @@ export interface PlayerEconomyExplainerResponse {
   this_week_focus: string;
   suggested_defensive_move: string;
   suggested_growth_move: string;
-  debug_meta?: Record<string, unknown>;
-}
-
-export interface FutureOpportunityTeaser {
-  teaser_key: string;
-  title: string;
-  body: string;
-  unlock_status: 'locked' | string;
-  category: string;
-  debug_meta?: Record<string, unknown>;
-}
-
-export interface FutureOpportunityTeasersResponse {
-  player_id: string;
-  as_of_date: string;
-  teasers: FutureOpportunityTeaser[];
   debug_meta?: Record<string, unknown>;
 }
 
@@ -130,7 +113,6 @@ export interface EconomyPresentationSummaryResponse {
   business_margins: BusinessMarginsResponse;
   commute_pressure: CommutePressureResponse;
   explainer: PlayerEconomyExplainerResponse;
-  future_teasers: FutureOpportunityTeasersResponse;
   daily_brief: DailyEconomyBriefResponse;
   supply_chain_summary: SupplyChainSummaryResponse;
   supply_chain_story: SupplyChainStoryResponse;

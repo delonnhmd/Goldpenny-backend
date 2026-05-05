@@ -1,4 +1,3 @@
-export type StockTradeSide = 'buy' | 'sell';
 export type StockVolatilityLabel = 'steady' | 'active' | 'hot';
 
 export interface StockHoldingSummary {
@@ -38,16 +37,3 @@ export interface StockMarketSnapshotResponse {
   portfolio: StockPortfolioSummary;
 }
 
-export interface StockTradeExecutionResponse {
-  player_id: string;
-  stock_id: string;
-  trade_type: StockTradeSide;
-  shares: number;
-  execution_price: number;
-  gross_amount: number;
-  fee_amount: number;
-  net_amount: number;
-  remaining_cash_xgp: number;
-  remaining_holding_shares: number;
-  realized_pnl_xgp?: number;
-}

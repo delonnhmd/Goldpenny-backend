@@ -419,7 +419,7 @@ const STATIC_SPECIAL_TILES: TileSeed[] = [
     kind: 'expansion_node',
     label: 'East Expansion',
     shortLabel: 'EXP',
-    description: 'Future district unlock node for larger projects.',
+    description: 'Inactive city boundary.',
   },
   {
     x: 3,
@@ -427,7 +427,7 @@ const STATIC_SPECIAL_TILES: TileSeed[] = [
     kind: 'expansion_node',
     label: 'South Expansion',
     shortLabel: 'EXP',
-    description: 'Reserved waterfront expansion buffer for future neighborhood growth.',
+    description: 'Reserved waterfront boundary.',
   },
   {
     x: 56,
@@ -435,7 +435,7 @@ const STATIC_SPECIAL_TILES: TileSeed[] = [
     kind: 'expansion_node',
     label: 'Harbor Expansion',
     shortLabel: 'EXP',
-    description: 'Future harbor-side buildout anchor.',
+    description: 'Reserved harbor boundary.',
   },
 ];
 
@@ -450,12 +450,9 @@ const FIXED_NODE_ANCHORS: Record<string, { x: number; y: number }> = {
   rideshare_hotspot_downtown: { x: 48, y: 24 },
   business_spot: { x: 50, y: 32 },
   bank: { x: 38, y: 40 },
-  stock_center: { x: 52, y: 28 },
   certification_school: { x: 44, y: 30 },
   housing: { x: 5, y: 18 },
   clinic: { x: 16, y: 10 },
-  gas_station: { x: 10, y: 20 },
-  car_sale: { x: 35, y: 28 },
 };
 
 const FLEX_NODE_ANCHORS = [
@@ -531,15 +528,7 @@ function labelForNodeType(nodeType: string): {
     return {
       kind: 'service_building',
       shortLabel: 'BNK',
-      description: 'Deposits, withdrawals, and loan origination. Actions unlock in a later step.',
-      actionTags: [],
-    };
-  }
-  if (normalized === 'stock_center') {
-    return {
-      kind: 'service_building',
-      shortLabel: 'STK',
-      description: 'Stock market kiosk. Brokerage lane unlocks in a later step.',
+      description: 'Cash and credit landmark.',
       actionTags: [],
     };
   }
@@ -555,7 +544,7 @@ function labelForNodeType(nodeType: string): {
     return {
       kind: 'service_building',
       shortLabel: 'HSG',
-      description: 'Housing market entry point. Rent and purchase flows unlock in a later step.',
+      description: 'Housing landmark.',
       actionTags: [],
     };
   }
@@ -563,23 +552,7 @@ function labelForNodeType(nodeType: string): {
     return {
       kind: 'service_building',
       shortLabel: 'CLN',
-      description: 'Health services and recovery treatment. Actions unlock in a later step.',
-      actionTags: [],
-    };
-  }
-  if (normalized === 'gas_station') {
-    return {
-      kind: 'service_building',
-      shortLabel: 'GAS',
-      description: 'Vehicle fueling and quick-spend anchor. Actions unlock in a later step.',
-      actionTags: [],
-    };
-  }
-  if (normalized === 'car_sale') {
-    return {
-      kind: 'service_building',
-      shortLabel: 'CAR',
-      description: 'Vehicle dealership. Purchase and upgrade lanes unlock in a later step.',
+      description: 'Health and recovery landmark.',
       actionTags: [],
     };
   }

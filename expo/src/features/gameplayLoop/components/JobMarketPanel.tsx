@@ -300,7 +300,7 @@ export default function JobMarketPanel({
                 />
               ) : (
                 <SecondaryButton
-                  label={job.is_future_unlock ? 'Future Unlock' : 'Locked'}
+                  label="Locked"
                   disabled
                   style={styles.button}
                 />

@@ -53,5 +53,5 @@ test('LadderRow routes each pill to its expected gameplay screen', () => {
     renderer.root.findByProps({ testID: 'ladder-net-worth' }).props.onPress();
   });
 
-  assert.deepEqual(routes, ['work', 'business', 'market']);
+  assert.deepEqual(routes, ['work', 'business', 'portfolio']);
 });

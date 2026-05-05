@@ -12,7 +12,6 @@ import {
   normalizePercentageStat,
   safeNetCashFlowCalculation,
 } from '@/lib/economySafety';
-import { ActiveRandomEvent } from '@/types/randomEvent';
 
 export interface GameplayCanonicalState {
   playerId: string;
@@ -32,8 +31,6 @@ export interface GameplayCanonicalState {
   incomeSource: string | null;
   tomorrowWarnings: string[];
   topRisks: DashboardSignalItem[];
-  activeEventId: string | null;
-  activeEventSourceDay: number | null;
 }
 
 interface CreateGameplayCanonicalStateArgs {
@@ -92,26 +89,5 @@ export function createGameplayCanonicalState({
       ? settledEndOfDay.tomorrow_warnings
       : [],
     topRisks: Array.isArray(dashboard?.top_risks) ? dashboard.top_risks : [],
-    activeEventId: null,
-    activeEventSourceDay: null,
-  };
-}
-
-export function attachGameplayEventState(
-  state: GameplayCanonicalState,
-  activeEvent: ActiveRandomEvent | null,
-): GameplayCanonicalState {
-  if (!activeEvent) {
-    return {
-      ...state,
-      activeEventId: null,
-      activeEventSourceDay: null,
-    };
-  }
-
-  return {
-    ...state,
-    activeEventId: activeEvent.eventId,
-    activeEventSourceDay: activeEvent.sourceDay,
   };
 }

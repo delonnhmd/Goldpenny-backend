@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { alpha, theme } from '@/design/theme';
 import { formatMoney } from '@/lib/gameplayFormatters';
@@ -34,58 +34,12 @@ function volatilityLabelText(label: StockMarketItem['volatility_label']): string
   return 'Steady';
 }
 
-function TradeButton({
-  label,
-  onPress,
-  disabled,
-  tone = 'neutral',
-}: {
-  label: string;
-  onPress?: () => void;
-  disabled?: boolean;
-  tone?: 'buy' | 'sell' | 'neutral';
-}) {
-  const blocked = Boolean(disabled || !onPress);
-  const toneStyle = tone === 'buy'
-    ? styles.tradeButtonBuy
-    : tone === 'sell'
-      ? styles.tradeButtonSell
-      : styles.tradeButtonNeutral;
-
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={blocked}
-      style={({ pressed }) => [
-        styles.tradeButton,
-        toneStyle,
-        blocked ? styles.tradeButtonDisabled : null,
-        pressed && !blocked ? styles.tradeButtonPressed : null,
-      ]}
-    >
-      <Text style={styles.tradeButtonText}>{label}</Text>
-    </Pressable>
-  );
-}
-
 export default function StockMarketCard({
   market,
   portfolioMetrics,
-  sessionActive,
-  pendingTradeStockId,
-  pendingTradeSide,
-  onBuyOne,
-  onSellOne,
-  onSellAll,
 }: {
   market: StockMarketSnapshotResponse;
   portfolioMetrics?: PortfolioMetrics;
-  sessionActive: boolean;
-  pendingTradeStockId: string | null;
-  pendingTradeSide: 'buy' | 'sell' | null;
-  onBuyOne: (stockId: string) => void;
-  onSellOne: (stockId: string) => void;
-  onSellAll: (stockId: string, quantity: number) => void;
 }) {
   const hasStocks = market.stocks.length > 0;
   const hasHoldings = market.portfolio.holdings_count > 0;
@@ -94,10 +48,10 @@ export default function StockMarketCard({
     <View style={styles.card}>
       <View style={styles.headerRow}>
         <View style={styles.headerCopy}>
-          <Text style={styles.kicker}>Market side lane</Text>
-          <Text style={styles.heading}>Sector Stocks</Text>
+          <Text style={styles.kicker}>Portfolio exposure</Text>
+          <Text style={styles.heading}>Stock Holdings</Text>
           <Text style={styles.meta}>
-            Day {market.latest_day ?? '?'} close pricing only. Trade only after core cash needs are covered.
+            Day {market.latest_day ?? '?'} close pricing only. V1 shows holdings and movement without trading controls.
           </Text>
         </View>
         <View style={styles.summaryPill}>
@@ -108,7 +62,7 @@ export default function StockMarketCard({
 
       <View style={styles.guidanceBox}>
         <Text style={styles.guidanceTitle}>Quick read</Text>
-        <Text style={styles.guidanceText}>Optional upside only. Prices move once per day, every trade costs a fee, and weak cash discipline matters more than a missed stock gain.</Text>
+        <Text style={styles.guidanceText}>Stocks are read-only in V1. Cash, debt, land, business value, and inventory remain the core portfolio decisions.</Text>
       </View>
 
       {portfolioMetrics ? (
@@ -184,7 +138,7 @@ export default function StockMarketCard({
 
       <View style={styles.portfolioGrid}>
         <View style={styles.portfolioTile}>
-          <Text style={styles.tileLabel}>Trade Cash</Text>
+          <Text style={styles.tileLabel}>Cash</Text>
           <Text style={styles.tileValue}>{formatMoney(market.portfolio.available_cash_xgp)}</Text>
         </View>
         <View style={styles.portfolioTile}>
@@ -199,9 +153,7 @@ export default function StockMarketCard({
         </View>
       </View>
 
-      {!hasHoldings ? <Text style={styles.neutralHint}>No holdings yet. Buy only if your cash buffer still survives a weak day.</Text> : null}
-
-      {!sessionActive ? <Text style={styles.warning}>Day ended. Start next day before placing trades.</Text> : null}
+      {!hasHoldings ? <Text style={styles.neutralHint}>No stock holdings yet.</Text> : null}
 
       {!hasStocks ? (
         <View style={styles.emptyBox}>
@@ -211,12 +163,6 @@ export default function StockMarketCard({
       ) : (
       <View style={styles.list}>
         {market.stocks.map((stock) => {
-          const tradeBusy = pendingTradeStockId === stock.stock_id;
-          const buyDisabled = !sessionActive || !stock.can_trade || tradeBusy;
-          const sellDisabled = !sessionActive || stock.holdings_quantity <= 0 || tradeBusy;
-          const isBuying = tradeBusy && pendingTradeSide === 'buy';
-          const isSelling = tradeBusy && pendingTradeSide === 'sell';
-
           return (
             <View key={stock.stock_id} style={styles.stockRow}>
               <View style={styles.stockHeader}>
@@ -256,29 +202,9 @@ export default function StockMarketCard({
 
               <Text style={styles.actionHint} numberOfLines={2}>
                 {stock.holdings_quantity > 0
-                  ? 'Add or trim only if this still fits the day plan and your cash buffer remains safe.'
-                  : 'Treat this as optional exposure, not a rescue plan for weak cash flow.'}
+                  ? 'Holding value is included in net worth.'
+                  : 'Available quote only. Trading is outside V1.'}
               </Text>
-
-              <View style={styles.tradeRow}>
-                <TradeButton
-                  label={isBuying ? 'Buying...' : 'Buy 1'}
-                  onPress={buyDisabled ? undefined : () => onBuyOne(stock.stock_id)}
-                  disabled={buyDisabled}
-                  tone="buy"
-                />
-                <TradeButton
-                  label={isSelling ? 'Selling...' : 'Sell 1'}
-                  onPress={sellDisabled ? undefined : () => onSellOne(stock.stock_id)}
-                  disabled={sellDisabled}
-                  tone="sell"
-                />
-                <TradeButton
-                  label="Sell All"
-                  onPress={sellDisabled ? undefined : () => onSellAll(stock.stock_id, stock.holdings_quantity)}
-                  disabled={sellDisabled}
-                />
-              </View>
             </View>
           );
         })}
@@ -369,11 +295,6 @@ const styles = StyleSheet.create({
     ...theme.typography.bodyMd,
     color: theme.color.textPrimary,
     fontWeight: '800',
-  },
-  warning: {
-    ...theme.typography.bodySm,
-    color: theme.ui.warning,
-    fontWeight: '600',
   },
   guidanceBox: {
     borderWidth: 1,
@@ -561,42 +482,5 @@ const styles = StyleSheet.create({
     ...theme.typography.bodySm,
     color: theme.color.textPrimary,
     fontWeight: '700',
-  },
-  tradeRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: theme.spacing.xs,
-  },
-  tradeButton: {
-    minHeight: 42,
-    minWidth: 82,
-    borderRadius: theme.radius.sm,
-    paddingHorizontal: theme.spacing.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-  },
-  tradeButtonNeutral: {
-    backgroundColor: theme.ui.bg.card,
-    borderColor: theme.ui.border,
-  },
-  tradeButtonBuy: {
-    backgroundColor: alpha(theme.ui.positive, 0.14),
-    borderColor: theme.ui.positive,
-  },
-  tradeButtonSell: {
-    backgroundColor: alpha(theme.ui.danger, 0.14),
-    borderColor: theme.ui.danger,
-  },
-  tradeButtonDisabled: {
-    opacity: 0.5,
-  },
-  tradeButtonPressed: {
-    opacity: 0.8,
-  },
-  tradeButtonText: {
-    ...theme.typography.caption,
-    color: theme.color.textPrimary,
-    fontWeight: '800',
   },
 });

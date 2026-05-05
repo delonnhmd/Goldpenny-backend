@@ -16,7 +16,6 @@ import TextButton from '@/components/ui/TextButton';
 import Chip from '@/components/ui/Chip';
 import { useOnboarding } from '@/features/onboarding';
 import { OnboardingRouteKey } from '@/features/onboarding/context';
-import { FeedbackSheet, IssueReportSheet, SoftLaunchGate, useSoftLaunch } from '@/features/softLaunch';
 import AbsenceModal from '@/components/gameplay/AbsenceModal';
 import { theme } from '@/design/theme';
 import {
@@ -33,7 +32,6 @@ import {
   GameplayWarningBanner,
 } from './components/GameplayUIParts';
 import { buildGameplayBottomNavItems } from './navigation';
-import { PlaytestObserver } from './components/PlaytestObserver';
 
 function sourceLabel(mode: 'live' | 'mixed' | 'mock'): string {
   if (mode === 'mock') return 'Mock Data Mode';
@@ -57,11 +55,6 @@ const INTERACTION_DIAGNOSTICS_ENABLED =
   || process.env.EXPO_PUBLIC_INTERACTION_DIAGNOSTICS === '1';
 
 const PAGE_IDENTITY: Record<string, { eyebrow: string; mood: string; chips: string[] }> = {
-  dashboard: {
-    eyebrow: 'Command center',
-    mood: 'Personal cash, pressure, timing, and choices presented like a live game HUD.',
-    chips: ['Cash flow', 'Health', 'Pressure'],
-  },
   work: {
     eyebrow: 'Career lane',
     mood: 'Shifts, wage growth, certifications, and progression should feel like upward momentum.',
@@ -72,10 +65,10 @@ const PAGE_IDENTITY: Record<string, { eyebrow: string; mood: string; chips: stri
     mood: 'Your business screen tracks growth, margin, staffing, and execution risk like a management game.',
     chips: ['Revenue', 'Margin', 'Operations'],
   },
-  market: {
+  portfolio: {
     eyebrow: 'Portfolio lane',
-    mood: 'Cash, land, businesses, baskets, and stock-market exposure should read as one asset picture.',
-    chips: ['Cash', 'Stocks', 'Assets'],
+    mood: 'Cash, land, businesses, inventory, and net worth should read as one asset picture.',
+    chips: ['Cash', 'Land', 'Assets'],
   },
   life: {
     eyebrow: 'Daily lane',
@@ -89,7 +82,7 @@ const PAGE_IDENTITY: Record<string, { eyebrow: string; mood: string; chips: stri
   },
 };
 
-const HIDDEN_TOP_CHROME_NAV_KEYS = new Set(['life', 'work', 'dashboard', 'business']);
+const HIDDEN_TOP_CHROME_NAV_KEYS = new Set(['life', 'work', 'business']);
 
 function deriveCareerLadder(loop: ReturnType<typeof useGameplayLoop>): CareerLadderProps {
   const workState = loop.dashboard?.work_state || loop.actionHub?.work_state || null;
@@ -158,9 +151,7 @@ export default function GameplayLoopScaffold({
 }) {
   const loop = useGameplayLoop();
   const onboarding = useOnboarding();
-  const softLaunch = useSoftLaunch();
   const pathname = usePathname();
-  const [showIssueReport, setShowIssueReport] = useState(false);
   const [measuredContentHeight, setMeasuredContentHeight] = useState<number | null>(null);
   const absenceSummary = loop.bundle?.absenceSummary ?? null;
   const lastAbsenceFetchRef = useRef<string | null>(null);
@@ -177,13 +168,6 @@ export default function GameplayLoopScaffold({
     lastAbsenceFetchRef.current = fetchedAt;
     setAbsenceModalVisible(true);
   }, [absenceSummary, loop.bundle?.fetchedAt]);
-
-  // Dev bypass: EXPO_PUBLIC_SOFT_LAUNCH_BYPASS=true skips the gate entirely.
-  const bypassGate =
-    process.env.EXPO_PUBLIC_SOFT_LAUNCH_BYPASS === 'true' ||
-    process.env.EXPO_PUBLIC_SOFT_LAUNCH_BYPASS === '1';
-
-  const gateBlocked = !bypassGate && !softLaunch.isLoading && !softLaunch.isMember;
 
   const {
     currentStep: onboardingStep,
@@ -222,7 +206,7 @@ export default function GameplayLoopScaffold({
   };
   const showTopBar = !HIDDEN_TOP_CHROME_NAV_KEYS.has(activeNavKey);
   const showPageHero = !HIDDEN_TOP_CHROME_NAV_KEYS.has(activeNavKey);
-  const headerRight = activeNavKey === 'market'
+  const headerRight = activeNavKey === 'portfolio'
     ? <TextButton label="Account" onPress={() => router.push('/account')} />
     : undefined;
 
@@ -386,20 +370,6 @@ export default function GameplayLoopScaffold({
     });
   }, [expectedRoute, onboardingActive, onboardingStep?.key, loop.playerId]);
 
-  useEffect(() => {
-    if (!INTERACTION_DIAGNOSTICS_ENABLED) return;
-    recordInfo('gameplayLoop', 'Soft launch gate state changed.', {
-      action: 'soft_launch_gate',
-      context: {
-        playerId: loop.playerId,
-        gateBlocked,
-        bypassGate,
-        isMember: softLaunch.isMember,
-        isLoading: softLaunch.isLoading,
-      },
-    });
-  }, [bypassGate, gateBlocked, loop.playerId, softLaunch.isLoading, softLaunch.isMember]);
-
   const bottomNavItems = useMemo(
     () => buildGameplayBottomNavItems((targetRoute) => {
       if (INTERACTION_DIAGNOSTICS_ENABLED) {
@@ -433,16 +403,6 @@ export default function GameplayLoopScaffold({
   );
 
   // ── Soft launch gate ────────────────────────────────────────────────────────
-  if (gateBlocked) {
-    return (
-      <SoftLaunchGate
-        onJoin={softLaunch.joinWithCode}
-        error={softLaunch.joinError}
-        isLoading={softLaunch.isLoading}
-      />
-    );
-  }
-
   return (
     <AppShell
       title={title}
@@ -512,7 +472,6 @@ export default function GameplayLoopScaffold({
                 </View>
               </FadeInView>
             ) : null}
-            <PlaytestObserver />
             {onboardingActive ? <OnboardingStepOverlay /> : null}
 
             {!isSimplifiedMode && loop.sourceMode !== 'live' ? (
@@ -560,7 +519,7 @@ export default function GameplayLoopScaffold({
             {!loop.bundle && loop.loading ? (
               <SectionCard
                 title="Loading gameplay loop"
-                summary="Syncing dashboard, economy, market, and business state."
+                summary="Syncing life, economy, portfolio, and business state."
               >
                 <LoadingSkeleton lines={4} />
               </SectionCard>
@@ -574,19 +533,8 @@ export default function GameplayLoopScaffold({
       </PageContainer>
 
       {/* Soft launch feedback sheet — shown after Day 1/2 settlement */}
-      <FeedbackSheet
-        visible={loop.feedbackPromptDay !== null}
-        gameDay={loop.feedbackPromptDay ?? 1}
-        onSubmit={(payload) => softLaunch.submitFeedback(payload)}
-        onDismiss={loop.dismissFeedbackPrompt}
-      />
 
       {/* Issue report sheet — shown on demand */}
-      <IssueReportSheet
-        visible={showIssueReport}
-        onSubmit={(payload) => softLaunch.submitIssue(payload)}
-        onDismiss={() => setShowIssueReport(false)}
-      />
 
       {/* Phase 3-C absence summary — shown after a multi-day return */}
       <AbsenceModal

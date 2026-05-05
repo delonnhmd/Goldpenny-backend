@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { alpha, theme } from '@/design/theme';
 
-export type LadderRoute = 'work' | 'business' | 'market';
+export type LadderRoute = 'work' | 'business' | 'portfolio';
 
 export interface CareerLadderProps {
   rankLabel: string;
@@ -70,7 +70,7 @@ export default function LadderRow({ career, business, netWorth, onNavigate }: La
         <Text style={styles.value} numberOfLines={2}>{businessText}</Text>
       </Pressable>
 
-      <Pressable testID="ladder-net-worth" style={styles.pill} onPress={() => onNavigate('market')}>
+      <Pressable testID="ladder-net-worth" style={styles.pill} onPress={() => onNavigate('portfolio')}>
         <Text style={styles.label}>Net worth</Text>
         <Text style={[styles.value, { color: netWorthTone }]} numberOfLines={2}>{netWorthLabel}</Text>
       </Pressable>

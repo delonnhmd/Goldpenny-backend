@@ -4,7 +4,6 @@ import { Redirect, Slot, useLocalSearchParams } from 'expo-router';
 import { useAuth } from '@/features/auth';
 import { GameplayLoopProvider } from '@/features/gameplayLoop/context';
 import { OnboardingProvider } from '@/features/onboarding';
-import { PlaytestProvider } from '@/features/playtest';
 
 export default function GameplayLoopLayout() {
   const auth = useAuth();
@@ -35,11 +34,9 @@ export default function GameplayLoopLayout() {
 
   return (
     <GameplayLoopProvider playerId={playerId}>
-      <PlaytestProvider playerId={playerId}>
-        <OnboardingProvider playerId={playerId}>
-          <Slot />
-        </OnboardingProvider>
-      </PlaytestProvider>
+      <OnboardingProvider playerId={playerId}>
+        <Slot />
+      </OnboardingProvider>
     </GameplayLoopProvider>
   );
 }

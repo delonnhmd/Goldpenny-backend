@@ -186,38 +186,6 @@ JOB_MARKET_TEMPLATES: tuple[dict[str, Any], ...] = (
         "certification_key": None,
         "future_unlock": False,
     },
-    {
-        "job_key": "aircraft_mechanic",
-        "display_name": "Aircraft Mechanic",
-        "tier": "high",
-        "stress_level": "High",
-        "certification_key": "aircraft_mechanic_cert",
-        "future_unlock": False,
-    },
-    {
-        "job_key": "banker",
-        "display_name": "Banker",
-        "tier": "high",
-        "stress_level": "High",
-        "certification_key": "banking_license",
-        "future_unlock": False,
-    },
-    {
-        "job_key": "real_estate_agent",
-        "display_name": "Real Estate Agent",
-        "tier": "high",
-        "stress_level": "Moderate",
-        "certification_key": "real_estate_license",
-        "future_unlock": False,
-    },
-    {
-        "job_key": "business_owner",
-        "display_name": "Business Owner",
-        "tier": "future",
-        "stress_level": "Critical",
-        "certification_key": None,
-        "future_unlock": True,
-    },
 )
 
 

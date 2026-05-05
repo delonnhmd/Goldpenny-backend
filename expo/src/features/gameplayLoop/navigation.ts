@@ -6,7 +6,7 @@ type GameplayBottomNavKey =
   | 'life'
   | 'work'
   | 'business'
-  | 'market';
+  | 'portfolio';
 
 const gameplayBottomNavConfig: {
   key: GameplayBottomNavKey;
@@ -17,7 +17,7 @@ const gameplayBottomNavConfig: {
   { key: 'life', label: 'Life', icon: 'heart-outline' },
   { key: 'work', label: 'Work', icon: 'briefcase-outline' },
   { key: 'business', label: 'Business', icon: 'storefront-outline' },
-  { key: 'market', label: 'Portfolio', icon: 'wallet-outline' },
+  { key: 'portfolio', label: 'Portfolio', icon: 'wallet-outline' },
 ];
 
 export function buildGameplayBottomNavItems(

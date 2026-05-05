@@ -16,21 +16,16 @@ import {
   readPersistedOnboardingState,
   writePersistedOnboardingState,
 } from '@/lib/onboardingPersistence';
-import {
-  emitPlaytestEvent,
-} from '@/lib/playtestAnalytics';
 
 export type OnboardingRouteKey =
-  | 'brief'
-  | 'dashboard'
   | 'map'
   | 'work'
-  | 'market'
+  | 'portfolio'
   | 'business'
   | 'life'
   | 'summary';
 
-type GuidedRouteKey = Exclude<OnboardingRouteKey, 'business' | 'dashboard'>;
+type GuidedRouteKey = Exclude<OnboardingRouteKey, 'business'>;
 
 type OnboardingStepRequirement = 'manual_continue' | 'first_work_action' | 'settled_summary';
 
@@ -73,9 +68,9 @@ const ONBOARDING_STEPS: OnboardingStepDefinition[] = [
   },
   {
     key: 'market_price_movement',
-    route: 'market',
+    route: 'portfolio',
     title: 'Check Portfolio',
-    body: 'Read assets, baskets, and stock-market exposure together.',
+    body: 'Read assets, baskets, and net worth together.',
     highlightTarget: 'market-price-movement',
     requirement: 'manual_continue',
     continueLabel: 'Next: Summary',
@@ -136,11 +131,9 @@ function stepRoutePath(playerId: string, route: OnboardingRouteKey): string {
 }
 
 function navLabel(route: OnboardingRouteKey): string {
-  if (route === 'brief') return 'Life';
-  if (route === 'dashboard') return 'Dashboard';
   if (route === 'map') return 'Map';
   if (route === 'work') return 'Work';
-  if (route === 'market') return 'Portfolio';
+  if (route === 'portfolio') return 'Portfolio';
   if (route === 'business') return 'Business';
   if (route === 'life') return 'Life';
   return 'Summary';
@@ -208,13 +201,6 @@ export function OnboardingProvider({
           playerId,
           status,
         },
-      });
-      // Emit playtest event for skip vs complete distinction.
-      void emitPlaytestEvent({
-        eventName: status === 'skipped' ? 'onboarding_skipped' : 'onboarding_completed',
-        sessionId: 'onboarding',
-        playerId,
-        gameDay: 1,
       });
     } finally {
       transitionGuardRef.current = false;

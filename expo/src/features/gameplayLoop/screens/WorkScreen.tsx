@@ -173,7 +173,7 @@ export default function WorkScreen() {
           }}
           primaryLabel="Open Portfolio"
           onPrimaryPress={() => {
-            onboarding.navigateTo('market');
+            onboarding.navigateTo('portfolio');
           }}
           primaryDisabled={false}
         />

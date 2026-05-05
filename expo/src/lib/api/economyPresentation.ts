@@ -3,7 +3,6 @@ import {
   BusinessMarginsResponse,
   CommutePressureResponse,
   EconomyPresentationSummaryResponse,
-  FutureOpportunityTeasersResponse,
   MarketOverviewResponse,
   PlayerEconomyExplainerResponse,
   PriceTrendsResponse,
@@ -63,15 +62,6 @@ export async function getEconomyExplainer(
 ): Promise<PlayerEconomyExplainerResponse> {
   return fetchApiWithFallback<PlayerEconomyExplainerResponse>([
     withDateParam(`/economy-presentation/player/${playerId}/explainer`, asOfDate),
-  ]);
-}
-
-export async function getFutureTeasers(
-  playerId: string,
-  asOfDate?: string | null,
-): Promise<FutureOpportunityTeasersResponse> {
-  return fetchApiWithFallback<FutureOpportunityTeasersResponse>([
-    withDateParam(`/economy-presentation/player/${playerId}/future-teasers`, asOfDate),
   ]);
 }
 

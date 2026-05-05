@@ -3,7 +3,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { recordInfo, recordWarning } from '@/lib/logger';
 import { createDefaultTimedActivityState, sanitizeTimedActivityState, TimedActivityState } from '@/lib/realtimeActivity';
 import { DailySessionStatus } from '@/types/gameplay';
-import { RandomEventPersistedState } from '@/types/randomEvent';
 
 // Core logic freeze: this snapshot shape and canonical key are part of gameplay continuity.
 // Change only for a proven persistence bug and version the payload deliberately.
@@ -14,7 +13,6 @@ const GAMEPLAY_STATE_STORAGE_KEY = (playerId: string) => `goldpenny:gameplay:sta
 const LEGACY_DAY_STORAGE_KEY = (playerId: string) => `goldpenny:gameplay:day:${playerId}`;
 const LEGACY_LAST_PROCESSED_STORAGE_KEY = (playerId: string) => `goldpenny:gameplay:lastProcessedDay:${playerId}`;
 const LEGACY_SESSION_STORAGE_KEY = (playerId: string) => `goldpenny:gameplay:session:${playerId}`;
-const LEGACY_EVENT_STORAGE_KEY = (playerId: string) => `goldpenny:gameplay:event:${playerId}`;
 
 export interface PersistedGameplaySessionState {
   currentDay: number;
@@ -31,7 +29,6 @@ export interface PersistedGameplayState {
   currentDay: number;
   lastProcessedDay: number | null;
   session: PersistedGameplaySessionState | null;
-  randomEvent: RandomEventPersistedState | null;
 }
 
 type PersistedGameplayUpdater = (
@@ -45,19 +42,6 @@ function parsePositiveInteger(value: unknown): number | null {
   if (!Number.isFinite(parsed)) return null;
   const normalized = Math.round(parsed);
   return normalized >= 1 ? normalized : null;
-}
-
-function sanitizeRandomEventState(value: unknown): RandomEventPersistedState | null {
-  if (!value || typeof value !== 'object') return null;
-  const eventId = String((value as { eventId?: unknown }).eventId || '').trim();
-  const sourceDay = parsePositiveInteger((value as { sourceDay?: unknown }).sourceDay);
-  const isResolved = (value as { isResolved?: unknown }).isResolved;
-  if (!eventId || sourceDay == null || typeof isResolved !== 'boolean') return null;
-  return {
-    eventId,
-    sourceDay,
-    isResolved,
-  };
 }
 
 function sanitizeSessionState(value: unknown, expectedDay: number): PersistedGameplaySessionState | null {
@@ -114,7 +98,6 @@ function sanitizeGameplayState(value: unknown, playerId: string): PersistedGamep
     currentDay,
     lastProcessedDay,
     session: sanitizeSessionState((value as { session?: unknown }).session, currentDay),
-    randomEvent: sanitizeRandomEventState((value as { randomEvent?: unknown }).randomEvent),
   };
 }
 
@@ -127,31 +110,20 @@ function parseLegacySessionState(raw: string | null, currentDay: number): Persis
   }
 }
 
-function parseLegacyEventState(raw: string | null): RandomEventPersistedState | null {
-  if (!raw) return null;
-  try {
-    return sanitizeRandomEventState(JSON.parse(raw));
-  } catch {
-    return null;
-  }
-}
-
 function createLegacySnapshot(
   playerId: string,
   values: {
     currentDayRaw: string | null;
     lastProcessedRaw: string | null;
     sessionRaw: string | null;
-    eventRaw: string | null;
   },
 ): PersistedGameplayState | null {
   const legacyDay = parsePositiveInteger(values.currentDayRaw);
   const legacyLastProcessed = parsePositiveInteger(values.lastProcessedRaw);
   const session = parseLegacySessionState(values.sessionRaw, legacyDay || 1);
-  const event = parseLegacyEventState(values.eventRaw);
-  const currentDay = legacyDay || session?.currentDay || event?.sourceDay || 1;
+  const currentDay = legacyDay || session?.currentDay || 1;
 
-  if (!values.currentDayRaw && !values.lastProcessedRaw && !values.sessionRaw && !values.eventRaw) {
+  if (!values.currentDayRaw && !values.lastProcessedRaw && !values.sessionRaw) {
     return null;
   }
 
@@ -161,7 +133,6 @@ function createLegacySnapshot(
     currentDay,
     lastProcessedDay: legacyLastProcessed == null ? null : Math.min(currentDay, legacyLastProcessed),
     session: session && session.currentDay === currentDay ? session : null,
-    randomEvent: event && event.sourceDay === currentDay ? event : null,
   };
 }
 
@@ -182,23 +153,20 @@ export function createEmptyPersistedGameplayState(
       totalTimeUnits: 20,
       timedActivity: createDefaultTimedActivityState(),
     },
-    randomEvent: null,
   };
 }
 
 async function loadLegacyGameplayState(playerId: string): Promise<PersistedGameplayState | null> {
-  const [currentDayRaw, lastProcessedRaw, sessionRaw, eventRaw] = await Promise.all([
+  const [currentDayRaw, lastProcessedRaw, sessionRaw] = await Promise.all([
     AsyncStorage.getItem(LEGACY_DAY_STORAGE_KEY(playerId)),
     AsyncStorage.getItem(LEGACY_LAST_PROCESSED_STORAGE_KEY(playerId)),
     AsyncStorage.getItem(LEGACY_SESSION_STORAGE_KEY(playerId)),
-    AsyncStorage.getItem(LEGACY_EVENT_STORAGE_KEY(playerId)),
   ]);
 
   const migrated = createLegacySnapshot(playerId, {
     currentDayRaw,
     lastProcessedRaw,
     sessionRaw,
-    eventRaw,
   });
 
   if (!migrated) return null;
@@ -209,7 +177,6 @@ async function loadLegacyGameplayState(playerId: string): Promise<PersistedGamep
     context: {
       currentDay: migrated.currentDay,
       hasSession: Boolean(migrated.session),
-      hasRandomEvent: Boolean(migrated.randomEvent),
     },
   });
   return migrated;

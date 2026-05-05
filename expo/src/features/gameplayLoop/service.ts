@@ -8,14 +8,12 @@ import {
 } from '@/lib/api/gameplay';
 import { getEconomyPresentationSummary } from '@/lib/api/economyPresentation';
 import { getStockMarketSnapshot } from '@/lib/api/stocks';
-import { getBusinessPlan } from '@/lib/api/strategicPlanning';
 import { recordInfo, recordWarning } from '@/lib/logger';
 import { ActionPreviewRequest, ActionPreviewResponse, EndOfDaySummaryResponse } from '@/types/gameplay';
 
 import {
   createMockActionHub,
   createMockActionPreview,
-  createMockBusinessPlan,
   createMockBusinesses,
   createMockDashboard,
   createMockEconomySummary,
@@ -131,7 +129,7 @@ export async function loadGameplayLoopBundle(
     currentHealth: options?.currentHealth,
   };
 
-  const [coreLoop, gameTime, runStatus, economySummary, stockMarket, businesses, businessPlan, endOfDaySummary] =
+  const [coreLoop, gameTime, runStatus, economySummary, stockMarket, businesses, endOfDaySummary] =
     await Promise.all([
       resolveSection(
         playerId,
@@ -174,12 +172,6 @@ export async function loadGameplayLoopBundle(
         () => getPlayerBusinesses(playerId),
         () => createMockBusinesses(playerId),
       ),
-      resolveSection(
-        playerId,
-        'business_plan',
-        () => getBusinessPlan(playerId),
-        () => createMockBusinessPlan(playerId),
-      ),
       includeEndOfDaySummary
         ? resolveOptionalSection(
           playerId,
@@ -193,7 +185,7 @@ export async function loadGameplayLoopBundle(
         }),
     ]);
 
-  const sourceSections = [coreLoop, economySummary, stockMarket, businesses, businessPlan];
+  const sourceSections = [coreLoop, economySummary, stockMarket, businesses];
   const mockCount = sourceSections.filter((entry) => entry.usedMock).length;
   const notes = [...sourceSections, gameTime, runStatus, endOfDaySummary]
     .map((entry) => entry.note)
@@ -219,7 +211,6 @@ export async function loadGameplayLoopBundle(
     economySummary: economySummary.value,
     stockMarket: stockMarket.value,
     businesses: businesses.value,
-    businessPlan: businessPlan.value,
     endOfDaySummary: endOfDaySummary.value,
     absenceSummary: coreLoop.value.absence_summary || null,
     source: {

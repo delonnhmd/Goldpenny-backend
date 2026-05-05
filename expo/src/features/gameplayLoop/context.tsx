@@ -16,10 +16,6 @@ import { useEconomyState } from '@/hooks/useEconomyState';
 import { useExpenseDebt } from '@/hooks/useExpenseDebt';
 import { useJobIncome } from '@/hooks/useJobIncome';
 import {
-  buyStock,
-  sellStock,
-} from '@/lib/api/stocks';
-import {
   acknowledgeEndOfDaySummary,
   endDay as settleDay,
   executeAction as executeGameplayAction,
@@ -56,11 +52,6 @@ interface FeedbackState {
   message: string;
 }
 
-interface PendingTradeState {
-  stockId: string;
-  side: 'buy' | 'sell';
-}
-
 interface StreakBadgeState {
   currentStreak: number;
   longestStreak: number;
@@ -83,7 +74,6 @@ interface GameplayLoopContextValue {
   economySummary: GameplayLoopBundle['economySummary'] | null;
   stockMarket: GameplayLoopBundle['stockMarket'] | null;
   businesses: GameplayLoopBundle['businesses'] | null;
-  businessPlan: GameplayLoopBundle['businessPlan'] | null;
   endOfDaySummary: EndOfDaySummaryResponse | null;
   loading: boolean;
   refreshing: boolean;
@@ -128,10 +118,6 @@ interface GameplayLoopContextValue {
   endCurrentDay: () => Promise<boolean>;
   retireRun: () => Promise<RetireRunResponse>;
   startNextDay: () => Promise<void>;
-  pendingTrade: PendingTradeState | null;
-  buyOneStock: (stockId: string) => Promise<void>;
-  sellOneStock: (stockId: string) => Promise<void>;
-  sellAllStock: (stockId: string, quantity: number) => Promise<void>;
   eatMeal: (mealType: 'breakfast' | 'lunch' | 'dinner') => Promise<boolean>;
   takeLoan: (amount: number) => Promise<boolean>;
   selectHousing: (housingType: 'suburban' | 'downtown') => Promise<boolean>;
@@ -343,7 +329,6 @@ export function GameplayLoopProvider({
   const [executingAction, setExecutingAction] = useState(false);
   const [busyActionKey, setBusyActionKey] = useState<string | null>(null);
   const [endingDay, setEndingDay] = useState(false);
-  const [pendingTrade, setPendingTrade] = useState<PendingTradeState | null>(null);
   const hasBundleRef = useRef(false);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const promptedFeedbackDaysRef = useRef<Set<number>>(new Set());
@@ -353,7 +338,7 @@ export function GameplayLoopProvider({
   const dailyProgression = useDailyProgression(
     playerId,
     dailySession.sessionStatus,
-    dailySession.pendingExecution || executingAction || endingDay || Boolean(pendingTrade),
+    dailySession.pendingExecution || executingAction || endingDay,
   );
   const { initializeDay } = dailySession;
 
@@ -922,43 +907,6 @@ export function GameplayLoopProvider({
     }
   }, [playerId, refresh]);
 
-  const performTrade = useCallback(async (stockId: string, side: 'buy' | 'sell', shares = 1) => {
-    setPendingTrade({ stockId, side });
-    try {
-      const result = side === 'buy'
-        ? await buyStock(playerId, stockId, shares)
-        : await sellStock(playerId, stockId, shares);
-      setFeedback({
-        tone: 'success',
-        message: `${side === 'buy' ? 'Bought' : 'Sold'} ${result.shares} share${result.shares === 1 ? '' : 's'} of ${result.stock_id}.`,
-      });
-      await refresh({
-        silent: true,
-        includeEndOfDaySummary: dailySession.sessionStatus === 'ended',
-      });
-    } catch (tradeError) {
-      setFeedback({
-        tone: 'error',
-        message: normalizeError(tradeError),
-      });
-    } finally {
-      setPendingTrade(null);
-    }
-  }, [dailySession.sessionStatus, playerId, refresh]);
-
-  const buyOneStock = useCallback(async (stockId: string) => {
-    await performTrade(stockId, 'buy', 1);
-  }, [performTrade]);
-
-  const sellOneStock = useCallback(async (stockId: string) => {
-    await performTrade(stockId, 'sell', 1);
-  }, [performTrade]);
-
-  const sellAllStock = useCallback(async (stockId: string, quantity: number) => {
-    const safeQuantity = Math.max(1, Math.floor(Number(quantity) || 0));
-    await performTrade(stockId, 'sell', safeQuantity);
-  }, [performTrade]);
-
   const operateBusiness = useCallback(async () => {
     const fallbackAction: DailyActionItem = {
       action_key: 'operate_business',
@@ -1031,7 +979,6 @@ export function GameplayLoopProvider({
     economySummary: bundle?.economySummary || null,
     stockMarket: bundle?.stockMarket || null,
     businesses: bundle?.businesses || null,
-    businessPlan: bundle?.businessPlan || null,
     endOfDaySummary: bundle?.endOfDaySummary || null,
     loading,
     refreshing,
@@ -1076,10 +1023,6 @@ export function GameplayLoopProvider({
     endCurrentDay,
     retireRun,
     startNextDay,
-    pendingTrade,
-    buyOneStock,
-    sellOneStock,
-    sellAllStock,
     eatMeal,
     takeLoan,
     selectHousing,
@@ -1125,10 +1068,6 @@ export function GameplayLoopProvider({
     endCurrentDay,
     retireRun,
     startNextDay,
-    pendingTrade,
-    buyOneStock,
-    sellOneStock,
-    sellAllStock,
     eatMeal,
     takeLoan,
     selectHousing,

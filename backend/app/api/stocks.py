@@ -5,8 +5,8 @@ GET  /stocks/list                    — All stocks with live price and daily ch
 GET  /stocks/portfolio               — Authenticated player's holdings and P&L
 GET  /stocks/trades                  — Authenticated player's trade history
 GET  /stocks/{symbol}                — Single stock detail
-POST /stocks/buy                     — Buy shares (old system)
-POST /stocks/sell                    — Sell shares (old system)
+POST /stocks/buy                     — Disabled for V1
+POST /stocks/sell                    — Disabled for V1
 POST /stocks/seed                    — Admin: seed initial stock catalog
 POST /stocks/update-prices           — Admin: manually trigger daily price update
 
@@ -14,7 +14,7 @@ Step 9 routes (new sector stock system):
 GET  /stocks/sector-list             — All active SectorStocks with live price
 GET  /stocks/sector-history          — StockPriceHistory, newest first
 POST /stocks/admin/apply-daily-update — Idempotent daily price update for one day
-POST /stocks/trade                   — Authenticated buy/sell with 0.3% fee
+POST /stocks/trade                   — Disabled for V1
 GET  /stocks/sector-portfolio        — Authenticated player sector holdings + P&L
 GET  /stocks/trade-history           — Authenticated player sector trade log
 """
@@ -207,12 +207,10 @@ def buy_stock(
     db: Session = Depends(get_db),
 ) -> dict:
     """Execute a market buy at the latest available close price."""
-    try:
-        return _stock_trading_service.buy_stock(db, body.player_id, body.ticker, body.shares)
-    except (ResourceNotFoundError, ValidationError, StockTradingError) as exc:
-        _raise_service_http_error(exc)
-    except Exception as exc:
-        _raise_service_http_error(StockTradingError(str(exc)))
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Stock trading is frozen for V1.",
+    )
 
 
 # ── POST /stocks/sell ─────────────────────────────────────────────────────────
@@ -223,12 +221,10 @@ def sell_stock(
     db: Session = Depends(get_db),
 ) -> dict:
     """Execute a market sell at the latest available close price."""
-    try:
-        return _stock_trading_service.sell_stock(db, body.player_id, body.ticker, body.shares)
-    except (ResourceNotFoundError, ValidationError, StockTradingError) as exc:
-        _raise_service_http_error(exc)
-    except Exception as exc:
-        _raise_service_http_error(StockTradingError(str(exc)))
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Stock trading is frozen for V1.",
+    )
 
 
 # ── POST /stocks/seed ─────────────────────────────────────────────────────────
@@ -240,11 +236,10 @@ def legacy_buy_stock(
     db: Session = Depends(get_db),
 ) -> dict:
     """Legacy authenticated buy endpoint retained for backward compatibility."""
-    player = _get_player_or_404(current_user, db)
-    try:
-        return _engine.buy_stock(player, body.symbol, body.shares, db)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Stock trading is frozen for V1.",
+    )
 
 
 @router.post("/legacy/sell")
@@ -254,11 +249,10 @@ def legacy_sell_stock(
     db: Session = Depends(get_db),
 ) -> dict:
     """Legacy authenticated sell endpoint retained for backward compatibility."""
-    player = _get_player_or_404(current_user, db)
-    try:
-        return _engine.sell_stock(player, body.symbol, body.shares, db)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Stock trading is frozen for V1.",
+    )
 
 
 @router.post("/seed")
@@ -423,21 +417,10 @@ def trade_sector_stock(
     BUY:  player pays  gross + fee.
     SELL: player receives gross - fee.
     """
-    player = _get_player_or_404(user, db)
-    try:
-        result = process_stock_trade(
-            db=db,
-            player=player,
-            stock_id=body.stock_id,
-            trade_type=body.trade_type,
-            shares=body.shares,
-        )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
-        ) from exc
-    return {"message": "Trade executed.", **result}
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Stock trading is frozen for V1.",
+    )
 
 
 # ── GET /stocks/sector-portfolio ──────────────────────────────────────────────

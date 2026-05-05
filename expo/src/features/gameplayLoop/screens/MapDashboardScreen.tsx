@@ -61,7 +61,7 @@ const MAIN_MAP_IMAGE = require('../../../assets/worldMaps/MainMap.png');
 const SUBMAP_SELECTOR_IMAGE = require('../../../assets/worldMaps/SubMap.png');
 const SUBURBAN_MAP_IMAGE = require('../../../assets/worldMaps/SuburbanMap.png');
 const DOWNTOWN_MAP_IMAGE = require('../../../assets/worldMaps/DowntownMap.png');
-const FUTURE_PLAYER_UNLOCK_COPY = 'Locked until more players join the city.';
+const FUTURE_PLAYER_UNLOCK_COPY = 'Inactive in V1.';
 
 interface WorldRegionPlacement {
   left: DimensionValue;
@@ -99,8 +99,7 @@ interface DistrictNodeCell extends BaseDistrictCell {
     | 'work'
     | 'job_board'
     | 'business'
-    | 'bank'
-    | 'stock_center';
+    | 'bank';
   actionTags: MapTileActionTag[];
 }
 
@@ -211,7 +210,7 @@ function createLocked(
     row,
     col,
     title,
-    subtitle: 'Future district slot',
+    subtitle: 'Inactive V1 slot',
     unlockCopy,
   };
 }
@@ -244,17 +243,16 @@ const SUBURBAN_STARTER_CELLS: DistrictCell[] = [
   createLot('brook_lot_03', 1, 1, 'Roundabout Lot', 212, 42, 64, 'medium', 'residential_edge', 'Reliable commuter traffic.'),
   createNode('pocket_park', 1, 2, 'Pocket Park', 'Low-pressure recovery spot.', 'recovery', ['recovery']),
   createLot('brook_lot_04', 1, 3, 'Garden Lot', 190, 31, 56, 'medium', 'residential_edge', 'Quiet neighborhood parcel.'),
-  createNode('clinic_node', 2, 0, 'Clinic', 'Recovery and health services.', 'clinic', []),
+  createNode('clinic_node', 2, 0, 'Clinic', 'Recovery support.', 'clinic', []),
   createLot('brook_lot_05', 2, 1, 'School Lot', 228, 41, 66, 'medium', 'residential_edge', 'Strong family demand nearby.'),
-  createNode('housing_office', 2, 2, 'Housing Office', 'Rent and move decisions.', 'housing', []),
-  createLocked('brook_locked_01', 2, 3, 'Future Brookside Lot', 'Unlock after the next suburban map phase.'),
+  createNode('housing_office', 2, 2, 'Housing Office', 'Housing overview.', 'housing', []),
   createLot('brook_lot_06', 3, 0, 'Bridge Lot', 236, 46, 68, 'medium', 'residential_edge', 'Water-adjacent frontage.'),
   createScenery('brook_fountain', 3, 1, 'Community Fountain', 'Raises neighborhood appeal.', 'fountain'),
   createLot('brook_lot_07', 3, 2, 'Riverbend Lot', 248, 48, 72, 'large', 'residential_edge', 'Premium suburban parcel.'),
   createLot('brook_lot_08', 3, 3, 'Starter Duplex Lot', 172, 30, 54, 'small', 'residential_edge', 'Cheaper first buy.'),
   createLot('brook_lot_09', 4, 0, 'Side Street Lot', 188, 36, 59, 'small', 'residential_edge', 'Affordable infill land.'),
   createLot('brook_lot_10', 4, 1, 'Transit Bend Lot', 246, 52, 72, 'medium', 'mixed_use', 'Busier frontage near a bend.'),
-  createNode('brook_service_lane', 4, 2, 'Service Lane', 'Future maintenance and vendor support.', 'business', ['business_open']),
+  createNode('brook_service_lane', 4, 2, 'Service Lane', 'Business support lane.', 'business', ['business_open']),
   createLot('brook_lot_11', 4, 3, 'Family Market Pad', 260, 56, 75, 'medium', 'mixed_use', 'Family errands create steady demand.'),
   createLot('brook_lot_12', 5, 0, 'Creekside Infill', 198, 39, 62, 'small', 'residential_edge', 'Narrow but cheap expansion.'),
   createScenery('brook_greenway', 5, 1, 'Greenway', 'Neighborhood walking path.', 'park'),
@@ -263,7 +261,6 @@ const SUBURBAN_STARTER_CELLS: DistrictCell[] = [
   createLot('brook_lot_15', 6, 0, 'Quiet Backlot', 162, 28, 51, 'micro', 'residential_edge', 'Lowest-cost extra capacity.'),
   createLot('brook_lot_16', 6, 1, 'Corner Grocer Pad', 292, 65, 82, 'medium', 'mixed_use', 'Strong convenience stop potential.'),
   createLot('brook_lot_17', 6, 2, 'Canal Crossing Lot', 306, 67, 84, 'large', 'mixed_use', 'Bridge traffic and neighborhood access.'),
-  createLocked('brook_locked_02', 6, 3, 'North Infill Reserve', 'Future suburban reserve kept for later expansion.'),
 ];
 
 const DOWNTOWN_STARTER_CELLS: DistrictCell[] = [
@@ -273,13 +270,11 @@ const DOWNTOWN_STARTER_CELLS: DistrictCell[] = [
   createLot('exchange_lot_02', 0, 3, 'Glass Block Lot', 420, 78, 86, 'medium', 'commercial_core', 'Best for premium storefront growth.'),
   createNode('job_center', 1, 0, 'Job Center', 'Switch jobs and start training.', 'job_board', ['job_board']),
   createLot('exchange_lot_03', 1, 1, 'Exchange Lot', 385, 74, 84, 'small', 'mixed_use', 'Balanced downtown lot.'),
-  createNode('stock_center', 1, 2, 'Stock Center', 'Future investing lane.', 'stock_center', []),
   createLot('exchange_lot_04', 1, 3, 'Bridge View Lot', 455, 82, 88, 'medium', 'commercial_core', 'Waterfront business frontage.'),
   createLot('exchange_lot_05', 2, 0, 'Harbor Lot', 340, 69, 80, 'small', 'mixed_use', 'Port-adjacent worker demand.'),
   createNode('ride_hub', 2, 1, 'Ride Hub', 'Fast downtown rideshare loop.', 'rideshare', ['rideshare']),
   createLot('exchange_lot_06', 2, 2, 'Core Plaza Lot', 448, 80, 90, 'medium', 'commercial_core', 'Best district prestige.'),
-  createNode('bank_node', 2, 3, 'Bank', 'Cash and credit lane.', 'bank', []),
-  createLocked('exchange_locked_01', 3, 0, 'Rivergate Tower Lot', 'Unlock after the next downtown map phase.'),
+  createNode('bank_node', 2, 3, 'Bank', 'Cash and credit overview.', 'bank', []),
   createLot('exchange_lot_07', 3, 1, 'Executive Lot', 470, 84, 92, 'medium', 'commercial_core', 'Late-game growth lot.'),
   createScenery('exchange_plaza', 3, 2, 'Central Plaza', 'Prestige landmark for this core.', 'plaza'),
   createLot('exchange_lot_08', 3, 3, 'Marina Lot', 410, 76, 85, 'small', 'mixed_use', 'Strong after-work demand.'),
@@ -306,14 +301,13 @@ const RIVERSIDE_EXPANSION_CELLS: DistrictCell[] = [
   createScenery('river_grove', 1, 1, 'Grove Park', 'Scenery and district appeal.', 'park'),
   createLot('river_lot_05', 1, 2, 'Picnic Corner', 246, 52, 72, 'small', 'residential_edge', 'Weekend demand and light traffic.'),
   createLot('river_lot_06', 1, 3, 'Waterfront Pad', 356, 74, 86, 'large', 'mixed_use', 'High-appeal river frontage.'),
-  createLot('river_lot_07', 2, 0, 'Farm Road Lot', 154, 26, 50, 'micro', 'residential_edge', 'Very cheap future-development parcel.'),
+  createLot('river_lot_07', 2, 0, 'Farm Road Lot', 154, 26, 50, 'micro', 'residential_edge', 'Very cheap development parcel.'),
   createLot('river_lot_08', 2, 1, 'Bridge Market Lot', 334, 70, 84, 'medium', 'mixed_use', 'Bridge traffic and open expansion land.'),
   createNode('river_pickup', 2, 2, 'Rural Pickup', 'Rideshare pickup for longer trips.', 'rideshare', ['rideshare']),
   createLot('river_lot_09', 2, 3, 'Vista Lot', 280, 56, 78, 'large', 'residential_edge', 'Roomy parcel with good development upside.'),
   createLot('river_lot_10', 3, 0, 'Reserve Parcel', 168, 29, 54, 'small', 'residential_edge', 'Low-cost land bank slot.'),
   createLot('river_lot_11', 3, 1, 'Gateway Field Lot', 302, 64, 80, 'large', 'mixed_use', 'Gateway expansion parcel.'),
   createLot('river_lot_12', 3, 2, 'Creek Market Lot', 238, 48, 70, 'medium', 'service_flex', 'Flexible rural service pad.'),
-  createLocked('river_locked_01', 3, 3, 'Far Ridge Reserve', 'Held for a later rural expansion phase.'),
 ];
 
 const HARBOR_WORKS_CELLS: DistrictCell[] = [
@@ -332,7 +326,6 @@ const HARBOR_WORKS_CELLS: DistrictCell[] = [
   createLot('harbor_lot_10', 3, 0, 'Back Dock Lot', 198, 39, 60, 'small', 'logistics', 'Budget back-dock expansion.'),
   createLot('harbor_lot_11', 3, 1, 'Fleet Corner', 344, 74, 80, 'medium', 'service_flex', 'Corner traffic from fleet routes.'),
   createLot('harbor_lot_12', 3, 2, 'Industrial Plaza', 390, 78, 84, 'large', 'service_flex', 'High-capacity business parcel.'),
-  createLocked('harbor_locked_01', 3, 3, 'Outer Port Reserve', 'Future industrial capacity for later players.'),
 ];
 
 const WORLD_REGIONS: WorldRegion[] = [
@@ -348,17 +341,6 @@ const WORLD_REGIONS: WorldRegion[] = [
     cells: SUBURBAN_STARTER_CELLS,
   },
   {
-    id: 'suburban_lakeview',
-    label: 'North Suburbs',
-    subtitle: 'Future suburban unlock',
-    summary: 'More suburban housing lanes and bigger family lots.',
-    kind: 'suburban',
-    placement: { left: '56%', top: '8%', width: '28%', height: '18%' },
-    unlocked: false,
-    unlockCopy: FUTURE_PLAYER_UNLOCK_COPY,
-    cells: [],
-  },
-  {
     id: 'downtown_exchange',
     label: 'Downtown City',
     subtitle: 'Unlocked starter submap',
@@ -368,28 +350,6 @@ const WORLD_REGIONS: WorldRegion[] = [
     unlocked: true,
     defaultCellId: 'work_anchor',
     cells: DOWNTOWN_STARTER_CELLS,
-  },
-  {
-    id: 'downtown_rivergate',
-    label: 'Rivergate Towers',
-    subtitle: 'Future downtown unlock',
-    summary: 'Premium offices and prestige lots across the river.',
-    kind: 'downtown',
-    placement: { left: '63%', top: '56%', width: '18%', height: '16%' },
-    unlocked: false,
-    unlockCopy: FUTURE_PLAYER_UNLOCK_COPY,
-    cells: [],
-  },
-  {
-    id: 'market_row',
-    label: 'Market Row',
-    subtitle: 'Future market unlock',
-    summary: 'Daily commerce and trading lane.',
-    kind: 'market',
-    placement: { left: '8%', top: '70%', width: '22%', height: '14%' },
-    unlocked: false,
-    unlockCopy: FUTURE_PLAYER_UNLOCK_COPY,
-    cells: [],
   },
   {
     id: 'riverside_grove',
@@ -944,7 +904,7 @@ export default function MapDashboardScreen() {
     if (!region.unlocked) {
       loop.setFeedback({
         tone: 'info',
-        message: `${region.label} is still locked. ${region.unlockCopy || 'It opens in a later map phase.'}`,
+        message: `${region.label} is inactive in V1.`,
       });
       return;
     }
@@ -1791,7 +1751,7 @@ export default function MapDashboardScreen() {
                         && !businessNodeActive
                         && !jobBoardActive ? (
                           <Text style={styles.supportingCopy}>
-                            This landmark is part of the district identity now. More direct actions can be connected here in the next map phase.
+                            This landmark is part of the district identity.
                           </Text>
                         ) : null}
                     </View>
@@ -1828,9 +1788,8 @@ export default function MapDashboardScreen() {
               </View>
 
               <View style={styles.summaryRow}>
-                <MetricPill label="Unlocked now" value={`${unlockedRegions.length} areas`} />
+                <MetricPill label="V1 areas" value={`${unlockedRegions.length} areas`} />
                 <MetricPill label="Lot capacity" value={`${totalUnlockedLotCapacity} lots`} />
-                <MetricPill label="Locked" value={`${lockedRegions.length} areas`} />
               </View>
 
               <View style={styles.selectorBoard}>
@@ -1973,9 +1932,8 @@ export default function MapDashboardScreen() {
               </View>
 
               <View style={styles.summaryRow}>
-                <MetricPill label="Unlocked now" value={`${unlockedRegions.length} areas`} />
+                <MetricPill label="V1 areas" value={`${unlockedRegions.length} areas`} />
                 <MetricPill label="Lot capacity" value={`${totalUnlockedLotCapacity} lots`} />
-                <MetricPill label="Locked next" value={`${lockedRegions.length} areas`} />
               </View>
 
               <OnboardingHighlight target="map-primary-actions">
@@ -1991,7 +1949,7 @@ export default function MapDashboardScreen() {
                         <Text style={styles.mainMapCalloutEyebrow}>Tap Main Map</Text>
                         <Text style={styles.mainMapCalloutTitle}>Open unlocked areas</Text>
                         <Text style={styles.mainMapCalloutSubtitle}>
-                          Suburban, Downtown, Riverside, and Harbor Works are live now. Remaining districts stay locked for future city phases.
+                          Suburban, Downtown, Riverside, and Harbor Works are the active V1 city.
                         </Text>
                       </View>
                     </View>
@@ -1999,12 +1957,6 @@ export default function MapDashboardScreen() {
                 </Pressable>
               </OnboardingHighlight>
 
-              <View style={styles.mainMapLockedNotice}>
-                <MaterialCommunityIcons name="lock-outline" size={18} color={theme.ui.warning} />
-                <Text style={styles.mainMapLockedNoticeText}>
-                  Future regions stay locked until more players join the city.
-                </Text>
-              </View>
             </ScrollView>
           )}
         </View>

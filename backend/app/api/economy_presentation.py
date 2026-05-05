@@ -15,7 +15,6 @@ from app.engine.economy_presentation_service import (
     build_business_margin_summary,
     build_commute_pressure_summary,
     build_economy_presentation_summary,
-    build_future_opportunity_teasers,
     build_market_overview,
     build_player_economy_explainer,
     build_price_trend_summary,
@@ -24,7 +23,6 @@ from app.schemas.economy_presentation import (
     BusinessMarginsResponse,
     CommutePressureResponse,
     EconomyPresentationSummaryResponse,
-    FutureOpportunityTeasersResponse,
     MarketOverviewResponse,
     PlayerEconomyExplainerResponse,
     PriceTrendsResponse,
@@ -111,20 +109,6 @@ def get_player_explainer(
     except Exception as exc:
         _raise_http_error(exc)
     return PlayerEconomyExplainerResponse(**payload)
-
-
-@router.get("/player/{player_id}/future-teasers", response_model=FutureOpportunityTeasersResponse)
-def get_future_teasers(
-    player_id: str,
-    as_of_date: date | None = Query(default=None),
-    db: Session = Depends(get_db),
-) -> FutureOpportunityTeasersResponse:
-    """Return subtle locked future opportunity teasers (non-actionable)."""
-    try:
-        payload = build_future_opportunity_teasers(db=db, player_id=player_id, as_of_date=as_of_date)
-    except Exception as exc:
-        _raise_http_error(exc)
-    return FutureOpportunityTeasersResponse(**payload)
 
 
 @router.get("/player/{player_id}/summary", response_model=EconomyPresentationSummaryResponse)

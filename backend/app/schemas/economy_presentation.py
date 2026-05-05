@@ -67,7 +67,6 @@ class CommutePressureResponse(BaseModel):
     time_impact_label: str
     housing_tradeoff_summary: str
     suggested_current_responses: list[str] = Field(default_factory=list)
-    future_locked_solutions: list[str] = Field(default_factory=list)
     debug_meta: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -81,22 +80,6 @@ class PlayerEconomyExplainerResponse(BaseModel):
     this_week_focus: str
     suggested_defensive_move: str
     suggested_growth_move: str
-    debug_meta: dict[str, Any] = Field(default_factory=dict)
-
-
-class FutureOpportunityTeaser(BaseModel):
-    teaser_key: str
-    title: str
-    body: str
-    unlock_status: str
-    category: str
-    debug_meta: dict[str, Any] = Field(default_factory=dict)
-
-
-class FutureOpportunityTeasersResponse(BaseModel):
-    player_id: str
-    as_of_date: str
-    teasers: list[FutureOpportunityTeaser] = Field(default_factory=list)
     debug_meta: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -131,7 +114,6 @@ class EconomyPresentationSummaryResponse(BaseModel):
     business_margins: BusinessMarginsResponse
     commute_pressure: CommutePressureResponse
     explainer: PlayerEconomyExplainerResponse
-    future_teasers: FutureOpportunityTeasersResponse
     daily_brief: DailyEconomyBriefResponse
     supply_chain_summary: SupplyChainSummaryResponse
     supply_chain_story: SupplyChainStoryResponse

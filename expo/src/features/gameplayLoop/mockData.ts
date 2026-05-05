@@ -8,7 +8,6 @@ import {
 import { EconomyPresentationSummaryResponse } from '@/types/economyPresentation';
 import { PlayerBusinessesResponse } from '@/types/business';
 import { StockMarketSnapshotResponse } from '@/types/stocks';
-import { BusinessPlanResponse } from '@/types/strategicPlanning';
 
 function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
@@ -274,7 +273,6 @@ export function createMockEconomySummary(playerId: string): EconomyPresentationS
       time_impact_label: 'Medium travel overhead',
       housing_tradeoff_summary: 'Closer housing reduces commute stress but increases fixed costs.',
       suggested_current_responses: ['Bundle actions by area', 'Prioritize high-yield shifts'],
-      future_locked_solutions: ['Region relocation unlock at higher cash buffer'],
       debug_meta: { source: 'local_mock' },
     },
     explainer: {
@@ -287,20 +285,6 @@ export function createMockEconomySummary(playerId: string): EconomyPresentationS
       this_week_focus: 'Preserve liquidity while taking stable income actions.',
       suggested_defensive_move: 'Work main shift before optional risk actions.',
       suggested_growth_move: 'Operate food truck once after cash baseline is secured.',
-      debug_meta: { source: 'local_mock' },
-    },
-    future_teasers: {
-      player_id: playerId,
-      as_of_date: date,
-      teasers: [
-        {
-          teaser_key: 'supply_contracts',
-          title: 'Supplier Contract Route',
-          body: 'Lock lower input costs once your reliability score improves.',
-          unlock_status: 'locked',
-          category: 'business',
-        },
-      ],
       debug_meta: { source: 'local_mock' },
     },
     daily_brief: {
@@ -487,37 +471,6 @@ export function createMockBusinesses(playerId: string): PlayerBusinessesResponse
         },
       ],
     },
-  };
-}
-
-export function createMockBusinessPlan(playerId: string): BusinessPlanResponse {
-  return {
-    player_id: playerId,
-    as_of_date: todayIsoDate(),
-    items: [
-      {
-        business_key: 'food_truck',
-        business_present: true,
-        current_mode: 'balanced',
-        demand_outlook: 'supportive',
-        input_cost_outlook: 'moderate',
-        margin_stability: 'stable',
-        recommendation_over_horizon:
-          'Operate once after securing base income, then keep inventory tight.',
-        key_watch_item: 'Transport basket pressure can tighten daily margin quickly.',
-      },
-      {
-        business_key: 'fruit_shop',
-        business_present: false,
-        current_mode: 'none',
-        demand_outlook: 'stable',
-        input_cost_outlook: 'moderate',
-        margin_stability: 'mixed',
-        recommendation_over_horizon: 'Delay expansion until debt pressure is reduced.',
-        key_watch_item: 'Fixed-cost commitments can overwhelm thin cash buffers.',
-      },
-    ],
-    debug_meta: { source: 'local_mock' },
   };
 }
 

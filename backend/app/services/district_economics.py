@@ -126,7 +126,6 @@ LOCATION_TO_DISTRICT: dict[str, str] = {
     "home": "makers",
     "housing": "makers",
     "clinic": "makers",
-    "gas_station": "makers",
     "grocery": "heights",
     "rideshare_hotspot_suburban": "makers",
     "job_center": "midtown",
@@ -135,8 +134,6 @@ LOCATION_TO_DISTRICT: dict[str, str] = {
     "rideshare_hotspot_downtown": "midtown",
     "business_spot": "harbor",
     "bank": "exchange",
-    "stock_center": "exchange",
-    "car_sale": "exchange",
 }
 
 

@@ -2,7 +2,7 @@ import React, { useMemo } from 'react';
 import { Modal, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import TextButton from '@/components/ui/TextButton';
-import { theme } from '@/design/theme';
+import { alpha, theme } from '@/design/theme';
 import type { AbsenceSummary } from '@/types/gameplay';
 
 export interface AbsenceModalProps {
@@ -80,7 +80,6 @@ export default function AbsenceModal({ visible, summary, onContinue }: AbsenceMo
           <TextButton
             label="Continue"
             onPress={onContinue}
-            accessibilityLabel="Dismiss absence summary and continue"
           />
         </View>
       </View>
@@ -91,32 +90,32 @@ export default function AbsenceModal({ visible, summary, onContinue }: AbsenceMo
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.72)',
+    backgroundColor: alpha(theme.ui.bg.app, 0.72),
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 20,
+    padding: theme.spacing.lg,
   },
   card: {
     width: '100%',
     maxWidth: 420,
-    backgroundColor: theme.colors?.surface ?? '#ffffff',
-    borderRadius: 16,
-    padding: 20,
-    gap: 14,
+    backgroundColor: theme.ui.bg.sheet,
+    borderRadius: theme.radius.lg,
+    padding: theme.spacing.lg,
+    gap: theme.spacing.md,
   },
   eyebrow: {
-    fontSize: 12,
-    letterSpacing: 1.2,
+    ...theme.typography.caption,
+    letterSpacing: 0,
     textTransform: 'uppercase',
-    color: theme.colors?.textMuted ?? '#64748b',
+    color: theme.ui.text.onLightMuted,
   },
   title: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: theme.colors?.text ?? '#0f172a',
+    ...theme.typography.headingMd,
+    fontWeight: '700',
+    color: theme.ui.text.onLight,
   },
   rows: {
-    gap: 8,
+    gap: theme.spacing.sm,
   },
   row: {
     flexDirection: 'row',
@@ -124,26 +123,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   rowLabel: {
-    fontSize: 14,
-    color: theme.colors?.textMuted ?? '#64748b',
+    ...theme.typography.bodySm,
+    color: theme.ui.text.onLightMuted,
   },
   rowValue: {
-    fontSize: 14,
+    ...theme.typography.bodySm,
     fontWeight: '600',
-    color: theme.colors?.text ?? '#0f172a',
+    color: theme.ui.text.onLight,
   },
   warningsBox: {
     maxHeight: 160,
-    backgroundColor: theme.colors?.surfaceMuted ?? '#f1f5f9',
-    borderRadius: 10,
-    padding: 12,
+    backgroundColor: alpha(theme.ui.bg.cardRaised, 0.12),
+    borderRadius: theme.radius.md,
+    padding: theme.spacing.md,
   },
   warningsContent: {
-    gap: 6,
+    gap: theme.spacing.xs,
   },
   warning: {
-    fontSize: 13,
+    ...theme.typography.bodySm,
     lineHeight: 18,
-    color: theme.colors?.text ?? '#0f172a',
+    color: theme.ui.text.onLight,
   },
 });
