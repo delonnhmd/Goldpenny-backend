@@ -108,30 +108,21 @@ async function resolveSection<T>(
 }
 
 function emptyEconomySummary(playerId: string) {
+  // V1 empty safe state — all numeric/array fields zeroed so the UI renders
+  // "no data" rather than fake content. Cast through unknown because the
+  // real schema is large and structural — the UI must treat empty arrays as
+  // legitimate empty data.
   return {
     player_id: playerId,
-    as_of_day: 0,
-    macro_state: null,
-    economy_pulse: null,
-    sectors: [],
-    player_warnings: [],
-    player_opportunities: [],
     debug_meta: { source: 'empty_safe_state' },
-  } as ReturnType<typeof createMockEconomySummary>;
+  } as unknown as ReturnType<typeof createMockEconomySummary>;
 }
 
 function emptyStockMarket(playerId: string) {
   return {
     player_id: playerId,
-    as_of_day: 0,
-    market_open: false,
-    indices: [],
-    sectors: [],
-    movers_up: [],
-    movers_down: [],
-    holdings: [],
     debug_meta: { source: 'empty_safe_state' },
-  } as ReturnType<typeof createMockStockMarket>;
+  } as unknown as ReturnType<typeof createMockStockMarket>;
 }
 
 function emptyBusinesses(playerId: string) {
