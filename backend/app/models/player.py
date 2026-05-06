@@ -2,7 +2,7 @@ import uuid
 
 from sqlalchemy import Boolean, Column, Date, DateTime, Float, Integer, Numeric, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship, synonym
+from sqlalchemy.orm import relationship, synonym, validates
 
 from app.db.database import Base
 
@@ -15,6 +15,12 @@ class Player(Base):
     # were created before the auth migration; uniqueness enforced via
     # partial unique index ux_players_user_id.
     user_id = Column(Text, nullable=True, unique=True, index=True)
+
+    @validates("user_id")
+    def _coerce_user_id(self, _key: str, value: object) -> str | None:
+        if value is None:
+            return None
+        return str(value)
 
     # ── Finances ──────────────────────────────────────────────────────────────
     cash = Column(Numeric(12, 2), nullable=False, default=1000)

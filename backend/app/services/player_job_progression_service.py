@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
 from app.engine.career_config import CAREER_CONFIG
@@ -56,6 +57,20 @@ def _money_decimal(value: Any) -> Decimal:
 
 def _canonical_job_key(job_key: str | None) -> str:
     return normalize_main_job_key(job_key, allow_aliases=True) or str(job_key or "").strip().lower()
+
+
+def player_job_progressions_table_available(db: Session) -> bool:
+    table_name = PlayerJobProgression.__tablename__
+    table_cache = db.info.setdefault("_table_exists_cache", {})
+    cached = table_cache.get(table_name)
+    if cached is not None:
+        return bool(cached)
+    try:
+        available = bool(inspect(db.connection()).has_table(table_name))
+    except Exception:
+        available = True
+    table_cache[table_name] = available
+    return available
 
 
 def resolve_level_from_total_xp(total_xp: int) -> int:
@@ -149,6 +164,8 @@ def get_player_job_progression(
     key = _canonical_job_key(job_key)
     if not key:
         return None
+    if not player_job_progressions_table_available(db):
+        return None
     return (
         db.query(PlayerJobProgression)
         .filter(
@@ -167,6 +184,8 @@ def get_or_create_player_job_progression(
 ) -> PlayerJobProgression | None:
     key = _canonical_job_key(job_key)
     if not key:
+        return None
+    if not player_job_progressions_table_available(db):
         return None
     row = get_player_job_progression(db, player_id=player_id, job_key=key)
     if row is not None:
@@ -406,6 +425,8 @@ def list_player_job_progressions(
     *,
     player_id: UUID | str,
 ) -> list[PlayerJobProgression]:
+    if not player_job_progressions_table_available(db):
+        return []
     rows = (
         db.query(PlayerJobProgression)
         .filter(PlayerJobProgression.player_id == UUID(str(player_id)))

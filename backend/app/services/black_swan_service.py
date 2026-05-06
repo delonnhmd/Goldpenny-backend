@@ -104,11 +104,19 @@ def _resolve_player(db: Session, player_id: str | UUID) -> Player:
 
 
 def _table_available(db: Session, table_name: str) -> bool:
+    normalized = str(table_name or "").strip()
+    if not normalized:
+        return False
+    table_cache = db.info.setdefault("_table_exists_cache", {})
+    cached = table_cache.get(normalized)
+    if cached is not None:
+        return bool(cached)
     try:
-        bind = db.get_bind()
-        return bool(inspect(bind).has_table(table_name))
+        available = bool(inspect(db.connection()).has_table(normalized))
     except Exception:
-        return True
+        available = True
+    table_cache[normalized] = available
+    return available
 
 
 def _json_loads(raw: object) -> object:

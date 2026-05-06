@@ -228,18 +228,26 @@ def _fractional_time_remainder(units: Any) -> float:
     return 0.0 if remainder < 0.0001 else remainder
 
 
-def _current_game_day(db: Session) -> int:
-    return int(get_or_create_game_state(db).current_day)
+def _current_game_day(db: Session, *, allow_game_state_commit: bool = True) -> int:
+    try:
+        return int(get_or_create_game_state(db, commit_on_create=allow_game_state_commit).current_day)
+    except OperationalError:
+        return 1
 
 
-def _current_game_day_for_player(db: Session, player: Player) -> int:
+def _current_game_day_for_player(
+    db: Session,
+    player: Player,
+    *,
+    allow_game_state_commit: bool = True,
+) -> int:
     """Resolve in-game day for player-facing work/rideshare state.
 
     We prioritize whichever is ahead between:
     - global GameState day (legacy/global systems)
     - player's personal progression day (latest PlayerDailyState / last_settled_day)
     """
-    global_day = _current_game_day(db)
+    global_day = _current_game_day(db, allow_game_state_commit=allow_game_state_commit)
     player_progress_day = max(1, int(getattr(player, "last_settled_day", 0) or 0) + 1)
     latest_pds = (
         db.query(PlayerDailyState)
@@ -1391,9 +1399,14 @@ def sync_shift_day_rules_if_needed(
     player: Player,
     day_number: int | None = None,
     now_houston: datetime | None = None,
+    allow_game_state_commit: bool = True,
 ) -> dict[str, Any]:
     resolved_now = _as_houston(now_houston) or get_houston_now()
-    inferred_day = _current_game_day_for_player(db, player)
+    inferred_day = _current_game_day_for_player(
+        db,
+        player,
+        allow_game_state_commit=allow_game_state_commit,
+    )
     current_day = max(1, int(day_number or inferred_day))
     if current_day == inferred_day:
         _maybe_reset_daily_counters(player, current_day)

@@ -1785,6 +1785,35 @@ export async function previewPlayerAction(
   return normalizePreview(raw, playerId, payload.action_key);
 }
 
+export interface PurchaseMapSlotRequest {
+  tile_key: string;
+  district_key: string;
+  price_xgp: number;
+  address?: string | null;
+}
+
+export interface PurchaseMapSlotResponse {
+  player_id: string;
+  tile_key: string;
+  district_key: string;
+  price_xgp: number;
+  cash_before_xgp: number;
+  cash_after_xgp: number;
+  purchased_at: string;
+}
+
+export async function purchaseMapSlot(
+  playerId: string,
+  payload: PurchaseMapSlotRequest,
+): Promise<PurchaseMapSlotResponse> {
+  const path = `/gameplay/player/${playerId}/map/purchase_slot`;
+  logCanonicalRoute('map_purchase_slot', playerId, path);
+  return fetchApi<PurchaseMapSlotResponse>(path, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function getEndOfDaySummary(playerId: string): Promise<EndOfDaySummaryResponse> {
   const path = `/gameplay/player/${playerId}/end-of-day-summary`;
   logCanonicalRoute('end_of_day_summary', playerId, path);

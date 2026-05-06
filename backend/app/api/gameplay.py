@@ -42,6 +42,7 @@ from app.services.daily_brief_service import (
     DailyBriefNotFoundError,
     get_player_latest_daily_brief,
 )
+from app.services.strategic_brief_service import build_strategic_brief
 from app.services.daily_settlement_service import (
     DailySettlementError,
     SettlementNotFoundError,
@@ -112,7 +113,11 @@ from app.services.gameplay_transaction_service import (
 )
 from app.services.player_transaction_log_service import record_player_transaction
 from app.services.game_time_service import get_game_time_payload
-from app.services.run_end_service import get_player_run_status
+from app.services.run_end_service import (
+    ENDED_RUN_STATUSES,
+    get_player_run_status,
+    normalize_run_status,
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -1616,6 +1621,30 @@ def _build_dashboard_payload(
         _starter_daily_brief(current_job if current_job else None),
     )
 
+    try:
+        strategic_brief = build_strategic_brief(
+            db,
+            player.id,
+            int((brief_payload or {}).get("day") or 1),
+        )
+    except Exception as exc:
+        logger.warning(
+            "gameplay.strategic_brief failed",
+            extra={"player_id": str(player.id), "error": str(exc)},
+        )
+        degraded_sections.append("strategic_brief")
+        strategic_brief = {
+            "headline": "Strategic brief unavailable.",
+            "today_pressure": "",
+            "macro_summary": "",
+            "player_condition": "",
+            "business_alerts": [],
+            "portfolio_alerts": [],
+            "map_opportunities": [],
+            "risk_warnings": [],
+            "recommended_actions": [],
+        }
+
     recommended_actions = [
         {
             "action_key": "work_shift" if current_job else "switch_job",
@@ -1658,6 +1687,7 @@ def _build_dashboard_payload(
         "top_risks": top_risks,
         "economy_risk_overview": economy_risk_overview,
         "recommended_actions": recommended_actions,
+        "strategic_brief": strategic_brief,
         "job_progress": job_progress,
         "actions_remaining_today": _derive_actions_remaining_today(work_state or {}),
         "work_state": work_state,
@@ -2521,6 +2551,99 @@ def preview_gameplay_action(
     return base
 
 
+class MapSlotPurchaseRequest(BaseModel):
+    tile_key: str = Field(..., min_length=1, max_length=120)
+    district_key: str = Field(..., min_length=1, max_length=80)
+    price_xgp: float = Field(..., ge=0)
+    address: str | None = Field(default=None, max_length=240)
+
+
+@router.post("/player/{player_id}/map/purchase_slot")
+def purchase_map_slot(
+    player_id: str,
+    body: MapSlotPurchaseRequest,
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """Phase 4 blocker: deduct backend cash for a map lot purchase.
+
+    Sandbox lot ownership remains client-side, but the cash side is now
+    authoritative on the backend. The sandbox must call this endpoint and
+    only mark the lot owned on a successful 200 response.
+    """
+    player = _resolve_player(db, player_id)
+    run_status_value = normalize_run_status(player)
+    if run_status_value in ENDED_RUN_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Run has ended with status '{run_status_value}'. "
+                "Start a new run to purchase land."
+            ),
+        )
+
+    price = Decimal(str(body.price_xgp or 0)).quantize(Decimal("0.01"))
+    if price < Decimal("0"):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Slot price must be non-negative.",
+        )
+
+    cash_before = Decimal(str(player.cash_xgp or 0)).quantize(Decimal("0.01"))
+    if cash_before < price:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=(
+                f"Not enough cash to purchase slot. "
+                f"Cash {float(cash_before):.2f} XGP, price {float(price):.2f} XGP."
+            ),
+        )
+
+    cash_after = (cash_before - price).quantize(Decimal("0.01"))
+    try:
+        player.cash = cash_after
+        record_player_transaction(
+            db,
+            player=player,
+            day=int(getattr(player, "last_settled_day", 0) or 0) or None,
+            transaction_type="purchase",
+            category="map_slot",
+            asset_symbol=None,
+            gross_amount=price,
+            fee_amount=Decimal("0"),
+            net_cash_delta=-price,
+            resulting_cash_balance=cash_after,
+            metadata={
+                "tile_key": body.tile_key,
+                "district_key": body.district_key,
+                "address": body.address,
+            },
+        )
+        db.commit()
+        db.refresh(player)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        db.rollback()
+        logger.exception(
+            "gameplay.map.purchase_slot failed",
+            extra={"player_id": str(player.id), "tile_key": body.tile_key, "error": str(exc)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not complete slot purchase.",
+        )
+
+    return {
+        "player_id": str(player.id),
+        "tile_key": body.tile_key,
+        "district_key": body.district_key,
+        "price_xgp": float(price),
+        "cash_before_xgp": float(cash_before),
+        "cash_after_xgp": float(cash_after),
+        "purchased_at": datetime.utcnow().isoformat(),
+    }
+
+
 @router.post("/player/{player_id}/actions/execute")
 def execute_gameplay_action(
     player_id: str,
@@ -2528,6 +2651,16 @@ def execute_gameplay_action(
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     player = _resolve_player(db, player_id)
+    # Phase 4 blocker: bankrupt or retired runs must not execute new actions.
+    run_status_value = normalize_run_status(player)
+    if run_status_value in ENDED_RUN_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Run has ended with status '{run_status_value}'. "
+                "Start a new run to take actions."
+            ),
+        )
     action_key = str(body.action_key or "").strip().lower()
     params = body.parameters or {}
     work_state = _sync_player_work_state(db, player)

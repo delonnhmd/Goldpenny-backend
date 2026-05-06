@@ -7,6 +7,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
 from app.models.player import Player
@@ -29,6 +30,20 @@ def _resolve_player_id(player: Player | UUID | str) -> UUID:
     if isinstance(player, UUID):
         return player
     return UUID(str(player))
+
+
+def player_transaction_logs_table_available(db: Session) -> bool:
+    table_name = PlayerTransactionLog.__tablename__
+    table_cache = db.info.setdefault("_table_exists_cache", {})
+    cached = table_cache.get(table_name)
+    if cached is not None:
+        return bool(cached)
+    try:
+        available = bool(inspect(db.connection()).has_table(table_name))
+    except Exception:
+        available = True
+    table_cache[table_name] = available
+    return available
 
 
 def record_player_transaction(
@@ -62,6 +77,8 @@ def record_player_transaction(
         resulting_cash_balance=_q4(_d(resulting_cash_balance)),
         metadata_json=payload,
     )
+    if not player_transaction_logs_table_available(db):
+        return row
     db.add(row)
     return row
 
@@ -72,6 +89,8 @@ def list_recent_player_transactions(
     player: Player | UUID | str,
     limit: int = 50,
 ) -> list[PlayerTransactionLog]:
+    if not player_transaction_logs_table_available(db):
+        return []
     safe_limit = max(1, min(int(limit), 200))
     return (
         db.query(PlayerTransactionLog)

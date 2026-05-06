@@ -335,11 +335,13 @@ def get_player_portfolio_asset_summary(db: Session, player_id: str | UUID) -> di
 
     for business in business_rows:
         inventory_value = calculate_inventory_value_for_business(db, business, day=day)
+        # V1 rule: total_assets = cash + stocks + land + business_value_without_inventory + inventory_value.
+        # Pass inventory_value=0 here so business_value excludes inventory; we add it separately below.
         estimated_business_value = estimate_business_value(
             db,
             business,
             day=day,
-            inventory_value=inventory_value,
+            inventory_value=Decimal("0.00"),
         )
         average_profit = _average_recent_profit_xgp(db, business, day=day, window_days=7)
         latest_log = _latest_business_log(db, business, day=day)

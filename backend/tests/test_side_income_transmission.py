@@ -145,17 +145,18 @@ class SideIncomeTransmissionTests(unittest.TestCase):
             self.assertEqual(shift["maintenance_cost_xgp"], Decimal("0.00"))
 
     def test_process_rideshare_action_enforces_daily_anti_grind_cap(self) -> None:
-        with self.assertRaises(ValueError):
-            process_rideshare_action(self.db, self.player, 7)
+        first = process_rideshare_action(self.db, self.player, trips=5)
+        self.assertEqual(first["trips_completed"], 5)
+        self.assertEqual(first["hours_worked"], 2.5)
 
-        first = process_rideshare_action(self.db, self.player, 4)
-        self.assertEqual(first["hours_worked"], 4)
+        # Only one trip should remain under the six-trip side-income cap.
+        second = process_rideshare_action(self.db, self.player, trips=3)
+        self.assertEqual(second["trips_completed"], 1)
+        self.assertTrue(second["partial_completion"])
 
-        # Only 2 hours should remain under the 6h side-income cap.
         with self.assertRaises(ValueError):
-            process_rideshare_action(self.db, self.player, 3)
+            process_rideshare_action(self.db, self.player, trips=1)
 
 
 if __name__ == "__main__":
     unittest.main()
-

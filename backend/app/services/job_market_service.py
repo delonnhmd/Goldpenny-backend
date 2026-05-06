@@ -260,9 +260,12 @@ def compute_daily_job_market_updates(
         as_of_date=as_of_date if day is None else None,
         macro_day=int(macro.day),
     )
-    pressure_by_job = {
-        str(row["job_key"]): row for row in supply_snapshot.get("job_pressure", [])
-    }
+    pressure_by_job: dict[str, dict[str, Any]] = {}
+    for row in supply_snapshot.get("job_pressure", []):
+        raw_job_key = str(row.get("job_key") or "").strip().lower()
+        canonical_job_key = normalize_main_job_key(raw_job_key, allow_aliases=True) or raw_job_key
+        if canonical_job_key:
+            pressure_by_job[canonical_job_key] = row
 
     updates: list[dict[str, Any]] = []
     for job_key in SUPPORTED_JOB_KEYS:

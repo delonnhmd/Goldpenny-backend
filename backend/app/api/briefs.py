@@ -14,6 +14,7 @@ from app.services.daily_brief_service import (
     get_player_latest_daily_brief,
 )
 from app.services.daily_settlement_service import SettlementNotFoundError, get_next_player_day
+from app.services.strategic_brief_service import build_strategic_brief
 
 router = APIRouter()
 
@@ -82,6 +83,21 @@ def get_latest_player_brief_route(player_id: str, db: Session = Depends(get_db))
     except Exception as exc:
         _raise_brief_http_error(exc)
     return BriefGenerateResponse(**result)
+
+
+@router.get("/player/{player_id}/strategic", summary="Strategic daily brief for player")
+def get_player_strategic_brief_route(
+    player_id: str,
+    day: int | None = Query(default=None, ge=1),
+    db: Session = Depends(get_db),
+) -> dict:
+    try:
+        target_day = int(day) if day is not None else _default_brief_day(db, player_id)
+    except SettlementNotFoundError:
+        target_day = 1
+    except Exception:
+        target_day = 1
+    return build_strategic_brief(db=db, player_id=player_id, day=target_day)
 
 
 @router.get("/player/{player_id}/history", response_model=BriefHistoryResponse, summary="Daily brief history for player")

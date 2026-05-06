@@ -62,6 +62,7 @@ class LifeDayProgressionTests(unittest.TestCase):
         self.db.flush()
 
         self.player = Player(
+            id=uuid.UUID("81dfeba6-e942-5240-8bb1-190c17b73fbb"),
             user_id=user.id,
             cash=Decimal("4200.00"),
             debt_xgp=Decimal("1200.00"),
@@ -122,8 +123,8 @@ class LifeDayProgressionTests(unittest.TestCase):
 
         self.db.add(
             JobDefinitionDB(
-                job_code="retail_worker",
-                title="Retail Worker",
+                job_code="retail",
+                title="Retail",
                 base_monthly_pay_xgp=Decimal("2800.00"),
                 stability_pct=Decimal("0.68"),
                 growth_pct=Decimal("0.45"),
@@ -135,7 +136,7 @@ class LifeDayProgressionTests(unittest.TestCase):
             PlayerEmploymentState(
                 player_id=self.player.id,
                 day=1,
-                current_job_code="retail_worker",
+                current_job_code="retail",
                 skill_level=1,
                 monthly_pay_xgp=Decimal("2800.00"),
                 employed_flag=True,

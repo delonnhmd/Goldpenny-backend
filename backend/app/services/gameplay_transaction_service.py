@@ -5,6 +5,7 @@ from __future__ import annotations
 from decimal import Decimal, ROUND_HALF_UP
 from uuid import UUID
 
+from sqlalchemy import inspect
 from sqlalchemy.orm import Session
 
 from app.models.gameplay_transaction import GameplayTransaction
@@ -27,6 +28,20 @@ def _resolve_player_id(player: Player | UUID | str) -> UUID:
     if isinstance(player, UUID):
         return player
     return UUID(str(player))
+
+
+def gameplay_transactions_table_available(db: Session) -> bool:
+    table_name = GameplayTransaction.__tablename__
+    table_cache = db.info.setdefault("_table_exists_cache", {})
+    cached = table_cache.get(table_name)
+    if cached is not None:
+        return bool(cached)
+    try:
+        available = bool(inspect(db.connection()).has_table(table_name))
+    except Exception:
+        available = True
+    table_cache[table_name] = available
+    return available
 
 
 def record_gameplay_transaction(
@@ -55,6 +70,8 @@ def record_gameplay_transaction(
         amount=normalized_amount,
         description=str(description or "").strip() or "Gameplay transaction",
     )
+    if not gameplay_transactions_table_available(db):
+        return row
     db.add(row)
     return row
 
@@ -65,6 +82,8 @@ def list_gameplay_transactions_for_day(
     player: Player | UUID | str,
     day: int,
 ) -> list[GameplayTransaction]:
+    if not gameplay_transactions_table_available(db):
+        return []
     return (
         db.query(GameplayTransaction)
         .filter(

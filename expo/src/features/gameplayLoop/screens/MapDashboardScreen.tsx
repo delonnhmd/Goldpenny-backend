@@ -44,6 +44,7 @@ import {
   isHotSlot,
 } from '@/lib/slotEconomics';
 import { openBusiness } from '@/lib/api/business';
+import { purchaseMapSlot } from '@/lib/api/gameplay';
 import type {
   BusinessLandZoneType,
   BusinessLotSize,
@@ -1118,6 +1119,24 @@ export default function MapDashboardScreen() {
   const purchaseSelectedLot = async () => {
     if (!selectedRegion || !selectedCell || selectedCell.type !== 'lot' || selectedLotOwnership || !selectedSlotEconomics) return;
     const tileKey = cellTileKey(selectedRegion.id, selectedCell.id);
+    // Phase 4 blocker: backend cash deduction must succeed before we mark the lot owned.
+    try {
+      await purchaseMapSlot(loop.playerId, {
+        tile_key: tileKey,
+        district_key: selectedRegion.id,
+        price_xgp: Number(selectedCell.priceXgp || 0),
+        address: selectedSlotEconomics.address || null,
+      });
+    } catch (error) {
+      const raw = error instanceof Error ? error.message : String(error);
+      const friendly = raw.includes('Not enough cash')
+        ? raw
+        : raw.includes('Run has ended')
+          ? raw
+          : 'Could not purchase this lot right now. Please try again.';
+      loop.setFeedback({ tone: 'error', message: friendly });
+      return;
+    }
     await persistSandboxState((current) => ({
       ...current,
       owned_lots: [
@@ -1157,6 +1176,7 @@ export default function MapDashboardScreen() {
       tone: 'success',
       message: `${selectedCell.title} secured in ${selectedRegion.label}.`,
     });
+    await loop.refresh({ silent: true });
   };
 
   const placeActiveBusinessOnLot = async () => {

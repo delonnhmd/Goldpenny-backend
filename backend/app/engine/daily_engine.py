@@ -132,7 +132,7 @@ def calculate_next_day_hours() -> int:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def get_or_create_game_state(db: Session) -> GameState:
+def get_or_create_game_state(db: Session, *, commit_on_create: bool = True) -> GameState:
     """
     Fetch the singleton GameState row, creating it if none exists.
 
@@ -147,8 +147,11 @@ def get_or_create_game_state(db: Session) -> GameState:
             day_started_at=datetime.now(tz=timezone.utc),
         )
         db.add(state)
-        db.commit()
-        db.refresh(state)
+        if commit_on_create:
+            db.commit()
+            db.refresh(state)
+        else:
+            db.flush()
     return state
 
 

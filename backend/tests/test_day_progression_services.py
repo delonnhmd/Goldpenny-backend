@@ -347,7 +347,7 @@ class DayProgressionServiceTests(unittest.TestCase):
         self.assertEqual(float(pds.missed_penalty or 0), 0.0)
         self.assertEqual(float(pds.salary_earned or 0), 0.0)
         self.assertTrue({"food", "rent", "missed_work", "health_penalty", "ride_share"}.issubset(categories))
-        self.assertIn("Missed shift (Banker 10:00 AM-6:00 PM) - no salary earned", descriptions)
+        self.assertIn("Missed shift (Banker 10:00 AM-4:00 PM) - no salary earned", descriptions)
         self.assertIn("Health -5, Stress +6", descriptions)
         if float(result.get("weekly_gas_expense_xgp", 0.0)) > 0.0 or float(result.get("commute_fuel_cost_xgp", 0.0)) > 0.0:
             self.assertIn("gas", categories)

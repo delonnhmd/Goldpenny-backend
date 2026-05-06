@@ -358,8 +358,11 @@ class ShiftStateServiceTests(unittest.TestCase):
             .all()
         )
         work_state = build_work_state_payload(self.db, self.player)
-        job_rows = (work_state.get("job_market") or {}).get("jobs") or []
-        aircraft_row = next(row for row in job_rows if str(row.get("job_key") or "") == "aircraft_mechanic")
+        job_market = work_state.get("job_market") or {}
+        certification_rows = job_market.get("certifications") or []
+        certification_row = next(
+            row for row in certification_rows if str(row.get("certification_key") or "") == certification_key
+        )
 
         self.assertTrue(bool(result.get("success")))
         self.assertEqual(int(self.player.hours_available or 0), 23)
@@ -369,9 +372,9 @@ class ShiftStateServiceTests(unittest.TestCase):
         self.assertAlmostEqual(float(training_rows[0].amount or 0), -certification_cost, places=2)
         self.assertIn("Training fee", str(training_rows[0].description))
         self.assertIn("0 / 6 days complete", str(result.get("result_summary") or ""))
-        self.assertTrue(bool((work_state.get("job_market") or {}).get("training_active")))
-        self.assertTrue(bool(aircraft_row.get("training_in_progress")))
-        self.assertFalse(bool(aircraft_row.get("can_start_training")))
+        self.assertTrue(bool(job_market.get("training_active")))
+        self.assertEqual(str(job_market.get("training_certification_key") or ""), certification_key)
+        self.assertTrue(bool(certification_row.get("in_progress")))
 
     def test_rideshare_state_reports_limit_reached_at_cap(self) -> None:
         self.player.main_job = None

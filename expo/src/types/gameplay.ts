@@ -748,11 +748,48 @@ export interface PlayerDashboardResponse {
   top_risks: DashboardSignalItem[];
   economy_risk_overview?: EconomyRiskOverview | null;
   recommended_actions: ActionRecommendation[];
+  strategic_brief?: StrategicBrief | null;
   job_progress?: JobProgressSnapshot | null;
   actions_remaining_today?: number;
   work_state?: WorkStateSnapshot | null;
   authoritative_state?: GameplayAuthoritativeState | null;
   debug_meta?: Record<string, unknown>;
+}
+
+export type StrategicAlertSeverity = 'low' | 'medium' | 'high';
+export type StrategicTargetScreen = 'Life' | 'Map' | 'Work' | 'Business' | 'Portfolio' | 'Summary';
+export type StrategicAlertType =
+  | 'business_alert'
+  | 'portfolio_alert'
+  | 'map_opportunity'
+  | 'risk_warning';
+
+export interface StrategicAlert {
+  type: StrategicAlertType;
+  severity: StrategicAlertSeverity;
+  cause: string;
+  effect: string;
+  action: string;
+  target_screen: StrategicTargetScreen;
+}
+
+export interface StrategicRecommendedAction {
+  action: string;
+  target_screen: StrategicTargetScreen;
+  severity: StrategicAlertSeverity;
+  source_type: StrategicAlertType;
+}
+
+export interface StrategicBrief {
+  headline: string;
+  today_pressure: string;
+  macro_summary: string;
+  player_condition: string;
+  business_alerts: StrategicAlert[];
+  portfolio_alerts: StrategicAlert[];
+  map_opportunities: StrategicAlert[];
+  risk_warnings: StrategicAlert[];
+  recommended_actions: StrategicRecommendedAction[];
 }
 
 export interface DailyActionItem {

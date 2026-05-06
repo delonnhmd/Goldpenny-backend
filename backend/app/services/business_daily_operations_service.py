@@ -7,6 +7,7 @@ older service entrypoints.
 
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -31,6 +32,8 @@ from app.engine.business_service import (
 )
 from app.models.business_daily_log import BusinessDailyLog
 from app.models.player_business import PlayerBusiness
+
+logger = logging.getLogger("goldpenny.business_daily_operations")
 
 
 def create_player_business(
@@ -113,6 +116,10 @@ def run_player_businesses_for_day(
     except Exception as exc:
         if commit:
             db.rollback()
+        logger.exception(
+            "business_daily_operations.failed",
+            extra={"player_id": str(player_id), "day": int(day)},
+        )
         raise BusinessOperationsError("Unexpected business daily operations error.") from exc
 
 

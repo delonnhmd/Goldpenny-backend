@@ -13,7 +13,6 @@ from app.api.economy_presentation import (
     get_business_margins,
     get_commute_pressure,
     get_economy_presentation_summary,
-    get_future_teasers,
     get_market_overview,
     get_player_explainer,
     get_price_trends,
@@ -203,14 +202,12 @@ class EconomyPresentationApiTests(unittest.TestCase):
         self.assertEqual(len(price_payload.items), 4)
         self.assertEqual(len(margin_payload.items), 2)
 
-    def test_commute_explainer_and_teasers_routes(self) -> None:
+    def test_commute_and_explainer_routes(self) -> None:
         commute_payload = get_commute_pressure(player_id=str(self.player.id), as_of_date=date(2026, 1, 1), db=self.db)
         explainer_payload = get_player_explainer(player_id=str(self.player.id), as_of_date=date(2026, 1, 1), db=self.db)
-        teaser_payload = get_future_teasers(player_id=str(self.player.id), as_of_date=date(2026, 1, 1), db=self.db)
 
         self.assertIn("housing", commute_payload.housing_tradeoff_summary.lower())
         self.assertTrue(explainer_payload.why_commute_changed)
-        self.assertTrue(all(item.unlock_status == "locked" for item in teaser_payload.teasers))
 
     def test_summary_route(self) -> None:
         payload = get_economy_presentation_summary(

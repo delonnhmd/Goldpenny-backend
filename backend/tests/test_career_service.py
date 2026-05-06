@@ -28,6 +28,7 @@ from app.models.player import Player
 from app.models.player_career import PlayerCareer
 from app.models.player_daily_state import PlayerDailyState
 from app.models.player_employment_state import PlayerEmploymentState
+from app.models.player_job_progression import PlayerJobProgression
 from app.models.user import User
 
 from app.engine.career_service import (
@@ -58,8 +59,8 @@ JOB_SEED = {
     "aircraft_mechanic": Decimal("6200.00"),
     "banker": Decimal("5100.00"),
     "chef": Decimal("3500.00"),
-    "retail_worker": Decimal("2600.00"),
-    "delivery_driver": Decimal("3000.00"),
+    "retail": Decimal("2600.00"),
+    "delivery": Decimal("3000.00"),
 }
 
 
@@ -82,6 +83,7 @@ class CareerServiceTests(unittest.TestCase):
                 PlayerCareer.__table__,
                 CareerProgressLog.__table__,
                 PlayerEmploymentState.__table__,
+                PlayerJobProgression.__table__,
                 PlayerDailyState.__table__,
                 MacroDailyState.__table__,
             ],
@@ -381,6 +383,8 @@ class CareerServiceTests(unittest.TestCase):
             skill=Decimal("20.0"),
             days_worked=25,
             trailing_perf=Decimal("0.70"),
+            cert_track="auto_mechanic_cert",
+            cert_completed=True,
         )
         promoted = attempt_promotion(self.db, career, day=5)
         self.assertTrue(promoted)
@@ -525,9 +529,9 @@ class CareerServiceTests(unittest.TestCase):
 
     def test_valid_job_switch_resets_rank(self) -> None:
         get_or_create_player_career(self.db, self.player.id)
-        result = switch_player_job(self.db, self.player.id, "chef")
+        result = switch_player_job(self.db, self.player.id, "delivery")
         self.assertTrue(result["success"])
-        self.assertEqual(result["new_job_key"], "chef")
+        self.assertEqual(result["new_job_key"], "delivery")
         self.assertEqual(result["new_rank"], RANK_ENTRY)
 
     def test_invalid_job_key_raises(self) -> None:
@@ -543,7 +547,22 @@ class CareerServiceTests(unittest.TestCase):
         career = get_or_create_player_career(self.db, self.player.id)
         career.current_job_key = "auto_mechanic"
         career.current_job_skill = Decimal("40.0")
+        career.certification_track_key = "aircraft_mechanic_cert"
         career.certification_completed = True
+        self.player.last_settled_day = 1
+        self.player.skill_level = 4
+        self.db.add(
+            PlayerJobProgression(
+                player_id=self.player.id,
+                job_key="auto_mechanic",
+                skill_level=4,
+                xp_total=100,
+                xp=0,
+                xp_to_next_level=2000,
+                promotion_tier="Junior",
+                shifts_completed=8,
+            )
+        )
         self.db.flush()
         result = switch_player_job(self.db, self.player.id, "aircraft_mechanic")
         # 15% of 40 = 6.0 skill transferred
@@ -552,9 +571,9 @@ class CareerServiceTests(unittest.TestCase):
 
     def test_job_switch_updates_player_main_job(self) -> None:
         get_or_create_player_career(self.db, self.player.id)
-        switch_player_job(self.db, self.player.id, "chef")
+        switch_player_job(self.db, self.player.id, "delivery")
         self.db.refresh(self.player)
-        self.assertEqual(self.player.main_job, "chef")
+        self.assertEqual(self.player.main_job, "delivery")
 
     # ── Snapshot and history ──────────────────────────────────────────────────
 

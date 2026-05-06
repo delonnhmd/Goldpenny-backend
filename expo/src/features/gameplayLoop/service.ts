@@ -38,14 +38,23 @@ function normalizeError(error: unknown): string {
   return String(error);
 }
 
+// Phase 4 blocker: mock fallbacks for live game data are restricted to dev
+// builds. In production/V1, a failed backend section returns a safe empty
+// state via `emptyFactory` instead of fake content.
+const ALLOW_MOCK_FALLBACK_IN_DEV =
+  typeof __DEV__ !== 'undefined' ? Boolean(__DEV__) : false;
+
 async function resolveSection<T>(
   playerId: string,
   section: string,
   loader: () => Promise<T>,
   mockFactory: () => T,
-  options?: { allowMockFallback?: boolean },
+  options?: { allowMockFallback?: boolean; emptyFactory?: () => T; isCritical?: boolean },
 ): Promise<ResolvedSection<T>> {
-  const allowMockFallback = options?.allowMockFallback ?? true;
+  const isCritical = options?.isCritical ?? false;
+  const allowMockFallback =
+    options?.allowMockFallback ?? (!isCritical && ALLOW_MOCK_FALLBACK_IN_DEV);
+  const emptyFactory = options?.emptyFactory;
   try {
     const value = await loader();
     return {
@@ -55,7 +64,7 @@ async function resolveSection<T>(
     };
   } catch (error) {
     const reason = normalizeError(error);
-    if (!allowMockFallback) {
+    if (isCritical) {
       recordWarning('gameplayLoop', `Critical section failed without fallback: ${section}.`, {
         action: 'resolve_section_critical_failure',
         context: {
@@ -67,8 +76,23 @@ async function resolveSection<T>(
       });
       throw new Error(`${section}: ${reason}`);
     }
-    recordWarning('gameplayLoop', `Falling back to mock ${section}.`, {
-      action: 'resolve_section',
+    if (!allowMockFallback) {
+      if (emptyFactory) {
+        recordWarning('gameplayLoop', `Backend section unavailable; rendering empty safe state for ${section}.`, {
+          action: 'resolve_section_empty_safe_state',
+          context: { playerId, section, reason },
+          error,
+        });
+        return {
+          value: emptyFactory(),
+          usedMock: false,
+          note: `${section}: ${reason}`,
+        };
+      }
+      throw new Error(`${section}: ${reason}`);
+    }
+    recordWarning('gameplayLoop', `[dev-only] Falling back to mock ${section}.`, {
+      action: 'resolve_section_dev_mock',
       context: {
         playerId,
         section,
@@ -81,6 +105,51 @@ async function resolveSection<T>(
       note: `${section}: ${reason}`,
     };
   }
+}
+
+function emptyEconomySummary(playerId: string) {
+  return {
+    player_id: playerId,
+    as_of_day: 0,
+    macro_state: null,
+    economy_pulse: null,
+    sectors: [],
+    player_warnings: [],
+    player_opportunities: [],
+    debug_meta: { source: 'empty_safe_state' },
+  } as ReturnType<typeof createMockEconomySummary>;
+}
+
+function emptyStockMarket(playerId: string) {
+  return {
+    player_id: playerId,
+    as_of_day: 0,
+    market_open: false,
+    indices: [],
+    sectors: [],
+    movers_up: [],
+    movers_down: [],
+    holdings: [],
+    debug_meta: { source: 'empty_safe_state' },
+  } as ReturnType<typeof createMockStockMarket>;
+}
+
+function emptyBusinesses(playerId: string) {
+  return {
+    player_id: playerId,
+    businesses: [],
+    profit_snapshot: {
+      player_id: playerId,
+      day: 0,
+      total_businesses: 0,
+      active_businesses: 0,
+      latest_daily_profit_xgp: 0,
+      trailing_7d_profit_xgp: 0,
+      inventory_estimated_value_xgp: 0,
+      business_estimated_value_xgp: 0,
+      business_type_breakdown: [],
+    },
+  } as ReturnType<typeof createMockBusinesses>;
 }
 
 async function resolveOptionalSection<T>(
@@ -142,7 +211,7 @@ export async function loadGameplayLoopBundle(
           authoritative_state: null,
           debug_meta: {},
         }),
-        { allowMockFallback: false },
+        { isCritical: true },
       ),
       resolveOptionalSection(
         playerId,
@@ -159,18 +228,21 @@ export async function loadGameplayLoopBundle(
         'economy_summary',
         () => getEconomyPresentationSummary(playerId),
         () => createMockEconomySummary(playerId),
+        { emptyFactory: () => emptyEconomySummary(playerId) },
       ),
       resolveSection(
         playerId,
         'stock_market',
         () => getStockMarketSnapshot(playerId),
         () => createMockStockMarket(playerId),
+        { emptyFactory: () => emptyStockMarket(playerId) },
       ),
       resolveSection(
         playerId,
         'business_summary',
         () => getPlayerBusinesses(playerId),
         () => createMockBusinesses(playerId),
+        { emptyFactory: () => emptyBusinesses(playerId) },
       ),
       includeEndOfDaySummary
         ? resolveOptionalSection(
@@ -229,6 +301,9 @@ export async function loadActionPreviewWithFallback(
     const preview = await previewPlayerAction(playerId, payload);
     return { preview, usedMock: false, note: null };
   } catch (error) {
+    if (!ALLOW_MOCK_FALLBACK_IN_DEV) {
+      throw new Error(`action_preview: ${normalizeError(error)}`);
+    }
     return {
       preview: createMockActionPreview(playerId, payload),
       usedMock: true,

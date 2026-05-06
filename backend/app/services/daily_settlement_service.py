@@ -11,7 +11,7 @@ import os
 from decimal import Decimal, ROUND_HALF_UP
 from uuid import UUID
 
-from sqlalchemy import func
+from sqlalchemy import func, inspect
 from sqlalchemy.orm import Session
 
 from app.models.basket_daily_price import BasketDailyPrice
@@ -38,7 +38,10 @@ from app.engine.personal_shock_service import apply_personal_life_event
 from app.services.business_daily_operations_service import run_player_businesses_for_day
 from app.services.consumption_behavior_service import compute_player_daily_consumption
 from app.services.dinner_survival_service import ensure_day_dinner_resolved
-from app.services.gameplay_transaction_service import record_gameplay_transaction
+from app.services.gameplay_transaction_service import (
+    gameplay_transactions_table_available,
+    record_gameplay_transaction,
+)
 from app.services.debt_credit_service import apply_daily_debt_and_credit
 from app.services.housing_region_service import compute_housing_effects_for_day
 from app.services.job_market_service import apply_employment_progression
@@ -98,6 +101,22 @@ def _clamp_int(value: int, lo: int, hi: int) -> int:
 
 def _clamp(value: Decimal, lo: Decimal, hi: Decimal) -> Decimal:
     return max(lo, min(hi, value))
+
+
+def _table_available(db: Session, table_name: str) -> bool:
+    normalized = str(table_name or "").strip()
+    if not normalized:
+        return False
+    table_cache = db.info.setdefault("_table_exists_cache", {})
+    cached = table_cache.get(normalized)
+    if cached is not None:
+        return bool(cached)
+    try:
+        available = bool(inspect(db.connection()).has_table(normalized))
+    except Exception:
+        available = True
+    table_cache[normalized] = available
+    return available
 
 
 def _resolve_player(db: Session, player_id: str | UUID) -> Player:
@@ -283,6 +302,8 @@ def _count_gameplay_transactions_for_category(
     day_number: int,
     category: str,
 ) -> int:
+    if not gameplay_transactions_table_available(db):
+        return 0
     return int(
         db.query(func.count(GameplayTransaction.id))
         .filter(
@@ -303,6 +324,8 @@ def _sum_gameplay_transaction_amounts(
     transaction_type: str | None = None,
     categories: tuple[str, ...] = (),
 ) -> Decimal:
+    if not gameplay_transactions_table_available(db):
+        return Decimal("0.00")
     query = db.query(func.coalesce(func.sum(GameplayTransaction.amount), 0)).filter(
         GameplayTransaction.player_id == player_id,
         GameplayTransaction.day == int(day_number),
@@ -342,8 +365,16 @@ def _apply_survival_penalty_if_needed(
     if already_applied or not no_activity_today:
         return False
 
-    player.health = _clamp_int(int(player.health or 0) + SURVIVAL_HEALTH_DELTA, 0, 100)
-    player.stress = _clamp_int(int(player.stress or 0) + SURVIVAL_STRESS_DELTA, 0, 100)
+    health_start = int(getattr(pds, "health_start", player.health or 0) or 0)
+    stress_start = int(getattr(pds, "stress_start", player.stress or 0) or 0)
+    player.health = min(
+        _clamp_int(int(player.health or 0) + SURVIVAL_HEALTH_DELTA, 0, 100),
+        _clamp_int(health_start + SURVIVAL_HEALTH_DELTA, 0, 100),
+    )
+    player.stress = max(
+        _clamp_int(int(player.stress or 0) + SURVIVAL_STRESS_DELTA, 0, 100),
+        _clamp_int(stress_start + SURVIVAL_STRESS_DELTA, 0, 100),
+    )
     pds.survival_penalty_applied = True
     pds.health_end = int(player.health or 0)
     pds.stress_end = int(player.stress or 0)
@@ -661,6 +692,7 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
             player=player,
             day_number=settled_day,
             now_houston=get_houston_now(),
+            allow_game_state_commit=False,
         )
         if bool(shift_day_sync.get("missed_shift_today")):
             pds = _get_or_create_player_daily_state(db, player, settled_day)
@@ -1317,11 +1349,13 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
 
         # ── Step 69: Retention Engine ──────────────────────────────────────────
         # Load the player's progression state (owns login streak fields).
-        _progression_state = (
-            db.query(PlayerProgressionState)
-            .filter(PlayerProgressionState.player_id == player.id)
-            .first()
-        )
+        _progression_state = None
+        if _table_available(db, PlayerProgressionState.__tablename__):
+            _progression_state = (
+                db.query(PlayerProgressionState)
+                .filter(PlayerProgressionState.player_id == player.id)
+                .first()
+            )
         _login_streak_days = int(getattr(_progression_state, "login_streak_current", 0))
 
         # Build retention summary — pure, no DB access.
@@ -1928,6 +1962,10 @@ def settle_player_day(db: Session, player_id: str | UUID) -> dict:
         raise
     except Exception as exc:
         db.rollback()
+        logger.exception(
+            "daily_settlement.failed",
+            extra={"player_id": str(player_id)},
+        )
         raise DailySettlementError("Unexpected settlement error.") from exc
 
 

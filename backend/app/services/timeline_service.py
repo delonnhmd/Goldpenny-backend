@@ -226,10 +226,19 @@ def _build_economy_events(db: Session, current_day: int) -> list[TimelineEvent]:
 
 
 def _table_available(db: Session, table_name: str) -> bool:
+    normalized = str(table_name or "").strip()
+    if not normalized:
+        return False
+    table_cache = db.info.setdefault("_table_exists_cache", {})
+    cached = table_cache.get(normalized)
+    if cached is not None:
+        return bool(cached)
     try:
-        return bool(inspect(db.get_bind()).has_table(table_name))
+        available = bool(inspect(db.connection()).has_table(normalized))
     except Exception:
-        return True
+        available = True
+    table_cache[normalized] = available
+    return available
 
 
 def _build_black_swan_events(db: Session, player: Player, current_day: int) -> list[TimelineEvent]:
@@ -402,11 +411,13 @@ def _build_life_events(db: Session, player: Player, current_day: int) -> list[Ti
         elif health_end > 45:
             health_alert_active = False
 
-    progression = (
-        db.query(PlayerProgressionState)
-        .filter(PlayerProgressionState.player_id == player.id)
-        .first()
-    )
+    progression = None
+    if _table_available(db, PlayerProgressionState.__tablename__):
+        progression = (
+            db.query(PlayerProgressionState)
+            .filter(PlayerProgressionState.player_id == player.id)
+            .first()
+        )
     if progression is not None:
         events.extend(_build_streak_events(progression, current_day))
     return events

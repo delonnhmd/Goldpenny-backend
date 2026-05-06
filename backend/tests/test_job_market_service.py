@@ -55,8 +55,8 @@ JOB_SEED = {
     "aircraft_mechanic": Decimal("6200.00"),
     "banker": Decimal("5100.00"),
     "chef": Decimal("3500.00"),
-    "retail_worker": Decimal("2600.00"),
-    "delivery_driver": Decimal("3000.00"),
+    "retail": Decimal("2600.00"),
+    "delivery": Decimal("3000.00"),
 }
 
 
@@ -265,7 +265,7 @@ class JobMarketServiceTests(unittest.TestCase):
             self.assertLessEqual(metrics["promotion_chance_pct"], 20.0)
 
     def test_layoff_can_occur_under_high_risk_conditions(self) -> None:
-        self._set_employment_job("retail_worker", Decimal("2600.00"), skill_level=2)
+        self._set_employment_job("retail", Decimal("2600.00"), skill_level=2)
         self.player.stress = 95
         self.player.health = 68
         self.db.add(self.player)
@@ -380,15 +380,15 @@ class JobMarketServiceTests(unittest.TestCase):
         market = compute_daily_job_market_updates(self.db, day=2)
         rows = {row["job_key"]: row for row in market["job_updates"]}
 
-        self.assertGreater(rows["delivery_driver"]["pressure"], 0.0)
-        self.assertGreater(rows["delivery_driver"]["opportunity_modifier"], 0.0)
+        self.assertGreater(rows["delivery"]["pressure"], 0.0)
+        self.assertGreater(rows["delivery"]["opportunity_modifier"], 0.0)
 
     def test_negative_pressure_increases_layoff_modifier(self) -> None:
         market = compute_daily_job_market_updates(self.db, day=2)
         rows = {row["job_key"]: row for row in market["job_updates"]}
 
-        self.assertLess(rows["retail_worker"]["pressure"], 0.0)
-        self.assertGreater(rows["retail_worker"]["layoff_risk_modifier"], 0.0)
+        self.assertLess(rows["retail"]["pressure"], 0.0)
+        self.assertGreater(rows["retail"]["layoff_risk_modifier"], 0.0)
 
     def test_wage_drift_modifier_is_small_and_bounded(self) -> None:
         market = compute_daily_job_market_updates(self.db, day=2)
@@ -396,12 +396,12 @@ class JobMarketServiceTests(unittest.TestCase):
             self.assertGreaterEqual(row["wage_drift_modifier"], -0.01)
             self.assertLessEqual(row["wage_drift_modifier"], 0.01)
 
-    def test_delivery_driver_reacts_more_than_aircraft_mechanic(self) -> None:
+    def test_delivery_reacts_more_than_aircraft_mechanic(self) -> None:
         market = compute_daily_job_market_updates(self.db, day=2)
         rows = {row["job_key"]: row for row in market["job_updates"]}
 
         self.assertGreater(
-            abs(rows["delivery_driver"]["pressure"]),
+            abs(rows["delivery"]["pressure"]),
             abs(rows["aircraft_mechanic"]["pressure"]),
         )
 
