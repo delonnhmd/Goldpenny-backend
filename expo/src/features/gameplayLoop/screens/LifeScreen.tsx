@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import DailyBriefCard from '@/components/gameplay/DailyBriefCard';
+import FirstActionCTA from '@/components/gameplay/FirstActionCTA';
 import AnimatedMoneyValue from '@/components/motion/AnimatedMoneyValue';
 import SlideFadeInOnChange from '@/components/motion/SlideFadeInOnChange';
 import { OnboardingHighlight } from '@/components/onboarding';
@@ -155,7 +156,18 @@ export default function LifeScreen() {
 
   const actionsRemainingToday = Number(loop.dashboard?.actions_remaining_today ?? 1);
   const showFooterAction = !sessionEnded && (loop.settlementFocusRequested || actionsRemainingToday <= 0);
-  const primaryLabel = loop.endingDay ? 'Settling Day...' : 'Run Settlement';
+  const primaryLabel = loop.endingDay ? 'Finishing Day...' : `Finish Day ${dayLabel}`;
+
+  // Phase 5 first-60-seconds: detect a brand-new player so we can show one
+  // primary CTA above the fold and hide noisy empty/secondary cards.
+  const debugMeta = loop.dashboard?.debug_meta as Record<string, unknown> | undefined;
+  const isFirstSession = Boolean(debugMeta?.new_player_first_session) || !workState?.current_game_day;
+  const hasAnyTransactions = transactions.length > 0;
+  const hasUnitSpend = unitSpendHistory.length > 0;
+  const hasXgpSpend = xgpSpendHistory.length > 0;
+  const showLoanCard = debt > 0 || hasAnyTransactions; // Hide on a clean Day 1.
+  const showUnitSpendCard = hasUnitSpend || !isFirstSession;
+  const showXgpSpendCard = hasXgpSpend || !isFirstSession;
 
   const onPrimaryPress = () => {
     void (async () => {
@@ -181,6 +193,15 @@ export default function LifeScreen() {
         />
       )}
     >
+      {loop.dashboard && !sessionEnded ? (
+        <FirstActionCTA
+          playerId={loop.playerId}
+          dashboard={loop.dashboard}
+          businesses={loop.businesses}
+          disabled={busy}
+        />
+      ) : null}
+
       {loop.dashboard ? (
         <OnboardingHighlight target="life-daily-economy">
           <SlideFadeInOnChange
@@ -286,6 +307,7 @@ export default function LifeScreen() {
         </GameplaySummaryCard>
       </SlideFadeInOnChange>
 
+      {showUnitSpendCard ? (
       <SlideFadeInOnChange
         watchValue={`life_unit_spend_${dayLabel}_${unitSpendHistory.length}_${totalUnitsSpent}_${loop.dailySession.remainingTimeUnits}`}
         delayMs={100}
@@ -331,7 +353,9 @@ export default function LifeScreen() {
           )}
         </GameplaySummaryCard>
       </SlideFadeInOnChange>
+      ) : null}
 
+      {showXgpSpendCard ? (
       <SlideFadeInOnChange
         watchValue={`life_xgp_spend_${dayLabel}_${xgpSpendHistory.length}_${Math.round(totalXgpSpent * 100)}`}
         delayMs={110}
@@ -377,6 +401,7 @@ export default function LifeScreen() {
           )}
         </GameplaySummaryCard>
       </SlideFadeInOnChange>
+      ) : null}
 
       <SlideFadeInOnChange
         watchValue={`life_work_${workState?.current_game_day || 1}_${workedToday ? 'worked' : missedToday ? 'missed' : weekend ? 'weekend' : 'pending'}_${Math.round(salaryEarned * 100)}`}
@@ -443,21 +468,23 @@ export default function LifeScreen() {
               ]}
             />
           )}
-          <GameplayCompactMetricRows
-            items={[
-              { label: 'Pay model', value: payModelLabel, tone: 'info' },
-              {
-                label: 'Yesterday salary',
-                value: salaryEarnedYesterday > 0 ? `+${formatMoney(salaryEarnedYesterday)}` : '--',
-                tone: salaryEarnedYesterday > 0 ? 'positive' : 'neutral',
-              },
-              {
-                label: 'Last salary',
-                value: lastSalaryPosted ? `+${formatMoney(lastSalaryPosted.final_salary_paid)}` : '--',
-                tone: lastSalaryPosted?.transaction_confirmed ? 'positive' : 'neutral',
-              },
-            ]}
-          />
+          {(salaryEarnedYesterday > 0 || lastSalaryPosted) ? (
+            <GameplayCompactMetricRows
+              items={[
+                { label: 'Pay model', value: payModelLabel, tone: 'info' },
+                {
+                  label: 'Yesterday salary',
+                  value: salaryEarnedYesterday > 0 ? `+${formatMoney(salaryEarnedYesterday)}` : '--',
+                  tone: salaryEarnedYesterday > 0 ? 'positive' : 'neutral',
+                },
+                {
+                  label: 'Last salary',
+                  value: lastSalaryPosted ? `+${formatMoney(lastSalaryPosted.final_salary_paid)}` : '--',
+                  tone: lastSalaryPosted?.transaction_confirmed ? 'positive' : 'neutral',
+                },
+              ]}
+            />
+          ) : null}
           {missedToday ? (
             <Text style={styles.statusCaption}>
               Missing a weekday shift now shows the lost pay outcome directly and logs the health and stress hit.
@@ -476,8 +503,8 @@ export default function LifeScreen() {
 
       <GameplaySummaryCard
         eyebrow="Food"
-        title="Meals moved to the map"
-        subtitle="Breakfast and lunch now happen at grocery nodes. Dinner now happens at restaurant and food truck nodes."
+        title="Eat on the map"
+        subtitle="Pick a grocery node for breakfast and lunch, a restaurant or food truck for dinner."
       >
         {cash < 6 ? (
           <GameplayWarningBanner
@@ -486,11 +513,8 @@ export default function LifeScreen() {
             tone="warning"
           />
         ) : null}
-        <Text style={styles.mapHint}>
-          The city map is now the main interaction layer for food decisions. Open the map to choose where you eat instead of using a generic life-screen button.
-        </Text>
-        <PrimaryButton
-          label="Open Map Food Nodes"
+        <SecondaryButton
+          label="Open food nodes"
           onPress={() => onboarding.navigateTo('map')}
           disabled={busy}
         />
@@ -530,6 +554,7 @@ export default function LifeScreen() {
         </View>
       </GameplaySummaryCard>
 
+      {showLoanCard ? (
       <GameplaySummaryCard
         eyebrow="Emergency Money"
         title="Quick Loan"
@@ -576,6 +601,7 @@ export default function LifeScreen() {
           />
         </View>
       </GameplaySummaryCard>
+      ) : null}
 
       {sessionEnded ? (
         <EmptyStateView

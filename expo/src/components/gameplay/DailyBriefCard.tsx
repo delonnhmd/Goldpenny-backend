@@ -1,5 +1,6 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { router } from 'expo-router';
 
 import HighlightOnChangeView from '@/components/motion/HighlightOnChangeView';
 import SlideFadeInOnChange from '@/components/motion/SlideFadeInOnChange';
@@ -9,7 +10,28 @@ import {
   StrategicAlert,
   StrategicBrief,
   StrategicRecommendedAction,
+  StrategicTargetScreen,
 } from '@/types/gameplay';
+
+function targetScreenToRoute(playerId: string | undefined, target: StrategicTargetScreen): string | null {
+  if (!playerId) return null;
+  switch (target) {
+    case 'Life':
+      return `/gameplay/loop/${playerId}/life`;
+    case 'Work':
+      return `/gameplay/loop/${playerId}/work`;
+    case 'Business':
+      return `/gameplay/loop/${playerId}/business`;
+    case 'Map':
+      return `/gameplay/loop/${playerId}/map`;
+    case 'Portfolio':
+      return `/gameplay/loop/${playerId}/market`;
+    case 'Summary':
+      return `/gameplay/loop/${playerId}/summary`;
+    default:
+      return null;
+  }
+}
 
 function firstMeaningfulLine(value: string | null | undefined): string {
   return String(value || '')
@@ -123,12 +145,24 @@ export default function DailyBriefCard({
           {topActions.length > 0 ? (
             <View style={styles.actionsBlock}>
               <Text style={styles.actionsLabel}>Recommended Actions</Text>
-              {topActions.map((action, index) => (
-                <Text key={`${action.action}-${index}`} style={styles.actionItem}>
-                  {`${index + 1}. ${action.action}`}
-                  <Text style={styles.actionTarget}>{` (${action.target_screen})`}</Text>
-                </Text>
-              ))}
+              {topActions.map((action, index) => {
+                const route = targetScreenToRoute(dashboard.player_id, action.target_screen);
+                return (
+                  <Pressable
+                    key={`${action.action}-${index}`}
+                    onPress={() => {
+                      if (route) router.push(route as never);
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={action.action}
+                  >
+                    <Text style={styles.actionItem}>
+                      {`${index + 1}. ${action.action}`}
+                      <Text style={styles.actionTarget}>{` (${action.target_screen})`}</Text>
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
           ) : null}
         </View>
