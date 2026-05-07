@@ -8,8 +8,9 @@
  * loop after auth bootstraps.
  */
 
-import Constants from 'expo-constants';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { router } from 'expo-router';
+import { Platform } from 'react-native';
 
 import { recordInfo, recordWarning } from '@/lib/logger';
 
@@ -18,8 +19,15 @@ import { recordInfo, recordWarning } from '@/lib/logger';
 type NotificationsModule = typeof import('expo-notifications');
 type NotificationResponse = import('expo-notifications').NotificationResponse;
 
+function isExpoGo(): boolean {
+  return (
+    Constants.executionEnvironment === ExecutionEnvironment.StoreClient ||
+    Constants.appOwnership === 'expo'
+  );
+}
+
 function loadNotifications(): NotificationsModule | null {
-  if (Constants.appOwnership === 'expo') {
+  if (Platform.OS === 'web' || isExpoGo()) {
     return null;
   }
   try {

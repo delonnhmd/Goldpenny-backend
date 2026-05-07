@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Constants from 'expo-constants';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { Platform } from 'react-native';
 
 import {
@@ -17,7 +17,17 @@ export const KEY_EXPO_PUSH_TOKEN = 'goldpenny:notifications:expoPushToken';
 // failures for any screen that imports it).
 type NotificationsModule = typeof import('expo-notifications');
 
+function isExpoGo(): boolean {
+  return (
+    Constants.executionEnvironment === ExecutionEnvironment.StoreClient ||
+    Constants.appOwnership === 'expo'
+  );
+}
+
 function loadNotifications(): NotificationsModule | null {
+  if (Platform.OS === 'web' || isExpoGo()) {
+    return null;
+  }
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     return require('expo-notifications') as NotificationsModule;
@@ -28,10 +38,6 @@ function loadNotifications(): NotificationsModule | null {
     });
     return null;
   }
-}
-
-function isExpoGo(): boolean {
-  return Constants.appOwnership === 'expo';
 }
 
 export interface PushRegistrationSyncResult {
