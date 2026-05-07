@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -26,6 +27,7 @@ from app.services.portfolio_asset_service import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class NetWorthSnapshotResponse(BaseModel):
@@ -235,4 +237,8 @@ def get_player_portfolio_summary_route(player_id: str, db: Session = Depends(get
         payload = get_player_portfolio_asset_summary(db=db, player_id=player_id)
         return PortfolioSummaryResponse(**payload)
     except Exception as exc:
+        logger.exception(
+            "portfolio_summary_failed",
+            extra={"player_id": player_id, "error_type": type(exc).__name__},
+        )
         _raise_portfolio_asset_http_error(exc)

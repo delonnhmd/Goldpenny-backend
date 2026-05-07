@@ -139,6 +139,10 @@ def _run_schema_migrations() -> None:
         "ALTER TABLE players ADD COLUMN IF NOT EXISTS run_end_day INTEGER",
         "ALTER TABLE players ADD COLUMN IF NOT EXISTS run_end_reason VARCHAR(80)",
         "ALTER TABLE players ADD COLUMN IF NOT EXISTS run_end_summary_json TEXT",
+        # Phase 3-C Player Absence Handling: live schemas can miss these even
+        # when the model has already started selecting them through the ORM.
+        "ALTER TABLE players ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ",
+        "ALTER TABLE players ADD COLUMN IF NOT EXISTS last_settlement_at TIMESTAMPTZ",
         # day_status and day_started_at extend the existing game_states table.
         "ALTER TABLE game_states ADD COLUMN day_status VARCHAR(20) NOT NULL DEFAULT 'open'",
         "ALTER TABLE game_states ADD COLUMN day_started_at TIMESTAMPTZ",
