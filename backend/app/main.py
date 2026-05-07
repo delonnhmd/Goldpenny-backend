@@ -45,6 +45,17 @@ def _run_schema_migrations() -> None:
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(50) NOT NULL DEFAULT 'active'",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP",
+        # Step 95E: Supabase Auth ids live outside this DB. Legacy schemas had
+        # players.user_id as UUID + FK to users, which breaks lookup when the
+        # mobile app sends a Supabase UUID string.
+        "ALTER TABLE players DROP CONSTRAINT IF EXISTS players_user_id_fkey",
+        "ALTER TABLE players DROP CONSTRAINT IF EXISTS fk_players_user_id_users",
+        "ALTER TABLE players DROP CONSTRAINT IF EXISTS uq_players_user_id",
+        "ALTER TABLE players DROP CONSTRAINT IF EXISTS players_user_id_key",
+        "DROP INDEX IF EXISTS ix_players_user_id",
+        "ALTER TABLE players ALTER COLUMN user_id DROP NOT NULL",
+        "ALTER TABLE players ALTER COLUMN user_id TYPE TEXT USING user_id::text",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_players_user_id ON players (user_id) WHERE user_id IS NOT NULL",
         # Step 71I: ensure onboarding can persist gender on legacy prod schemas.
         "ALTER TABLE players ADD COLUMN IF NOT EXISTS gender VARCHAR(20)",
         # Step 5: track which day the economy engine last processed.

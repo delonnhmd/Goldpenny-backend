@@ -1,9 +1,11 @@
 import logging
 from datetime import date
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -341,6 +343,290 @@ def _serialize_player(player: Player) -> dict:
     }
 
 
+def _safe_float(value: object, fallback: float = 0.0) -> float:
+    try:
+        if value is None:
+            return fallback
+        return float(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _safe_int(value: object, fallback: int = 0) -> int:
+    try:
+        if value is None:
+            return fallback
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _uuid_text(value: object) -> str | None:
+    if value is None:
+        return None
+    text_value = str(value)
+    try:
+        return str(UUID(text_value))
+    except (TypeError, ValueError):
+        return text_value
+
+
+def _text_cast(column_name: str, dialect_name: str) -> str:
+    if dialect_name == "postgresql":
+        return f"{column_name}::text"
+    return f"CAST({column_name} AS TEXT)"
+
+
+def _player_column_names(db: Session) -> set[str]:
+    bind = db.get_bind()
+    dialect_name = bind.dialect.name if bind is not None else ""
+    if dialect_name == "sqlite":
+        rows = db.execute(text("PRAGMA table_info(players)")).mappings().all()
+        return {str(row["name"]) for row in rows if row.get("name")}
+
+    rows = db.execute(
+        text(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = 'players'
+            """
+        )
+    ).all()
+    return {str(row[0]) for row in rows}
+
+
+def _select_expr(
+    *,
+    output_name: str,
+    column_name: str,
+    default_sql: str,
+    columns: set[str],
+    dialect_name: str,
+    cast_text: bool = False,
+) -> str:
+    if column_name in columns:
+        expression = _text_cast(column_name, dialect_name) if cast_text else column_name
+    else:
+        expression = default_sql
+    return f"{expression} AS {output_name}"
+
+
+def _serialize_player_mapping(row: dict) -> dict:
+    return {
+        "id": _uuid_text(row.get("id")) or "",
+        "user_id": _uuid_text(row.get("user_id")),
+        "display_name": row.get("display_name"),
+        "gender": row.get("gender"),
+        "region": row.get("region") or STARTER_REGION,
+        "cash_xgp": _safe_float(row.get("cash_xgp")),
+        "bank_savings_xgp": _safe_float(row.get("bank_savings_xgp")),
+        "debt_xgp": _safe_float(row.get("debt_xgp")),
+        "credit_score": _safe_int(row.get("credit_score"), 650),
+        "net_worth_xgp": _safe_float(row.get("net_worth_xgp"), 1000.0),
+        "health": _safe_int(row.get("health"), 100),
+        "stress": _safe_int(row.get("stress")),
+        "skill_level": _safe_int(row.get("skill_level"), 1),
+        "main_job": row.get("main_job"),
+        "side_job": row.get("side_job"),
+        "hours_available": _safe_int(row.get("hours_available"), 24),
+        "account_created_day": _safe_int(row.get("account_created_day"), 1),
+        "main_shift_active_flag": bool(row.get("main_shift_active_flag") or False),
+        "main_shift_status": str(row.get("main_shift_status") or "idle"),
+        "run_status": str(row.get("run_status") or "active"),
+        "created_at": str(row.get("created_at")) if row.get("created_at") is not None else None,
+    }
+
+
+def _get_serialized_player_by_user_id(db: Session, user_id: str) -> dict | None:
+    """Load linked player using SQL casts so UUID/text schema drift does not break login."""
+    try:
+        columns = _player_column_names(db)
+        if "id" not in columns or "user_id" not in columns:
+            logger.error(
+                "player_by_user_id_schema_missing_required_columns",
+                extra={"has_id": "id" in columns, "has_user_id": "user_id" in columns},
+            )
+            return None
+
+        bind = db.get_bind()
+        dialect_name = bind.dialect.name if bind is not None else ""
+        part = _select_expr
+        select_parts = [
+            part(
+                output_name="id",
+                column_name="id",
+                default_sql="NULL",
+                columns=columns,
+                dialect_name=dialect_name,
+                cast_text=True,
+            ),
+            part(
+                output_name="user_id",
+                column_name="user_id",
+                default_sql="NULL",
+                columns=columns,
+                dialect_name=dialect_name,
+                cast_text=True,
+            ),
+            part(
+                output_name="display_name",
+                column_name="display_name",
+                default_sql="NULL",
+                columns=columns,
+                dialect_name=dialect_name,
+            ),
+            part(
+                output_name="gender",
+                column_name="gender",
+                default_sql="NULL",
+                columns=columns,
+                dialect_name=dialect_name,
+            ),
+            part(
+                output_name="region",
+                column_name="region",
+                default_sql=f"'{STARTER_REGION}'",
+                columns=columns,
+                dialect_name=dialect_name,
+            ),
+            part(
+                output_name="cash_xgp",
+                column_name="cash",
+                default_sql="0",
+                columns=columns,
+                dialect_name=dialect_name,
+            ),
+            part(
+                output_name="bank_savings_xgp",
+                column_name="bank_savings_xgp",
+                default_sql="0",
+                columns=columns,
+                dialect_name=dialect_name,
+            ),
+            part(
+                output_name="debt_xgp",
+                column_name="debt_xgp",
+                default_sql="0",
+                columns=columns,
+                dialect_name=dialect_name,
+            ),
+            part(
+                output_name="credit_score",
+                column_name="credit_score",
+                default_sql="650",
+                columns=columns,
+                dialect_name=dialect_name,
+            ),
+            part(
+                output_name="net_worth_xgp",
+                column_name="net_worth",
+                default_sql="1000",
+                columns=columns,
+                dialect_name=dialect_name,
+            ),
+            part(
+                output_name="health",
+                column_name="health",
+                default_sql="100",
+                columns=columns,
+                dialect_name=dialect_name,
+            ),
+            part(
+                output_name="stress",
+                column_name="stress",
+                default_sql="0",
+                columns=columns,
+                dialect_name=dialect_name,
+            ),
+            part(
+                output_name="skill_level",
+                column_name="skill_level",
+                default_sql="1",
+                columns=columns,
+                dialect_name=dialect_name,
+            ),
+            part(
+                output_name="main_job",
+                column_name="main_job",
+                default_sql="NULL",
+                columns=columns,
+                dialect_name=dialect_name,
+            ),
+            part(
+                output_name="side_job",
+                column_name="side_job",
+                default_sql="NULL",
+                columns=columns,
+                dialect_name=dialect_name,
+            ),
+            part(
+                output_name="hours_available",
+                column_name="hours_available",
+                default_sql="24",
+                columns=columns,
+                dialect_name=dialect_name,
+            ),
+            part(
+                output_name="account_created_day",
+                column_name="account_created_day",
+                default_sql="1",
+                columns=columns,
+                dialect_name=dialect_name,
+            ),
+            part(
+                output_name="main_shift_active_flag",
+                column_name="main_shift_active_flag",
+                default_sql="FALSE",
+                columns=columns,
+                dialect_name=dialect_name,
+            ),
+            part(
+                output_name="main_shift_status",
+                column_name="main_shift_status",
+                default_sql="'idle'",
+                columns=columns,
+                dialect_name=dialect_name,
+            ),
+            part(
+                output_name="run_status",
+                column_name="run_status",
+                default_sql="'active'",
+                columns=columns,
+                dialect_name=dialect_name,
+            ),
+            part(
+                output_name="created_at",
+                column_name="created_at",
+                default_sql="NULL",
+                columns=columns,
+                dialect_name=dialect_name,
+                cast_text=True,
+            ),
+        ]
+        row = db.execute(
+            text(
+                f"""
+                SELECT {", ".join(select_parts)}
+                FROM players
+                WHERE {_text_cast("user_id", dialect_name)} = :user_id
+                LIMIT 1
+                """
+            ),
+            {"user_id": user_id},
+        ).mappings().first()
+    except SQLAlchemyError:
+        db.rollback()
+        logger.exception("player_by_user_id_lookup_failed", extra={"user_id": user_id})
+        raise HTTPException(
+            status_code=500,
+            detail="Could not load your player profile right now. Please try again.",
+        )
+
+    return _serialize_player_mapping(dict(row)) if row is not None else None
+
+
 def _raise_run_end_http_error(exc: Exception) -> None:
     if isinstance(exc, RunEndNotFoundError):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
@@ -382,10 +668,10 @@ def get_player_by_user_id(
     if not cleaned:
         raise HTTPException(status_code=400, detail="user_id is required.")
 
-    existing = db.query(Player).filter(Player.user_id == cleaned).first()
+    existing = _get_serialized_player_by_user_id(db, cleaned)
     if existing is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Player profile not found.")
-    return _serialize_player(existing)
+    return existing
 
 
 @router.post("/by-user-id/{user_id}", status_code=status.HTTP_200_OK)
@@ -399,9 +685,9 @@ def create_player_by_user_id(
     if not cleaned:
         raise HTTPException(status_code=400, detail="user_id is required.")
 
-    existing = db.query(Player).filter(Player.user_id == cleaned).first()
+    existing = _get_serialized_player_by_user_id(db, cleaned)
     if existing is not None:
-        return _serialize_player(existing)
+        return existing
 
     try:
         player = create_survival_player_profile(
@@ -419,8 +705,8 @@ def create_player_by_user_id(
         db.refresh(player)
     except IntegrityError:
         db.rollback()
-        player = db.query(Player).filter(Player.user_id == cleaned).first()
-        if player is None:
+        existing = _get_serialized_player_by_user_id(db, cleaned)
+        if existing is None:
             logger.exception(
                 "player_by_user_id_integrity_error_no_existing_row",
                 extra={"user_id": cleaned},
@@ -429,6 +715,7 @@ def create_player_by_user_id(
                 status_code=500,
                 detail="Could not create your player profile right now. Please try again.",
             )
+        return existing
     except Exception:
         db.rollback()
         logger.exception(

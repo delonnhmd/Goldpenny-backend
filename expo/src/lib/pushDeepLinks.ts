@@ -8,26 +8,19 @@
  * loop after auth bootstraps.
  */
 
-import Constants, { ExecutionEnvironment } from 'expo-constants';
 import { router } from 'expo-router';
 import { Platform } from 'react-native';
 
+import { canLoadExpoNotifications } from '@/lib/expoNotificationsAvailability';
 import { recordInfo, recordWarning } from '@/lib/logger';
 
-// Lazy-load expo-notifications so this module is safe to import in Expo Go,
+// Lazy-load expo-notifications so this module is safe to import in builds
 // where the underlying native push module is absent.
 type NotificationsModule = typeof import('expo-notifications');
 type NotificationResponse = import('expo-notifications').NotificationResponse;
 
-function isExpoGo(): boolean {
-  return (
-    Constants.executionEnvironment === ExecutionEnvironment.StoreClient ||
-    Constants.appOwnership === 'expo'
-  );
-}
-
 function loadNotifications(): NotificationsModule | null {
-  if (Platform.OS === 'web' || isExpoGo()) {
+  if (Platform.OS === 'web' || !canLoadExpoNotifications('pushDeepLinks')) {
     return null;
   }
   try {
