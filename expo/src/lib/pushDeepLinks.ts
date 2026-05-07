@@ -8,10 +8,31 @@
  * loop after auth bootstraps.
  */
 
-import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 import { router } from 'expo-router';
 
 import { recordInfo, recordWarning } from '@/lib/logger';
+
+// Lazy-load expo-notifications so this module is safe to import in Expo Go,
+// where the underlying native push module is absent.
+type NotificationsModule = typeof import('expo-notifications');
+type NotificationResponse = import('expo-notifications').NotificationResponse;
+
+function loadNotifications(): NotificationsModule | null {
+  if (Constants.appOwnership === 'expo') {
+    return null;
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('expo-notifications') as NotificationsModule;
+  } catch (error) {
+    recordWarning('pushDeepLinks', 'expo-notifications native module unavailable.', {
+      action: 'load_native_module',
+      context: { error: String(error) },
+    });
+    return null;
+  }
+}
 
 export type PushDeepLinkScreen = 'Life' | 'Summary' | string;
 
@@ -65,7 +86,7 @@ export function navigateForPushPayload(
 }
 
 function extractPayload(
-  response: Notifications.NotificationResponse | null | undefined,
+  response: NotificationResponse | null | undefined,
 ): PushDeepLinkPayload | null {
   const data = response?.notification?.request?.content?.data;
   if (!data || typeof data !== 'object') {
@@ -80,6 +101,11 @@ function extractPayload(
 }
 
 export function registerPushDeepLinkHandlers(getPlayerId: () => string | null): () => void {
+  const Notifications = loadNotifications();
+  if (!Notifications) {
+    return () => {};
+  }
+
   Notifications.getLastNotificationResponseAsync()
     .then((response) => {
       const payload = extractPayload(response);
